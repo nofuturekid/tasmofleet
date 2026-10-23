@@ -166,7 +166,7 @@ use the full `make mutation`). Docs-only changes skip CI and run the link check
 
 ## Commits
 
-- Commits on `main` are signed (branch protection). **Never** disable signing
+- Commits are signed; `main` requires signed commits (branch protection). **Never** disable signing
   (`--no-gpg-sign`, `-c commit.gpgsign=false`). If signing fails, stop and report it.
 - Write the message with a quoted heredoc, never `-m "..."` with backticks or `$(...)`:
 
@@ -206,9 +206,11 @@ use the full `make mutation`). Docs-only changes skip CI and run the link check
 
 `main` is protected on GitHub: no force pushes, no deletion. Every change, docs-only
 ones included, goes through a pull request: branch, push, open a PR against `main`, wait
-until CI is green on the PR, then the maintainer merges it, keeping the history linear (rebase
-the branch first if `main` moved). Requirement: the status check
-`required` from `ci.yml`.
+until CI is green on the PR, then the maintainer merges it with `gh pr merge --squash`
+(the only merge method enabled: GitHub signs squash commits, while its rebase merges would drop
+the signatures that `main` requires). History stays linear; the branch must be up to date with
+`main` before merging. Requirements: the status check `required` from `ci.yml`, linear
+history, signed commits; admins are not exempt.
 `ci.yml` runs on every PR: a `changes` job detects docs-only PRs and skips the heavy jobs
 for them, and the final `required` job passes only when every heavy job passed (or was
 skipped for a docs-only PR). `docs.yml` (link check) reports its own, non-required
