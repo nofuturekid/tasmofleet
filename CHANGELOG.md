@@ -8,6 +8,14 @@ always upgrade automatically.
 
 ### Fixed
 
+- Device header: the Power On/Off control was an inverted (light in the dark theme, dark in the light theme)
+  pill while the switch was on; it now keeps the look of Restart and Back up in every state and theme, and the
+  switch alone shows On. A power switch outside the table and card cells no longer inverts either.
+- Device overview: the State changes and Transactions row touched the cards above it (a column box drops its
+  last card's bottom margin). All gaps between cards use the new `--card-gap` token, and an e2e check fails
+  when two sibling cards come closer than that.
+- Device overview: the Columns button of the State changes and Transactions tables sits in the card head, on the
+  title's line, instead of a row of its own.
 - e2e: the devices toolbar check measures in one in-page step (the table part reloads 0.5 s after the first health
   reports and left a detached frame behind), and the phone audit budget covers the spread of the audit page's
   system rows (3370 to 3414 px on the same seed).

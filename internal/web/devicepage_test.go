@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/health"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/policy"
+	"github.com/nofuturekid/tasmofleet/internal/store"
 )
 
 // Tests of the design v2 device tabs (WP P3): what the overview, the console, the settings,
@@ -295,5 +298,30 @@ func TestOverviewDrawsTheSparklineOnlyWithHistory(t *testing.T) {
 	}
 	if strings.Contains(spark, "style=") {
 		t.Error("the sparkline carries an inline style (CSP, D6)")
+	}
+}
+
+type fakeHistory struct{ events []store.HealthEvent }
+
+func (f fakeHistory) ListHealthEvents(_ context.Context, _ model.DeviceID, limit int) ([]store.HealthEvent, error) {
+	return f.events[:min(limit, len(f.events))], nil
+}
+
+// Why: Thomas saw the Columns button on a row of its own under the card title, detached from
+// the card ("looks lost"). On the device page it sits in the card's head, on the title's line.
+func TestStateChangesColumnsButtonSitsInTheCardHead(t *testing.T) {
+	at := time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)
+	e := setupWith(t, func(d *Deps) {
+		d.History = fakeHistory{[]store.HealthEvent{
+			{DeviceID: 1, At: at, From: model.HealthOnline, To: model.HealthOffline, Source: model.SourceHTTP},
+			{DeviceID: 1, At: at.Add(-time.Hour), From: model.HealthUnknown, To: model.HealthOnline, Source: model.SourceHTTP},
+		}}
+	})
+	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
+	if !regexp.MustCompile(`<h2 id="dc-hist">State changes</h2>\s*<details class="colmenu"`).MatchString(body) {
+		t.Fatal("the Columns chooser is not next to the card title")
+	}
+	if strings.Contains(body, `class="tabletools"`) {
+		t.Error("a separate Columns bar above the table is back")
 	}
 }

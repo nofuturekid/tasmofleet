@@ -177,7 +177,10 @@ templ deviceOverviewPage(p deviceOverview) {
 	</div>
 	<div class="devgrid devgrid-more">
 		<section class="devcard" aria-labelledby="dc-hist">
-			<h2 id="dc-hist">State changes</h2>
+			<div class="devcard-head">
+				<h2 id="dc-hist">State changes</h2>
+				<i class="colslot"></i>
+			</div>
 			if len(p.Events) > 0 {
 				<details class="m-fold">
 					<summary>{ plural(len(p.Events), "state change") }</summary>
@@ -200,7 +203,10 @@ templ deviceOverviewPage(p deviceOverview) {
 			}
 		</section>
 		<section class="devcard" aria-labelledby="dc-tx">
-			<h2 id="dc-tx">Transactions</h2>
+			<div class="devcard-head">
+				<h2 id="dc-tx">Transactions</h2>
+				<i class="colslot"></i>
+			</div>
 			if len(p.Jobs) > 0 {
 				<details class="m-fold">
 					<summary>{ plural(len(p.Jobs), "transaction") }</summary>

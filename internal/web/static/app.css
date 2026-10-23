@@ -103,6 +103,7 @@
   /* shape */
   --r-control: 7px; /* buttons, inputs, selects, segmented controls */
   --r-card: 10px; /* sections, cards, tables */
+  --card-gap: var(--sp-12); /* between sibling cards, both ways (device overview, pages of cards) */
   --r-panel: 12px; /* auth card, dialogs, menus */
   --r-banner: 9px;
   --r-code: 8px; /* pre, console, diff */
@@ -5849,6 +5850,12 @@ html[data-live="offline"] .conn-banner.conn-off {
 .pwr[aria-checked="true"] .sw::after {
   left: 18px;
 }
+.pwr[aria-pressed="true"],
+.pwr[aria-pressed="true"]:hover {
+  border: 0;
+  background: none;
+  color: inherit;
+}
 .pwr:disabled {
   opacity: 0.45;
   cursor: default;
@@ -8384,6 +8391,18 @@ body:has(.dv-list .bulkbar:not([hidden])) {
   gap: var(--sp-8);
   padding: 0 var(--sp-12) 0 var(--sp-8);
 }
+/* The generic button[aria-pressed="true"] inverts a button (ink background): right for a pressed
+   toggle button, wrong here. The switch inside shows On; the button stays a neighbour of Restart
+   and Back up in every state and theme. */
+.btn.devhd-pwr[aria-pressed="true"] {
+  background: var(--color-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+.btn.devhd-pwr[aria-pressed="true"]:hover,
+.btn.devhd-pwr[aria-pressed="true"]:active {
+  background: var(--color-surface-2);
+}
 /* the switch of the header and of a relay: a track with a white knob, the accent when on */
 .devsw {
   position: relative;
@@ -8444,25 +8463,24 @@ body:has(.dv-list .bulkbar:not([hidden])) {
 .devgrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-  gap: var(--sp-12);
+  gap: var(--card-gap);
   align-items: start;
 }
-.devgrid-more {
-  margin-top: var(--sp-12);
-}
 /* The overview cards differ in height: columns (not grid rows) let the short ones stack under each
-   other, so no row leaves a hole beside a tall card. */
+   other, so no row leaves a hole beside a tall card. A column box drops the bottom margin of its
+   last card, so the gap to whatever follows comes from .devgrid-more's own top margin, not from
+   the cards' margins (they touched the row below before). */
 .devgrid:not(.devgrid-more) {
   display: block;
   columns: 320px 3;
-  column-gap: var(--sp-12);
+  column-gap: var(--card-gap);
 }
-.devgrid:not(.devgrid-more) + .devgrid-more {
-  margin-top: 0; /* the cards above end with their own bottom margin */
+.devgrid-more {
+  margin-top: var(--card-gap);
 }
 .devgrid:not(.devgrid-more) > .devcard {
   break-inside: avoid;
-  margin-bottom: var(--sp-12);
+  margin-bottom: var(--card-gap);
 }
 .devcard {
   min-width: 0;
