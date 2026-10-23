@@ -6,6 +6,8 @@ always upgrade automatically.
 
 ## Unreleased
 
+## 0.11.3 (2026-10-24)
+
 ### Added
 
 - Device page: State changes and Transactions show the newest 10 (was 20), each with a link to the complete
