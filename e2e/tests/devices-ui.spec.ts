@@ -98,22 +98,33 @@ test("Columns button shares the toolbar's vertical centre and height", async ({ 
   // the toolbar's first row: search, filter chips, Chip and Tag, and Columns at its end (design v2)
   const items = page.locator(".dv-q, .dv-chip, .dv-pick, .dv-cols details.colmenu > summary");
   await expect(items.last()).toBeVisible();
-  const boxes = await items.evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width > 0).map((e) => { const r = e.getBoundingClientRect(); return { c: r.top + r.height / 2, h: r.height, right: r.right }; }));
+  // One in-page measurement: #devtable reloads 0.5 s after the first health reports, and separate calls
+  // could read the toolbar from the old table and the frame from a node the swap had already removed.
+  const { boxes, tableRight } = await page.evaluate(() => {
+    const sel = ".dv-q, .dv-chip, .dv-pick, .dv-cols details.colmenu > summary";
+    const boxes = [...document.querySelectorAll(sel)]
+      .filter((e) => e.getBoundingClientRect().width > 0)
+      .map((e) => { const r = e.getBoundingClientRect(); return { c: r.top + r.height / 2, h: r.height, right: r.right }; });
+    const frame = document.querySelector(".tablewrap[data-key=devices] > .tablescroll");
+    return { boxes, tableRight: frame ? frame.getBoundingClientRect().right : NaN };
+  });
   expect(boxes.length).toBeGreaterThan(1);
   for (const b of boxes) {
     expect(Math.abs(b.c - boxes[0].c)).toBeLessThanOrEqual(1);
     expect(Math.abs(b.h - boxes[0].h)).toBeLessThanOrEqual(1);
   }
   // right-aligned at the edge of the table's frame (the table scrolls inside it)
-  const tableRight = await page.locator(".tablewrap[data-key=devices] > .tablescroll").evaluate((t) => t.getBoundingClientRect().right);
   expect(Math.abs(boxes[boxes.length - 1].right - tableRight)).toBeLessThanOrEqual(4);
   await shot(page, "devices-1280-columns");
   // another table (no toolbar): the button has a bar of its own, right-aligned
   await page.goto(app.url + "/audit");
   const sum = page.locator(".tabletools summary").first();
   await expect(sum).toBeVisible();
-  const [s, t] = await Promise.all([sum.boundingBox(), page.locator("table[data-table=audit]").boundingBox()]);
-  expect(Math.abs(s!.x + s!.width - (t!.x + t!.width))).toBeLessThanOrEqual(4);
+  const gap = await page.evaluate(() => {
+    const r = (e: Element | null) => e!.getBoundingClientRect().right;
+    return Math.abs(r(document.querySelector(".tabletools summary")) - r(document.querySelector("table[data-table=audit]")));
+  });
+  expect(gap).toBeLessThanOrEqual(4);
 });
 
 // Design v2 (P2): Last restart is shown like the prototype's; hiding it is saved, and Reset brings it back.

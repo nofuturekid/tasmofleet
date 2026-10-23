@@ -19,7 +19,11 @@ const BUDGET_SCREENS = 2.25;
 // update: 27 selectable devices at the 40 px touch-target minimum plus the fixed action bar (Preview) need 2.4.
 // audit: two lines per entry because the timestamp is essential in an audit log: 2.75.
 // audit (QA M7): a log that does not say WHO changed WHAT is useless, so the user shares the time line and the target
-// gets a line of its own (25 entries per page): 4.2.
+// gets a line of its own (25 entries per page): 4.2. The page is not deterministic: the "System, Edit device, mqtt"
+// rows arrive as the devices' first MQTT messages do, in any order, and the 25-row window holds a different mix of
+// the seed's long (wrapping) device names each time. Four stacks on the same seed measured 3370 to 3414 px
+// (4.15 to 4.20 screens), so the 4.2 budget (3410 px) failed on a tie; 4.3 (3492 px) leaves room for that spread only.
+// A real regression adds a line to every row (about 500 px), far beyond it.
 // policy: a device name wraps instead of being clipped (QA v0.9.0), so the long names of the seed take a second line each.
 // The unchecked policy page is deterministic on the realistic seed: measured 1907 px = 2.35 screens, identical in four runs
 // in the CI image (mcr.microsoft.com/playwright:v1.64.1-noble); the status cell of a row with a Details fold takes its own
@@ -42,7 +46,7 @@ const BUDGET_SCREENS = 2.25;
 // version history stacked); the prototype's own is 2626 px at 375 (3.23 screens). Ours adds the change
 // note and the folded "cannot be judged" row: 2726 px (3.36), so 3.45 with the editor open or new.
 const BUDGET_OVERRIDES: Record<string, number> = {
-  devices: 6.0, update: 2.5, audit: 4.2, policy: 3.45, "policy rule editor": 3.45, "new policy rule": 3.45, "device detail": 2.75, firmware: 2.75, "firmware, all releases": 2.55,
+  devices: 6.0, update: 2.5, audit: 4.3, policy: 3.45, "policy rule editor": 3.45, "new policy rule": 3.45, "device detail": 2.75, firmware: 2.75, "firmware, all releases": 2.55,
 };
 
 let app: App;

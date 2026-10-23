@@ -6,6 +6,12 @@ always upgrade automatically.
 
 ## Unreleased
 
+### Fixed
+
+- e2e: the devices toolbar check measures in one in-page step (the table part reloads 0.5 s after the first health
+  reports and left a detached frame behind), and the phone audit budget covers the spread of the audit page's
+  system rows (3370 to 3414 px on the same seed).
+
 ## 0.11.2 (2026-10-23)
 
 ### Changed
