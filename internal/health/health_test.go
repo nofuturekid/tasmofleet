@@ -679,9 +679,8 @@ func TestOnlyTransitionsPersisted(t *testing.T) {
 		h.step()
 	}
 	got := h.st.eventTos(1)
-	want := []model.HealthState{model.HealthOnline, model.HealthOffline}
-	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("persisted transitions = %v, want %v", got, want)
+	if len(got) != 1 || got[0] != model.HealthOffline {
+		t.Fatalf("persisted transitions = %v, want only the change to offline", got)
 	}
 	h.st.mu.Lock()
 	last := h.st.seen[1]
@@ -690,8 +689,26 @@ func TestOnlyTransitionsPersisted(t *testing.T) {
 	if last != model.HealthOffline {
 		t.Fatalf("devices.health_state = %s", last)
 	}
-	if first.From != model.HealthUnknown || first.Source != model.SourceHTTP {
+	if first.From != model.HealthOnline || first.Source != model.SourceHTTP {
 		t.Fatalf("first event = %+v", first)
+	}
+}
+
+// Why: every app restart forgot every device's state, so each one logged "Unknown -> Online" in
+// its State changes (noise, not a change of the device). The first observation after the start
+// is the baseline: the summary (devices.health_state) is written, but no event. Decision for the
+// feedback of 2026-10-23, item 9; documented in the spec (section 10).
+func TestFirstObservationAfterStartIsABaselineNotAChange(t *testing.T) {
+	h := newHarness(t, false, Options{}, httpDev(1))
+	h.step()
+	if got := h.st.eventTos(1); len(got) != 0 {
+		t.Fatalf("the first observation was logged as a change: %v", got)
+	}
+	h.st.mu.Lock()
+	seen := h.st.seen[1]
+	h.st.mu.Unlock()
+	if seen != model.HealthOnline {
+		t.Fatalf("devices.health_state = %q, the baseline must still be stored", seen)
 	}
 }
 

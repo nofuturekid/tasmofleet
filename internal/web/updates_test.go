@@ -65,10 +65,16 @@ func (f *fakeJobs) ListJobs(_ context.Context, fl store.JobFilter) ([]model.Job,
 		if fl.BatchID != 0 && j.BatchID != fl.BatchID {
 			continue
 		}
+		if fl.DeviceID != 0 && j.DeviceID != fl.DeviceID {
+			continue
+		}
 		if len(fl.States) > 0 && !slices.Contains(fl.States, j.State) {
 			continue
 		}
 		out = append(out, j)
+	}
+	if fl.Limit > 0 && len(out) > fl.Limit {
+		out = out[:fl.Limit]
 	}
 	return out, nil
 }

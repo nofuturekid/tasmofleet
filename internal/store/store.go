@@ -69,6 +69,13 @@ type JobStore interface {
 	JobEvents(ctx context.Context, id model.JobID) ([]model.JobEvent, error)
 }
 
+// JobPruner is the retention of finished transactions (see SQLite.PruneJobs): they and their
+// logs go once older than the cut-off; running work and a transaction with an unfinished job
+// are never touched.
+type JobPruner interface {
+	PruneJobs(ctx context.Context, before time.Time) (int64, error)
+}
+
 // BatchStore is the batch (transaction) level of the job store: reading a
 // batch and creating a retry of one. *SQLite implements it next to JobStore.
 type BatchStore interface {
@@ -306,6 +313,7 @@ type Store interface {
 	DeviceStore
 	HealthStore
 	JobStore
+	JobPruner
 	ArtifactStore
 	CustomFirmwareStore
 	BackupStore

@@ -167,6 +167,13 @@ func (a *runtime) prune(ctx context.Context) {
 	if _, err := a.svc.Store.PruneBackupAttempts(ctx, now.Add(-a.svc.Sys.Snapshot().AuditKeep)); err != nil {
 		a.log.Warn("prune failed backup attempts", "err", err)
 	}
+	// Transactions and their logs follow the audit retention (one setting for "how long the
+	// history is kept"); running ones are never pruned (store.PruneJobs).
+	if n, err := a.svc.Store.PruneJobs(ctx, now.Add(-a.svc.Sys.Snapshot().AuditKeep)); err != nil {
+		a.log.Warn("prune transactions", "err", err)
+	} else if n > 0 {
+		a.log.Info("pruned finished update jobs", "n", n)
+	}
 	if _, err := a.svc.Store.PruneHealthEvents(ctx, now.Add(-healthKeep)); err != nil {
 		a.log.Warn("prune health events", "err", err)
 	}

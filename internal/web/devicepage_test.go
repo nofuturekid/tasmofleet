@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -282,8 +281,17 @@ func TestOverviewDrawsTheSparklineOnlyWithHistory(t *testing.T) {
 		d.Health = ph
 	})
 	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
-	if !strings.Contains(body, `<div class="devspark" data-visual-mask></div>`) {
-		t.Errorf("no history: the sparkline box must stay empty:\n%s", body)
+	if !strings.Contains(body, `<div class="devspark" data-visual-mask><span class="devspark-note">No readings yet</span></div>`) || strings.Contains(body, "<svg viewBox=\"0 0 240 40\"") {
+		t.Errorf("no history: say so instead of drawing an empty box:\n%s", body)
+	}
+	if strings.Contains(body, "now · last 2 h") {
+		t.Error("without a chart the card must not promise the last 2 h")
+	}
+	// Readings that are all 0 W would draw 24 stubs that read as a dashed line.
+	ph.hist[1] = []health.PowerSample{{At: time.Now().Add(-11 * time.Minute), Watts: 0}, {At: time.Now().Add(-6 * time.Minute), Watts: 0}}
+	_, idle := e.do(t, "GET", "/devices/1", "admin", nil)
+	if !strings.Contains(idle, `<span class="devspark-note">No load in the last 2 h</span>`) || strings.Contains(idle, `class="devspark-bar"`) {
+		t.Errorf("an idle device draws no dashed chart:\n%s", idle)
 	}
 	now := time.Now()
 	ph.hist[1] = []health.PowerSample{{At: now.Add(-11 * time.Minute), Watts: 5}, {At: now.Add(-6 * time.Minute), Watts: 8}, {At: now.Add(-time.Minute), Watts: 12}}
@@ -304,7 +312,24 @@ func TestOverviewDrawsTheSparklineOnlyWithHistory(t *testing.T) {
 type fakeHistory struct{ events []store.HealthEvent }
 
 func (f fakeHistory) ListHealthEvents(_ context.Context, _ model.DeviceID, limit int) ([]store.HealthEvent, error) {
+	if limit <= 0 { // the store's contract: no limit means all
+		return f.events, nil
+	}
 	return f.events[:min(limit, len(f.events))], nil
+}
+
+// stateChanges makes n state changes of device 1, newest first, alternating online and offline.
+func stateChanges(n int) []store.HealthEvent {
+	at := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	out := make([]store.HealthEvent, n)
+	for i := range out {
+		from, to := model.HealthOnline, model.HealthOffline
+		if i%2 == 1 {
+			from, to = to, from
+		}
+		out[i] = store.HealthEvent{DeviceID: 1, At: at.Add(-time.Duration(i) * time.Minute), From: from, To: to, Source: model.SourceHTTP, Detail: "change " + strconv.Itoa(i)}
+	}
+	return out
 }
 
 // Why: Thomas saw the Columns button on a row of its own under the card title, detached from
@@ -318,10 +343,91 @@ func TestStateChangesColumnsButtonSitsInTheCardHead(t *testing.T) {
 		}}
 	})
 	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
-	if !regexp.MustCompile(`<h2 id="dc-hist">State changes</h2>\s*<details class="colmenu"`).MatchString(body) {
-		t.Fatal("the Columns chooser is not next to the card title")
+	i := strings.Index(body, `<h2 id="dc-hist">State changes</h2>`)
+	if i < 0 {
+		t.Fatal("no State changes card")
+	}
+	end := strings.Index(body[i:], "<details class=\"m-fold\">") // the table's fold follows the card head
+	if head := body[i : i+end]; !strings.Contains(head, `<details class="colmenu"`) {
+		t.Fatalf("the Columns chooser is not in the card head:\n%s", head)
 	}
 	if strings.Contains(body, `class="tabletools"`) {
 		t.Error("a separate Columns bar above the table is back")
+	}
+}
+
+// rows counts the data rows of the first table of the card that starts at marker.
+func rowsAfter(body, marker string) int {
+	i := strings.Index(body, marker)
+	if i < 0 {
+		return -1
+	}
+	rest := body[i:]
+	if j := strings.Index(rest, "</table>"); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.Count(rest, "<tr><td") + strings.Count(rest, "<tr>\n<td")
+}
+
+// Why: Thomas asked how far the lists on the device page can grow. The overview is a summary:
+// the newest 10 of each, and a link to the complete list (the state history page, and the
+// transactions filtered by this device).
+func TestDeviceOverviewListsTheNewest10WithLinksToTheCompleteLists(t *testing.T) {
+	var jobs []model.Job
+	for i := 1; i <= 14; i++ {
+		jobs = append(jobs, model.Job{ID: model.JobID(i), BatchID: model.BatchID(i), DeviceID: 1, State: model.JobSucceeded, TargetRelease: "16.0.0", UpdatedAt: time.Now()})
+	}
+	e := setupWith(t, func(d *Deps) {
+		d.History = fakeHistory{stateChanges(25)}
+		d.Jobs, d.OTA = &fakeJobs{jobs: jobs}, &fakeOTA{}
+	})
+	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
+	if n := rowsAfter(body, `<h2 id="dc-hist">`); n != 10 {
+		t.Errorf("state changes: %d rows, want the newest 10", n)
+	}
+	if n := rowsAfter(body, `<h2 id="dc-tx">`); n != 10 {
+		t.Errorf("transactions: %d rows, want the newest 10", n)
+	}
+	for _, want := range []string{`href="/tf/devices/1/history"`, `href="/tf/transactions?device=1"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("no link %s to the complete list", want)
+		}
+	}
+}
+
+// Why: the complete list of a device's state changes needs a page of its own, with paging
+// (a flapping device has thousands). Newest first, every change reachable, no row twice.
+func TestDeviceStateHistoryPagesThroughEveryChange(t *testing.T) {
+	e := setupWith(t, func(d *Deps) { d.History = fakeHistory{stateChanges(60)} })
+	_, p1 := e.do(t, "GET", "/devices/1/history", "operator", nil)
+	_, p3 := e.do(t, "GET", "/devices/1/history?page=3", "operator", nil)
+	if a, b := strings.Count(p1, "<time datetime"), strings.Count(p3, "<time datetime"); a != 25 || b != 10 {
+		t.Fatalf("page 1 has %d rows, page 3 has %d; want 25 and 10", a, b)
+	}
+	if !strings.Contains(p1, "change 0") || strings.Contains(p1, "change 25<") || !strings.Contains(p3, "change 59") {
+		t.Error("the pages are not the newest first, in order")
+	}
+	if !strings.Contains(p1, "Page 1 of 3, 60 changes") || !strings.Contains(p1, `aria-current="page">Overview</a>`) {
+		t.Errorf("the pager or the device tabs are missing:\n%s", p1)
+	}
+	if r, _ := e.do(t, "GET", "/devices/99/history", "operator", nil); r.StatusCode != 404 {
+		t.Errorf("an unknown device: %d", r.StatusCode)
+	}
+}
+
+// Why: "all transactions of this device" must be complete, which the fleet-wide list is not
+// (it shows the newest 500 jobs of the fleet). The filter asks the store for this device.
+func TestTransactionsListCanBeFilteredByDevice(t *testing.T) {
+	jobs := []model.Job{
+		{ID: 1, BatchID: 1, DeviceID: 1, State: model.JobSucceeded, TargetRelease: "16.0.0", CreatedBy: "adam", CreatedAt: time.Now()},
+		{ID: 2, BatchID: 2, DeviceID: 2, State: model.JobSucceeded, TargetRelease: "16.0.0", CreatedBy: "adam", CreatedAt: time.Now()},
+	}
+	e := setupWith(t, func(d *Deps) { d.Jobs, d.OTA = &fakeJobs{jobs: jobs}, &fakeOTA{} })
+	_, body := e.do(t, "GET", "/transactions?device=1", "operator", nil)
+	if !strings.Contains(body, `href="/tf/transactions/1"`) || strings.Contains(body, `href="/tf/transactions/2"`) {
+		t.Errorf("the list is not limited to device 1:\n%s", body)
+	}
+	if !strings.Contains(body, "kitchen") {
+		t.Error("the page does not say whose transactions these are")
 	}
 }

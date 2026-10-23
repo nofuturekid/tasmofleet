@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -39,6 +40,22 @@ type deviceOverview struct {
 	Policy   *policyCard
 	Events   []store.HealthEvent
 	Jobs     []model.Job
+	// HistHref is the complete list of the device's state changes; TxHref the transactions
+	// filtered by this device ("" without the update feature). The cards show the newest
+	// overviewRows of each.
+	HistHref, TxHref string
+}
+
+// overviewRows is how many state changes and transactions the overview shows; the complete
+// lists are one link away.
+const overviewRows = 10
+
+// historyView is the page of all state changes of one device.
+type historyView struct {
+	Tabs   deviceTabs
+	Base   string
+	Events []store.HealthEvent
+	Pager  pager
 }
 
 // identCard is the Identity card. "Refresh identity" swaps the whole card, so the rows show what
@@ -56,8 +73,11 @@ type identCard struct {
 // of the device's meter.
 type energyCard struct {
 	Watts string
-	Spark []sparkBar // empty: no history yet, the sparkline is not drawn
-	Rows  []ui.KVRow
+	Spark []sparkBar // empty: nothing to draw, SparkNote says why
+	// SparkNote replaces the sparkline when there is nothing to draw: no readings yet, or a
+	// device that drew nothing for 2 hours (a row of 24 stubs would read as a dashed line).
+	SparkNote string
+	Rows      []ui.KVRow
 }
 
 // sparkBar is one bar of the power sparkline in viewBox units (presentation attributes, D6).
@@ -109,6 +129,27 @@ func sparkOf(samples []health.PowerSample, now time.Time) []sparkBar {
 		out = append(out, sparkBar{X: strconv.Itoa(i * sparkPitch), Y: f(sparkHeight - h), H: f(h)})
 	}
 	return out
+}
+
+// sparkNote says why the sparkline is not drawn: there are no readings in the window yet, or
+// every one of them is 0 W. "" means draw the bars.
+func sparkNote(samples []health.PowerSample, now time.Time) string {
+	start := now.Add(-sparkBuckets * sparkStep)
+	seen, drew := false, false
+	for _, s := range samples {
+		if !s.At.After(start) || s.At.After(now) {
+			continue
+		}
+		seen = true
+		drew = drew || s.Watts > 0
+	}
+	switch {
+	case !seen:
+		return "No readings yet"
+	case !drew:
+		return "No load in the last 2 h"
+	}
+	return ""
 }
 
 // relayRow is one relay switch of the Power & energy card.
@@ -415,16 +456,19 @@ func (h *handler) deviceDetail(w http.ResponseWriter, r *http.Request) {
 	if hl.State == "" {
 		hl.State = model.HealthUnknown
 	}
-	p := deviceOverview{Base: v.Base, CSRF: v.CSRF, RelaysOn: h.d.DeviceCmd != nil}
+	p := deviceOverview{Base: v.Base, CSRF: v.CSRF, RelaysOn: h.d.DeviceCmd != nil, HistHref: v.Base + devPath(d.ID, "/history")}
+	if v.Features.Updates {
+		p.TxHref = v.Base + "/transactions?device=" + strconv.FormatInt(int64(d.ID), 10)
+	}
 	var err error
 	if h.d.History != nil {
-		if p.Events, err = h.d.History.ListHealthEvents(ctx, d.ID, 20); err != nil {
+		if p.Events, err = h.d.History.ListHealthEvents(ctx, d.ID, overviewRows); err != nil {
 			h.fail(w, r, err)
 			return
 		}
 	}
 	if h.d.Jobs != nil {
-		if p.Jobs, err = h.d.Jobs.ListJobs(ctx, store.JobFilter{DeviceID: d.ID, Limit: 20}); err != nil {
+		if p.Jobs, err = h.d.Jobs.ListJobs(ctx, store.JobFilter{DeviceID: d.ID, Limit: overviewRows}); err != nil {
 			h.fail(w, r, err)
 			return
 		}
@@ -476,7 +520,12 @@ func (h *handler) deviceDetail(w http.ResponseWriter, r *http.Request) {
 	if ph, ok := h.d.Health.(interface {
 		PowerHistory(model.DeviceID) []health.PowerSample
 	}); ok && p.Energy != nil {
-		p.Energy.Spark = sparkOf(ph.PowerHistory(d.ID), h.d.Clock.Now())
+		samples, now := ph.PowerHistory(d.ID), h.d.Clock.Now()
+		if p.Energy.SparkNote = sparkNote(samples, now); p.Energy.SparkNote == "" {
+			p.Energy.Spark = sparkOf(samples, now)
+		}
+	} else if p.Energy != nil {
+		p.Energy.SparkNote = "No readings yet"
 	}
 	p.Relays = relaysOf(hl)
 	p.RelaysOn = p.RelaysOn && hl.State != model.HealthOffline && p.Updating == nil
@@ -516,4 +565,34 @@ func (h *handler) deviceProbe(w http.ResponseWriter, r *http.Request) {
 	if err := identityCard(c).Render(r.Context(), w); err != nil {
 		h.log.WarnContext(r.Context(), "probe: render", "err", err)
 	}
+}
+
+// stateHistory is GET /devices/{id}/history: every recorded state change of the device, newest
+// first, paged like the other long tables. The overview shows only the newest few.
+func (h *handler) stateHistory(w http.ResponseWriter, r *http.Request) {
+	d, ok := h.device(w, r)
+	if !ok {
+		return
+	}
+	if h.d.History == nil {
+		h.notFound(w, r)
+		return
+	}
+	all, err := h.d.History.ListHealthEvents(r.Context(), d.ID, 0)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	v := h.view(r, d.Name+": state changes", "devices", nil)
+	q := r.URL.Query()
+	page, _ := strconv.Atoi(q.Get("page"))
+	def := savedPageSize(h.userPrefs(r))
+	size := pageSize(q, def)
+	p := historyView{Base: v.Base, Tabs: h.tabsOf(r, v, d, "overview")}
+	p.Pager = newPager(v.Base+devPath(d.ID, "/history"), url.Values{}, page, size, def, len(all), "changes")
+	lo := (p.Pager.Page - 1) * size
+	if hi := min(lo+size, len(all)); lo < hi {
+		p.Events = all[lo:hi]
+	}
+	h.headPage(w, r, http.StatusOK, "device-history", v, d, deviceHistoryPage(p))
 }

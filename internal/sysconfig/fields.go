@@ -141,7 +141,7 @@ var fields = []Field{
 	{Key: "METRICS_ENABLED", Group: GroupMetrics, Label: "Serve /metrics", Bool: true, Apply: Live, Help: "Off: /metrics answers 404. On: token and local-scraper rules apply."},
 	{Key: "METRICS_DEVICE_LABELS", Group: GroupMetrics, Label: "Device names in metric labels", Bool: true, Apply: Live, Help: "Off by default: metrics then carry counts only."},
 	{Key: "AUDIT_RETENTION", Group: GroupAudit, Label: "Audit retention", Apply: Live,
-		Help: "How long audit events are kept, at least 24h. Hours: 720h is 30 days, 8760h is 365 days."},
+		Help: "How long audit events and finished update transactions (with their logs) are kept, at least 24h; a running transaction is never removed. Hours: 720h is 30 days, 8760h is 365 days."},
 	{Key: "LOG_LEVEL", Group: GroupLogging, Label: "Log level", Apply: Live, Enum: config.LogLevels(),
 		Help: "How much the server logs. debug is verbose; changes apply at once."},
 }

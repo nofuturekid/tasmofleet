@@ -237,6 +237,7 @@ func Handler(d Deps) (http.Handler, error) {
 	route("GET /devices/new", adm, h.deviceNewForm)
 	route("POST /devices/new", adm, h.deviceCreate)
 	route("GET /devices/{id}", op, h.deviceDetail)
+	route("GET /devices/{id}/history", op, h.stateHistory)
 	route("GET /devices/{id}/edit", adm, h.deviceEditForm)
 	route("POST /devices/{id}", adm, h.deviceUpdate)
 	route("POST /devices/{id}/delete", adm, h.deviceDelete)

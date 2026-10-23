@@ -15,14 +15,28 @@ import (
 // transactionsPage is /transactions: the running transactions as cards, then the history. The
 // list re-reads itself on job events (the cards' progress and the history's results move).
 templ transactionsPage(p txListView) {
-	@ui.PageHeader("Update transactions", "Every bulk change runs as a transaction with a log per device") {
+	@ui.PageHeader(txListTitle(p), txListSub(p)) {
 		if p.CanStart {
 			@ui.Button(ui.Btn{Label: "New update", Kind: "primary", Href: p.Base + "/updates/new"})
 		}
 	}
-	<div hx-get={ p.Base + "/transactions" } hx-trigger="sse:job throttle:2s" hx-select="#txlist" hx-target="#txlist" hx-swap="outerHTML">
+	<div hx-get={ p.Self } hx-trigger="sse:job throttle:2s" hx-select="#txlist" hx-target="#txlist" hx-swap="outerHTML">
 		@txList(p)
 	</div>
+}
+
+func txListTitle(p txListView) string {
+	if p.Device != "" {
+		return "Transactions of " + p.Device
+	}
+	return "Update transactions"
+}
+
+func txListSub(p txListView) string {
+	if p.Device != "" {
+		return "Every transaction this device took part in; the result is the device's own"
+	}
+	return "Every bulk change runs as a transaction with a log per device"
 }
 
 templ txList(p txListView) {

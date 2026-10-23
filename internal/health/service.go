@@ -446,13 +446,17 @@ func (s *Service) publish(ds *devState) {
 	}
 }
 
-// persist writes transitions (only changes are stored, spec 10).
+// persist writes transitions (only changes are stored, spec 10). A device's first observation
+// since the start (from unknown) is its baseline, not a change: the summary below is written,
+// but no history event, so a restart does not log "Unknown -> Online" for every device.
 func (s *Service) persist(ctx context.Context, trs []transition) {
 	for _, tr := range trs {
-		if err := s.d.Store.AppendHealthEvent(ctx, store.HealthEvent{
-			DeviceID: tr.id, At: tr.at, From: tr.from, To: tr.to, Source: tr.source, Detail: tr.detail,
-		}); err != nil {
-			slog.Warn("health: persisting transition failed", "device", tr.id, "err", err)
+		if tr.from != "" && tr.from != model.HealthUnknown {
+			if err := s.d.Store.AppendHealthEvent(ctx, store.HealthEvent{
+				DeviceID: tr.id, At: tr.at, From: tr.from, To: tr.to, Source: tr.source, Detail: tr.detail,
+			}); err != nil {
+				slog.Warn("health: persisting transition failed", "device", tr.id, "err", err)
+			}
 		}
 		seen := tr.lastSeen
 		if seen.IsZero() {

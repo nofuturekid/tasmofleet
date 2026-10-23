@@ -726,7 +726,10 @@ Submit.
 - A software restart publishes no LWT `Offline` (clean disconnect, SRC). Health does not
   try to detect reboots; the OTA engine uses uptime.
 - Only transitions are persisted (`health_events`), plus `devices.health_state/last_seen_at`
-  for a correct picture right after a restart.
+  for a correct picture right after a restart. A device's first observation after the app
+  started (state "unknown" to anything) is a baseline, not a change: `devices.health_state` is
+  written, no `health_events` row (decision 2026-10-23: a restart logged "Unknown to Online"
+  for every device). The cost: a change that happened while the app was down is not recorded.
 - MQTT input is untrusted and bounded: payload cap, bounded topic grammar, a retained
   replay cache with per-device reservations for inventory devices and a small evicting pool
   for unknown topics, and a fail-closed known-device index. Authoritative:

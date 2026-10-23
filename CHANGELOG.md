@@ -6,6 +6,23 @@ always upgrade automatically.
 
 ## Unreleased
 
+### Added
+
+- Device page: State changes and Transactions show the newest 10 (was 20), each with a link to the complete
+  list: a new per-device history page with paging (`/devices/{id}/history`), and `/transactions?device=ID`,
+  which lists every transaction that device took part in.
+- Retention for transactions: finished transactions and their logs older than the audit retention
+  (`AUDIT_RETENTION`, default 365 days) are deleted daily. A running transaction, or a transaction with one
+  unfinished job, is never touched; a transaction that a kept retry points at stays too.
+
+### Changed
+
+- A device's first observation after the app started is a baseline, not a state change: a restart no longer
+  logs "Unknown to Online" for every device. The cost: a change that happened while the app was down is not
+  recorded.
+- Power & energy card: a device without readings says "No readings yet", and one that drew 0 W the whole time
+  says "No load in the last 2 h", instead of an empty or dashed chart.
+
 ### Fixed
 
 - Device header: the Power On/Off control was an inverted (light in the dark theme, dark in the light theme)

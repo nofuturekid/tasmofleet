@@ -1094,7 +1094,23 @@ func (t txView) Summary() string {
 }
 
 func (h *handler) transactionsPage(w http.ResponseWriter, r *http.Request) {
-	jobs, _, err := h.jobViews(r, store.JobFilter{Limit: 500})
+	filter := store.JobFilter{Limit: 500}
+	p := txListView{Base: httpBase(r), CanStart: h.d.OTA != nil}
+	p.Self = p.Base + "/transactions"
+	if raw := r.URL.Query().Get("device"); raw != "" { // the device page's "All transactions"
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			h.notFoundDevice(w, r)
+			return
+		}
+		d, err := h.d.Inventory.Get(r.Context(), model.DeviceID(id))
+		if err != nil {
+			h.notFoundDevice(w, r)
+			return
+		}
+		filter.DeviceID, p.Device, p.Self = d.ID, d.Name, p.Self+"?device="+raw
+	}
+	jobs, _, err := h.jobViews(r, filter)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -1106,7 +1122,6 @@ func (h *handler) transactionsPage(w http.ResponseWriter, r *http.Request) {
 	now := h.d.Clock.Now()
 	items := groupTransactions(raw)
 	sort.SliceStable(items, func(a, b int) bool { return items[a].ID > items[b].ID }) // newest first
-	p := txListView{Base: httpBase(r), CanStart: h.d.OTA != nil}
 	for _, t := range items {
 		href := p.Base + "/transactions/" + bid(t.ID)
 		res, tone := txResult(t.Done, t.Running, t.Queued, t.Failed, t.Canceled)

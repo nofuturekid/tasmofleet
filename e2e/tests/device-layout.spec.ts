@@ -86,3 +86,18 @@ for (const scheme of ["dark", "light"] as const) {
     });
   }
 }
+
+// Item 10: the overview shows a short list and links to the complete ones.
+test("the device overview links to the complete state history and to the device's transactions", async ({ page }) => {
+  await page.setExtraHTTPHeaders(adam);
+  const href = await deviceHref(page, "esp32-dimmer");
+  await page.goto(app.url + href);
+  await page.getByRole("link", { name: "All state changes" }).click();
+  await expect(page).toHaveURL(/\/devices\/\d+\/history$/);
+  await expect(page.getByRole("heading", { name: "State changes" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Back to the overview" })).toBeVisible();
+  await page.goto(app.url + href);
+  await page.getByRole("link", { name: "All transactions" }).click();
+  await expect(page).toHaveURL(/\/transactions\?device=\d+$/);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Transactions of esp32-dimmer");
+});

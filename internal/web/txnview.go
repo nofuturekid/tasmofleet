@@ -275,6 +275,9 @@ type txListView struct {
 	CanStart bool // updates are switched on
 	Running  []ui.TxnData
 	History  []txHistRow
+	// Device is the name of the device the list is limited to ("" for the whole fleet); Self is
+	// the list's own address, so the live refresh keeps the filter.
+	Device, Self string
 }
 
 // txHistRow is one transaction of the history: id, title, devices, result, who and when.

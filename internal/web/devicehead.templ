@@ -3,6 +3,7 @@ package web
 import (
 	"strconv"
 
+	"github.com/nofuturekid/tasmofleet/internal/store"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -104,7 +105,13 @@ templ deviceOverviewPage(p deviceOverview) {
 				<div class="devpow">
 					<div>
 						<div class="devpow-w" data-visual-mask>{ e.Watts }<span>W</span></div>
-						<div class="devpow-sub">now · last 2 h</div>
+						<div class="devpow-sub">
+							if len(e.Spark) > 0 {
+								now · last 2 h
+							} else {
+								now
+							}
+						</div>
 					</div>
 					<div class="devspark" data-visual-mask>
 						if len(e.Spark) > 0 {
@@ -113,6 +120,8 @@ templ deviceOverviewPage(p deviceOverview) {
 									<rect class="devspark-bar" x={ b.X } y={ b.Y } width={ sparkBarW } height={ b.H } rx="1"></rect>
 								}
 							</svg>
+						} else {
+							<span class="devspark-note">{ e.SparkNote }</span>
 						}
 					</div>
 				</div>
@@ -179,24 +188,15 @@ templ deviceOverviewPage(p deviceOverview) {
 		<section class="devcard" aria-labelledby="dc-hist">
 			<div class="devcard-head">
 				<h2 id="dc-hist">State changes</h2>
-				<i class="colslot"></i>
+				<span class="devcard-tools">
+					<a class="btn btn-link" href={ templ.SafeURL(p.HistHref) }>All state changes</a>
+					<i class="colslot"></i>
+				</span>
 			</div>
 			if len(p.Events) > 0 {
 				<details class="m-fold">
 					<summary>{ plural(len(p.Events), "state change") }</summary>
-					<table class="dense" data-table="device_history">
-						<thead><tr><th>When</th><th>Change</th><th>Source</th><th>Detail</th></tr></thead>
-						<tbody>
-							for _, e := range p.Events {
-								<tr>
-									<td data-label="When" class="s"><time datetime={ e.At.UTC().Format("2006-01-02T15:04:05Z") }>{ e.At.Format("2006-01-02 15:04:05") }</time></td>
-									<td data-label="Change" class="p1">@ui.Badge(uiTone(e.From), label(e.From)) <span aria-label="to">→</span> @ui.Badge(uiTone(e.To), label(e.To))</td>
-									<td data-label="Source" class="s">{ string(e.Source) }</td>
-									<td data-label="Detail" class="s grow">{ healthDetail(e.Source, e.Detail) }</td>
-								</tr>
-							}
-						</tbody>
-					</table>
+					@stateTable(p.Events)
 				</details>
 			} else {
 				<p class="devcard-note">No state changes recorded. Changes appear here once the device goes online or offline.</p>
@@ -205,7 +205,12 @@ templ deviceOverviewPage(p deviceOverview) {
 		<section class="devcard" aria-labelledby="dc-tx">
 			<div class="devcard-head">
 				<h2 id="dc-tx">Transactions</h2>
-				<i class="colslot"></i>
+				<span class="devcard-tools">
+					if p.TxHref != "" {
+						<a class="btn btn-link" href={ templ.SafeURL(p.TxHref) }>All transactions</a>
+					}
+					<i class="colslot"></i>
+				</span>
 			</div>
 			if len(p.Jobs) > 0 {
 				<details class="m-fold">
@@ -234,6 +239,43 @@ templ deviceOverviewPage(p deviceOverview) {
 			}
 		</section>
 	</div>
+}
+
+// stateTable is the table of state changes: the overview's newest few and the history page's page.
+templ stateTable(events []store.HealthEvent) {
+	<table class="dense" data-table="device_history">
+		<thead><tr><th>When</th><th>Change</th><th>Source</th><th>Detail</th></tr></thead>
+		<tbody>
+			for _, e := range events {
+				<tr>
+					<td data-label="When" class="s"><time datetime={ e.At.UTC().Format("2006-01-02T15:04:05Z") }>{ e.At.Format("2006-01-02 15:04:05") }</time></td>
+					<td data-label="Change" class="p1">@ui.Badge(uiTone(e.From), label(e.From)) <span aria-label="to">→</span> @ui.Badge(uiTone(e.To), label(e.To))</td>
+					<td data-label="Source" class="s">{ string(e.Source) }</td>
+					<td data-label="Detail" class="s grow">{ healthDetail(e.Source, e.Detail) }</td>
+				</tr>
+			}
+		</tbody>
+	</table>
+}
+
+// deviceHistoryPage is every state change of a device, paged (the overview shows the newest few).
+templ deviceHistoryPage(p historyView) {
+	@deviceHeader(p.Tabs)
+	<section class="devcard" aria-labelledby="dc-hist">
+		<div class="devcard-head">
+			<h2 id="dc-hist">State changes</h2>
+			<span class="devcard-tools">
+				<a class="btn btn-link" href={ templ.SafeURL(p.Base + devPath(p.Tabs.ID, "")) }>Back to the overview</a>
+				<i class="colslot"></i>
+			</span>
+		</div>
+		if len(p.Events) > 0 {
+			@stateTable(p.Events)
+		} else {
+			<p class="devcard-note">No state changes recorded. Changes appear here once the device goes online or offline.</p>
+		}
+		@pagerNav(p.Pager)
+	</section>
 }
 
 // identityCard is the Identity card; "Refresh identity" asks the device again and swaps the card.

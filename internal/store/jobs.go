@@ -280,3 +280,60 @@ func kindOf(j model.Job) string {
 	}
 	return string(j.Kind)
 }
+
+// PruneJobs deletes finished transactions (batches) whose newest job was last updated before
+// the cut-off, with their jobs and job logs, and returns the number of jobs deleted. It never
+// touches running work and never cuts a transaction in half: one job that is not finished keeps
+// the whole batch. A batch that a kept batch retries (ota_batches.retry_of) is kept too, so
+// "retry of #N" never dangles.
+func (s *SQLite) PruneJobs(ctx context.Context, before time.Time) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after commit; on failure the original error is returned
+	rows, err := tx.QueryContext(ctx, `SELECT b.id, b.retry_of,
+		NOT EXISTS (SELECT 1 FROM ota_jobs j WHERE j.batch_id=b.id AND j.state NOT IN ('succeeded','failed','cancelled'))
+		AND COALESCE((SELECT MAX(j.updated_at) FROM ota_jobs j WHERE j.batch_id=b.id), ?) < ?
+		FROM ota_batches b`, toMS(before), toMS(before))
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close() //nolint:errcheck // rows.Err below reports iteration problems
+	retryOf := map[int64]int64{}
+	prune := map[int64]bool{}
+	for rows.Next() {
+		var id, of int64
+		var old bool
+		if err := rows.Scan(&id, &of, &old); err != nil {
+			return 0, err
+		}
+		retryOf[id], prune[id] = of, old
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for changed := true; changed; { // a kept retry keeps what it retries, along the whole chain
+		changed = false
+		for id, of := range retryOf {
+			if !prune[id] && of != 0 && prune[of] {
+				prune[of], changed = false, true
+			}
+		}
+	}
+	var jobs int64
+	for id, p := range prune {
+		if !p {
+			continue
+		}
+		n, err := rowsDeleted(tx.ExecContext(ctx, "DELETE FROM ota_jobs WHERE batch_id=?", id)) // the job log goes with its job (cascade)
+		if err != nil {
+			return 0, err
+		}
+		jobs += n
+		if _, err := tx.ExecContext(ctx, "DELETE FROM ota_batches WHERE id=?", id); err != nil {
+			return 0, err
+		}
+	}
+	return jobs, tx.Commit()
+}
