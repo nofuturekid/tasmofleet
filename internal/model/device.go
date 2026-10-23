@@ -45,6 +45,10 @@ type Device struct {
 
 	Identity Identity // last detected hardware/firmware identity
 
+	// Net is what the device itself reported about its network (Status 5 and 11), written by the
+	// prober only. The zero value means "never read".
+	Net NetFacts
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -131,4 +135,15 @@ type Identity struct {
 // Known reports whether the identity is complete enough to select firmware.
 func (i Identity) Known() bool {
 	return i.Family != ChipUnknown && i.Version != "" && i.Variant != ""
+}
+
+// NetFacts are the network settings a probe read from the device: Status 5 (hostname, IP
+// address, gateway) and Status 11 (the access point it is connected to). They change only when
+// someone reconfigures the device, so they are stored on it and re-read by every probe. Empty
+// fields are unknown (a wired board has no SSID).
+type NetFacts struct {
+	Hostname, IP, Gateway string
+	SSID, BSSID           string
+	Channel               int
+	ReadAt                time.Time // zero: never read
 }

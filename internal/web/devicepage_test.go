@@ -431,3 +431,58 @@ func TestTransactionsListCanBeFilteredByDevice(t *testing.T) {
 		t.Error("the page does not say whose transactions these are")
 	}
 }
+
+// probedNet is what a probe stored on the device (Status 5 and 11).
+var probedNet = model.NetFacts{Hostname: "tablet-charger", IP: "10.0.0.77", Gateway: "10.0.0.1", SSID: "iot-net", BSSID: "02:00:5E:00:00:09", Channel: 36,
+	ReadAt: time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)}
+
+// Why: Thomas saw Hostname, Gateway, SSID, BSSID and Channel as "Unknown" on a device that had
+// no backup snapshot. The facts a probe stored on the device are shown without any snapshot,
+// and "Refresh identity" shows the hostname it just read.
+func TestDeviceOverviewShowsProbedNetworkFactsWithoutSnapshot(t *testing.T) {
+	e := setup(t)
+	e.bk.list = nil // no backup at all
+	d := e.inv.devs[1]
+	d.Net = probedNet
+	e.inv.devs[1] = d
+	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
+	for _, want := range []string{
+		`<dd class="mono" data-visual-mask>tablet-charger</dd>`, `<dd class="mono" data-visual-mask>10.0.0.1</dd>`,
+		`<dd class="mono" data-visual-mask>iot-net</dd>`, `<dd class="mono" data-visual-mask>02:00:5E:00:00:09</dd>`, `<dd class="mono" data-visual-mask>36 (5 GHz)</dd>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overview lacks %q", want)
+		}
+	}
+	_, probe := e.do(t, "POST", "/devices/1/probe", "admin", url.Values{"csrf": {"tok"}}, "HX-Request", "true")
+	if !strings.Contains(probe, "tablet-charger") {
+		t.Errorf("the refreshed identity card lacks the hostname:\n%s", probe)
+	}
+}
+
+// Why: the row said "IP address" but showed the configured host (often a DNS name). The host
+// the fleet uses is the "Address"; the real IP comes from the device (Status 5) as its own row.
+func TestNetworkCardSeparatesTheConfiguredAddressFromTheDeviceIP(t *testing.T) {
+	e := setup(t)
+	d := e.inv.devs[1]
+	d.Address, d.Net = "tablet-charger.home.internal", probedNet
+	e.inv.devs[1] = d
+	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
+	for _, want := range []string{`<dt>Address</dt><dd class="mono" data-visual-mask>tablet-charger.home.internal</dd>`, `<dt>IP address</dt><dd class="mono" data-visual-mask>10.0.0.77</dd>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("network card lacks %q", want)
+		}
+	}
+}
+
+// Why: devices probed before this version, or never probed, have no stored facts; their
+// newest backup snapshot still answers, so the page does not regress to "Unknown".
+func TestDeviceOverviewFallsBackToTheSnapshotWhenNothingWasProbed(t *testing.T) {
+	e := setup(t)
+	e.bk.list = []model.Backup{{ID: 9, DeviceID: 1, Kind: model.BackupSnapshot, TakenAt: time.Now()}}
+	e.bk.data = []byte(snapshotDoc)
+	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
+	if !strings.Contains(body, `>kitchen-lamp</dd>`) || !strings.Contains(body, `>lab-iot</dd>`) {
+		t.Errorf("snapshot facts missing:\n%s", body)
+	}
+}

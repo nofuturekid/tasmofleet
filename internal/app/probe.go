@@ -46,6 +46,7 @@ type probed struct {
 	ethMAC   string // Ethernet MAC of boards that have one, else ""
 	topic    string
 	hostname string
+	net      model.NetFacts // Status 5 and 11; Wi-Fi fields of an earlier read stay when Status 11 gives none
 	mqtt     model.MQTTCapability
 	mqttHost string
 	mqttPort int
@@ -123,9 +124,12 @@ func (p *Prober) probe(ctx context.Context, d model.Device) (probed, error) {
 		return out, nil
 	}
 
+	out.net = d.Net // the Wi-Fi part survives a Status 11 that gives nothing
 	if err := p.status5(ctx, t, &out); err != nil {
 		return out, err
 	}
+	p.status11(ctx, t, &out)
+	out.net.ReadAt = p.now()
 	// Status 6: no MqttHost, or SetOption3 off, means the device does not
 	// talk MQTT at all. Otherwise it is "ours" when it is configured for the
 	// tasmofleet broker and "other" for any other target (or when tasmofleet
@@ -178,9 +182,11 @@ func (p *Prober) status5(ctx context.Context, t tasmota.Target, out *probed) err
 	}
 	var s struct {
 		StatusNET struct {
-			Hostname string
-			Mac      string
-			Ethernet struct{ Mac string }
+			Hostname  string
+			IPAddress string
+			Gateway   string
+			Mac       string
+			Ethernet  struct{ Mac string }
 		}
 	}
 	if err := json.Unmarshal(raw, &s); err != nil {
@@ -191,7 +197,30 @@ func (p *Prober) status5(ctx context.Context, t tasmota.Target, out *probed) err
 		out.ethMAC = eth
 	}
 	out.hostname = s.StatusNET.Hostname
+	out.net.Hostname, out.net.IP, out.net.Gateway = s.StatusNET.Hostname, s.StatusNET.IPAddress, s.StatusNET.Gateway
 	return nil
+}
+
+// status11 reads the access point the device is connected to. It is best effort: a failed or
+// empty reply (a wired board, a flaky answer) keeps the Wi-Fi facts already in out.net.
+func (p *Prober) status11(ctx context.Context, t tasmota.Target, out *probed) {
+	raw, err := p.cmd(ctx, t, "Status 11")
+	if err != nil {
+		return
+	}
+	var s struct {
+		StatusSTS struct {
+			Wifi struct {
+				SSId, BSSId string
+				Channel     int
+			}
+		}
+	}
+	if json.Unmarshal(raw, &s) != nil || s.StatusSTS.Wifi.SSId == "" {
+		return
+	}
+	w := s.StatusSTS.Wifi
+	out.net.SSID, out.net.BSSID, out.net.Channel = w.SSId, w.BSSId, w.Channel
 }
 
 func (p *Prober) now() time.Time {
@@ -222,6 +251,9 @@ func (p *Prober) Describe(ctx context.Context, d model.Device) (model.Device, er
 		d.MQTT = pr.mqtt
 	}
 	d.MQTTHost, d.MQTTPort = pr.mqttHost, pr.mqttPort
+	if !pr.minimal { // minimal firmware answers neither command: keep what is known
+		d.Net = pr.net
+	}
 	if d.Name == "" {
 		d.Name = firstNonEmpty(pr.hostname, pr.topic, d.Address)
 	}
@@ -248,7 +280,8 @@ func (p *Prober) Refresh(ctx context.Context, id model.DeviceID) error {
 	// land on a device that was moved, rebound or deleted meanwhile).
 	return p.Devices.UpdateProbe(ctx, id,
 		store.ProbeGuard{Address: d.Address, Port: d.Port, MAC: d.MAC},
-		store.ProbeResult{Identity: ident, SetMQTT: !pr.minimal, MQTT: pr.mqtt, MQTTHost: pr.mqttHost, MQTTPort: pr.mqttPort})
+		store.ProbeResult{Identity: ident, SetMQTT: !pr.minimal, MQTT: pr.mqtt, MQTTHost: pr.mqttHost, MQTTPort: pr.mqttPort,
+			SetNet: !pr.minimal, Net: pr.net})
 }
 
 func firstNonEmpty(ss ...string) string {

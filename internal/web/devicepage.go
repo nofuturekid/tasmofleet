@@ -172,13 +172,14 @@ type policyCard struct {
 
 type deviation struct{ Rule, Have, Want string }
 
-// snapFacts are the network settings of the device as its newest backup snapshot recorded
-// them (Status 5 and 11). The live health has none of them; they change only when someone
-// reconfigures the device, and the next backup records that.
+// snapFacts are the network settings of the device (Status 5 and 11). The live health has none
+// of them; they change only when someone reconfigures the device. A probe stores them on the
+// device (model.Device.Net); the newest backup snapshot is the fallback for devices that were
+// not probed since (see factsOf).
 type snapFacts struct {
-	Hostname, Gateway string
-	SSID, BSSID       string
-	Channel           int
+	Hostname, IP, Gateway string
+	SSID, BSSID           string
+	Channel               int
 }
 
 // parseSnapFacts reads the facts from a snapshot document (Status1..Status11 replies by key).
@@ -186,7 +187,7 @@ type snapFacts struct {
 func parseSnapFacts(doc []byte) snapFacts {
 	var s struct {
 		Status5 struct {
-			StatusNET struct{ Hostname, Gateway string }
+			StatusNET struct{ Hostname, IPAddress, Gateway string }
 		}
 		Status11 struct {
 			StatusSTS struct {
@@ -201,7 +202,7 @@ func parseSnapFacts(doc []byte) snapFacts {
 		return snapFacts{}
 	}
 	w := s.Status11.StatusSTS.Wifi
-	return snapFacts{Hostname: s.Status5.StatusNET.Hostname, Gateway: s.Status5.StatusNET.Gateway, SSID: w.SSId, BSSID: w.BSSId, Channel: w.Channel}
+	return snapFacts{Hostname: s.Status5.StatusNET.Hostname, IP: s.Status5.StatusNET.IPAddress, Gateway: s.Status5.StatusNET.Gateway, SSID: w.SSId, BSSID: w.BSSId, Channel: w.Channel}
 }
 
 // snapFactsOf reads the newest snapshot of the device. Without one (or when it cannot be
@@ -219,6 +220,21 @@ func (h *handler) snapFactsOf(ctx context.Context, list []model.Backup) snapFact
 		return parseSnapFacts(doc)
 	}
 	return snapFacts{}
+}
+
+// factsOf are the device's network facts: what a probe stored on it, field by field; the newest
+// backup snapshot only fills in a device that was never probed.
+func (h *handler) factsOf(ctx context.Context, d model.Device) snapFacts {
+	f := snapFacts{Hostname: d.Net.Hostname, IP: d.Net.IP, Gateway: d.Net.Gateway, SSID: d.Net.SSID, BSSID: d.Net.BSSID, Channel: d.Net.Channel}
+	if !d.Net.ReadAt.IsZero() {
+		return f
+	}
+	list, err := h.d.Backups.List(ctx, d.ID)
+	if err != nil {
+		h.log.WarnContext(ctx, "device overview: backups", "err", err)
+		return f
+	}
+	return h.snapFactsOf(ctx, list)
 }
 
 // orUnknown is the value of a row, "Unknown" when there is none.
@@ -362,7 +378,8 @@ func (h *handler) networkRows(d model.Device, hl model.Health, f snapFacts) []ui
 		restart = sinceText(t)
 	}
 	return []ui.KVRow{
-		{Key: "IP address", Value: addr, Mono: true, Mask: true},
+		{Key: "Address", Value: addr, Mono: true, Mask: true},
+		{Key: "IP address", Value: orUnknown(f.IP), Mono: true, Mask: true},
 		{Key: "Gateway", Value: orUnknown(f.Gateway), Mono: true, Mask: true},
 		{Key: "MQTT broker", Value: orUnknown(broker), Mono: true, Soft: true},
 		{Key: "MQTT", Value: mqtt, Mono: true},
@@ -495,11 +512,6 @@ func (h *handler) deviceDetail(w http.ResponseWriter, r *http.Request) {
 	if p.Updating != nil {
 		running = &p.Updating.Job
 	}
-	list, err := h.d.Backups.List(ctx, d.ID)
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
 	p.Tabs = h.headOf(v, d, hl, running, "overview")
 	if p.Updating == nil && hl.LastSeen.IsZero() && d.Identity.DetectedAt.IsZero() {
 		p.NotYet = "This device has not answered yet"
@@ -508,7 +520,7 @@ func (h *handler) deviceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		p.NotYet += ". Check that it is powered and that its address (" + d.Address + ") is right."
 	}
-	facts := h.snapFactsOf(ctx, list)
+	facts := h.factsOf(ctx, d)
 	var tele health.Telemetry
 	if tl, ok := h.d.Health.(interface {
 		Telemetry() map[model.DeviceID]health.Telemetry
@@ -554,11 +566,7 @@ func (h *handler) deviceProbe(w http.ResponseWriter, r *http.Request) {
 			h.log.WarnContext(r.Context(), "probe: reload device", "err", gerr)
 		}
 	}
-	var facts snapFacts
-	if list, err := h.d.Backups.List(r.Context(), d.ID); err == nil {
-		facts = h.snapFactsOf(r.Context(), list)
-	}
-	c := h.identity(v, d, running != nil, facts)
+	c := h.identity(v, d, running != nil, h.factsOf(r.Context(), d))
 	c.Notice, c.Error = notice, failure
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

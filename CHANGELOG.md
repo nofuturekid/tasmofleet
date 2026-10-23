@@ -36,6 +36,12 @@ always upgrade automatically.
 - e2e: the devices toolbar check measures in one in-page step (the table part reloads 0.5 s after the first health
   reports and left a detached frame behind), and the phone audit budget covers the spread of the audit page's
   system rows (3370 to 3414 px on the same seed).
+- Device page: Hostname, Gateway, SSID, BSSID and Channel no longer depend on a backup snapshot. Every probe (first
+  contact after an import or add, "Refresh identity") reads Status 5 and Status 11, one at a time and never
+  Status 0, and stores the facts on the device (migration 0026). The newest snapshot stays the fallback for
+  devices not probed since.
+- Network card: the row that showed the configured host as "IP address" is now "Address"; the device's real IP
+  (Status 5) is its own "IP address" row.
 
 ## 0.11.2 (2026-10-23)
 

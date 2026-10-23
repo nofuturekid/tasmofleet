@@ -115,3 +115,63 @@ func TestDescribeMQTTClassification(t *testing.T) {
 		})
 	}
 }
+
+const (
+	status5Net  = `{"StatusNET":{"Hostname":"plug-1","IPAddress":"192.0.2.10","Gateway":"192.0.2.1","Mac":"AA:BB:CC:00:00:01"}}`
+	status11Net = `{"StatusSTS":{"Wifi":{"SSId":"IoT","BSSId":"02:00:5E:00:00:01","Channel":11,"RSSI":50}}}`
+)
+
+// recorder remembers every command, to prove the probe never sends Status 0.
+type recorder struct {
+	override
+	sent *[]string
+}
+
+func (r recorder) Command(ctx context.Context, t tasmota.Target, c string) (json.RawMessage, error) {
+	*r.sent = append(*r.sent, c)
+	return r.override.Command(ctx, t, c)
+}
+
+// Why: the device page shows hostname, IP, gateway and Wi-Fi; they only exist on the device.
+// A probe (first contact after import, "Refresh identity") reads Status 5 and Status 11, one
+// command at a time and never Status 0, and hands the facts to the caller.
+func TestDescribeReadsNetworkFactsWithoutStatus0(t *testing.T) {
+	p, d := probeFixture(t, simulator.DeviceSpec{Name: "plug", Profile: simulator.ProfileESP8266_1M})
+	var sent []string
+	p.Client = recorder{override{Client: p.Client, reply: map[string]string{"Status 5": status5Net, "Status 11": status11Net}}, &sent}
+	p.Now = func() time.Time { return time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC) }
+	got, err := p.Describe(context.Background(), d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := model.NetFacts{Hostname: "plug-1", IP: "192.0.2.10", Gateway: "192.0.2.1", SSID: "IoT", BSSID: "02:00:5E:00:00:01", Channel: 11, ReadAt: p.Now()}
+	if got.Net != want {
+		t.Fatalf("Net = %+v, want %+v", got.Net, want)
+	}
+	for _, c := range sent {
+		if c == "Status 0" || c == "Status" {
+			t.Fatalf("Status 0 was sent: %v", sent)
+		}
+	}
+}
+
+// Why: Status 11 is a nice-to-have. When it fails the probe must still succeed, and the Wi-Fi
+// facts read earlier stay (a wired board or a flaky reply must not blank them).
+func TestRefreshKeepsEarlierWifiFactsWhenStatus11Fails(t *testing.T) {
+	p, st, id, _, _ := raceSetup(t)
+	p.Client = override{Client: p.Client, reply: map[string]string{"Status 5": status5Net, "Status 11": status11Net}}
+	if err := p.Refresh(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	p.Client = override{Client: p.Client.(override).Client, reply: map[string]string{"Status 5": status5Net, "Status 11": `{"Command":"Error"}`}}
+	if err := p.Refresh(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	d, err := st.GetDevice(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Net.Hostname != "plug-1" || d.Net.Gateway != "192.0.2.1" || d.Net.SSID != "IoT" || d.Net.Channel != 11 {
+		t.Fatalf("facts after a Status 11 failure: %+v", d.Net)
+	}
+}
