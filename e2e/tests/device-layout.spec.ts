@@ -1,7 +1,7 @@
 import { test, expect } from "../support/fixtures";
 import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
-// The device overview (Thomas's preview feedback, items 7d, 7e, 9): sibling cards never touch
+// The device overview (maintainer feedback, items 7d, 7e, 9): sibling cards never touch
 // (they keep the gap token), and the header's power control looks like its neighbours in every
 // state and theme (the generic button[aria-pressed=true] rule once made it a light pill).
 const adam = { "X-authentik-username": "adam", "X-authentik-groups": "adm" };

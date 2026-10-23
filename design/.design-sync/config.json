@@ -1,5 +1,4 @@
 {
-  "projectId": "f2c65d58-0290-4d65-836c-15afb8c2c380",
   "shape": "package",
   "notes": "Plain CSS/HTML design system (no React/dist); upload layout produced by hand per Modernist format; upload root ds-bundle/."
 }

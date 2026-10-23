@@ -17,7 +17,7 @@ the style guide in the app wins.
 | `ds-bundle/` | The upload root for Claude Design: `styles.css` (generated), `components/`, `foundations/`, `templates/` (the four prototype pages and `templates/nav-patterns/` with `PORT.md`, the binding port guide, `README.md`, `patterns.css`), `fonts/` (Archivo, OFL), `assets/`, `theme.js`, `theme.json`, `thumbnail.html` |
 | `v2/` | The second prototype (design v2 port): `template.html`, the bundle, the reference manifest; see `v2/README.md` |
 | `tools/` | Build and check scripts (Python 3 standard library, Node for `shots.mjs`) |
-| `.design-sync/` | `config.json` (Claude Design project id), `NOTES.md` (sync log), `conventions.md` (tokens and class vocabulary) |
+| `.design-sync/` | `config.json` (sync settings), `NOTES.md` (sync log), `conventions.md` (tokens and class vocabulary) |
 
 ## Build
 
@@ -36,7 +36,7 @@ directory. Do not commit screenshots or `__pycache__`.
 
 ## Re-sync with Claude Design
 
-The upload root is `ds-bundle/`; the project id is in `.design-sync/config.json`. Run
+The upload root is `ds-bundle/`; the project id is not committed (the sync asks for it). Run
 `/design-sync` in Claude Code from this folder. The first sync after the move re-verifies
 everything (there is no `_ds_sync.json` anchor yet). Known template defects are listed in
 `.design-sync/NOTES.md`.

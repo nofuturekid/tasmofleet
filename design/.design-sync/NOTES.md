@@ -1,1 +1,1 @@
-- 2026-10-20: first upload to Claude Design project f2c65d58-0290-4d65-836c-15afb8c2c380 (32 files, hand-made layout, no _ds_sync.json anchor → next sync re-verifies everything). Known template defects: firmware 375px bulk bar overlaps table header; "Needed by" line floats outside its file row.
+- 2026-10-20: first upload to the Claude Design project (32 files, hand-made layout, no _ds_sync.json anchor → next sync re-verifies everything). Known template defects: firmware 375px bulk bar overlaps table header; "Needed by" line floats outside its file row.

@@ -137,7 +137,7 @@ templ styleguidePage(v sgView) {
 		@sgSec("cards") {
 			<div class="sg-cols">
 				@ui.Card("Identity", "") {
-					@ui.KV([]ui.KVRow{{Key: "Address", Value: "192.168.20.12", Mono: true}, {Key: "MAC", Value: "A4:CF:12:9B:3E:01", Mono: true}, {Key: "Firmware", Value: "Tasmota 14.2.0", Mono: true}, {Key: "Module", Value: "Sonoff Basic (1)"}})
+					@ui.KV([]ui.KVRow{{Key: "Address", Value: "192.168.20.12", Mono: true}, {Key: "MAC", Value: "02:00:5E:9B:3E:01", Mono: true}, {Key: "Firmware", Value: "Tasmota 14.2.0", Mono: true}, {Key: "Module", Value: "Sonoff Basic (1)"}})
 				}
 				@ui.ListCard("Needs attention", "All devices", v.Base+"/styleguide") {
 					@ui.AttentionList(nil, []ui.AttItem{{Tone: ui.ToneDanger, Name: "Garage Door Sensor", Text: "Offline for 3 h", Href: v.Base + "/styleguide"}}, v.CSRF)

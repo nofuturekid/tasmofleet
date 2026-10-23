@@ -400,7 +400,7 @@ func styleguidePage(v sgView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = ui.KV([]ui.KVRow{{Key: "Address", Value: "192.168.20.12", Mono: true}, {Key: "MAC", Value: "A4:CF:12:9B:3E:01", Mono: true}, {Key: "Firmware", Value: "Tasmota 14.2.0", Mono: true}, {Key: "Module", Value: "Sonoff Basic (1)"}}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = ui.KV([]ui.KVRow{{Key: "Address", Value: "192.168.20.12", Mono: true}, {Key: "MAC", Value: "02:00:5E:9B:3E:01", Mono: true}, {Key: "Firmware", Value: "Tasmota 14.2.0", Mono: true}, {Key: "Module", Value: "Sonoff Basic (1)"}}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

@@ -332,7 +332,7 @@ func stateChanges(n int) []store.HealthEvent {
 	return out
 }
 
-// Why: Thomas saw the Columns button on a row of its own under the card title, detached from
+// Why: maintainer feedback showed the Columns button on a row of its own under the card title, detached from
 // the card ("looks lost"). On the device page it sits in the card's head, on the title's line.
 func TestStateChangesColumnsButtonSitsInTheCardHead(t *testing.T) {
 	at := time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)
@@ -369,7 +369,7 @@ func rowsAfter(body, marker string) int {
 	return strings.Count(rest, "<tr><td") + strings.Count(rest, "<tr>\n<td")
 }
 
-// Why: Thomas asked how far the lists on the device page can grow. The overview is a summary:
+// Why: maintainer feedback asked how far the lists on the device page can grow. The overview is a summary:
 // the newest 10 of each, and a link to the complete list (the state history page, and the
 // transactions filtered by this device).
 func TestDeviceOverviewListsTheNewest10WithLinksToTheCompleteLists(t *testing.T) {
@@ -436,7 +436,7 @@ func TestTransactionsListCanBeFilteredByDevice(t *testing.T) {
 var probedNet = model.NetFacts{Hostname: "tablet-charger", IP: "10.0.0.77", Gateway: "10.0.0.1", SSID: "iot-net", BSSID: "02:00:5E:00:00:09", Channel: 36,
 	ReadAt: time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)}
 
-// Why: Thomas saw Hostname, Gateway, SSID, BSSID and Channel as "Unknown" on a device that had
+// Why: maintainer feedback showed Hostname, Gateway, SSID, BSSID and Channel as "Unknown" on a device that had
 // no backup snapshot. The facts a probe stored on the device are shown without any snapshot,
 // and "Refresh identity" shows the hostname it just read.
 func TestDeviceOverviewShowsProbedNetworkFactsWithoutSnapshot(t *testing.T) {
@@ -465,10 +465,10 @@ func TestDeviceOverviewShowsProbedNetworkFactsWithoutSnapshot(t *testing.T) {
 func TestNetworkCardSeparatesTheConfiguredAddressFromTheDeviceIP(t *testing.T) {
 	e := setup(t)
 	d := e.inv.devs[1]
-	d.Address, d.Net = "tablet-charger.home.internal", probedNet
+	d.Address, d.Net = "tablet-charger.example.internal", probedNet
 	e.inv.devs[1] = d
 	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
-	for _, want := range []string{`<dt>Address</dt><dd class="mono" data-visual-mask>tablet-charger.home.internal</dd>`, `<dt>IP address</dt><dd class="mono" data-visual-mask>10.0.0.77</dd>`} {
+	for _, want := range []string{`<dt>Address</dt><dd class="mono" data-visual-mask>tablet-charger.example.internal</dd>`, `<dt>IP address</dt><dd class="mono" data-visual-mask>10.0.0.77</dd>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("network card lacks %q", want)
 		}
