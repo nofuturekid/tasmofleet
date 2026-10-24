@@ -1,3 +1,4 @@
+// CI probe: measures the safety jobs (do not merge).
 package ota
 
 import (

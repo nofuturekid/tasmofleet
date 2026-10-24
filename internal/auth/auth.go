@@ -1,3 +1,4 @@
+// CI probe: measures the safety jobs (do not merge).
 // Package auth authenticates web requests and maps identities to roles.
 //
 // Modes (TASMOFLEET_AUTH_MODE):
