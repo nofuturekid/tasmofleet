@@ -244,6 +244,12 @@ func TestParseReply_FixtureShapes(t *testing.T) {
 	if err := classifyReply([]byte(`garbage`)); !errors.Is(err, ErrBadResponse) {
 		t.Errorf("garbage: %v", err)
 	}
+	// Status 9 on a device without energy monitoring: callers that need the data
+	// still see a bad response, the backup can tell it apart from a broken one.
+	err := classifyReply([]byte(`{"Command":"Error","Input":"STATUS 9"}`))
+	if !errors.Is(err, ErrCommandError) || !errors.Is(err, ErrBadResponse) {
+		t.Errorf("command error: %v", err)
+	}
 }
 
 const minimalRoot = `<!DOCTYPE html><html lang="de" class=""><head><meta charset='utf-8'><title>Prusa Plug Main Menu</title></head><body><div style='text-align:left;display:inline-block;color:#eaeaea;min-width:340px;'><div style='text-align:center;color:#eaeaea;'><h3>MINIMAL firmware<br>please upgrade</h3><h3>Sonoff Basic</h3><h2>Prusa Plug</h2></div><form id=but5 action='up' method='get'><button>Firmware Upgrade</button></form><div style='text-align:right;font-size:11px;'><hr><a href='https://github.com/arendst/Tasmota' target='_blank' style='color:#aaa;'>Tasmota 16.0.0 (release-minimal) by Theo Arends</a></div></div></body></html>`

@@ -333,6 +333,10 @@ func (m *Manager) snapshot(ctx context.Context, t tasmota.Target) (data []byte, 
 		}
 		raw, cerr := m.o.Client.Command(ctx, t, c.cmnd)
 		switch {
+		case c.key == "Status9" && errors.Is(cerr, tasmota.ErrCommandError):
+			// StatusPTH exists only on devices with energy monitoring; the
+			// others answer {"Command":"Error"} by design, so nothing is missing.
+			doc[c.key] = errorValue(cerr)
 		case cerr != nil:
 			failed = append(failed, c.cmnd)
 			doc[c.key] = errorValue(cerr)

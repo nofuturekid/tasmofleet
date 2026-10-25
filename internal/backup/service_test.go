@@ -34,6 +34,7 @@ type fakeDevice struct {
 	inFlight int32
 	maxSeen  int32
 	extra    map[string]string // additional canned replies (Rule1.., Timers)
+	errs     map[string]error  // commands that fail with this error
 	t        *testing.T
 }
 
@@ -42,6 +43,9 @@ func newFakeDevice(t *testing.T) *fakeDevice {
 }
 
 func (f *fakeDevice) reply(cmnd string) (json.RawMessage, error) {
+	if err, ok := f.errs[cmnd]; ok {
+		return nil, err
+	}
 	if r, ok := f.extra[cmnd]; ok {
 		return json.RawMessage(r), nil
 	}
@@ -353,6 +357,32 @@ func TestSnapshotContentAndIncompleteNote(t *testing.T) {
 	}
 	if got[1].Note != "" {
 		t.Errorf("complete snapshot must carry no note: %q", got[1].Note)
+	}
+}
+
+// Why: Status 9 (StatusPTH) exists only on devices with energy monitoring; the
+// others answer {"Command":"Error"} by design (issue #55). That is not a
+// missing part, while a failing Status 9 for any other reason still is.
+func TestStatus9ErrorOnNonEnergyDeviceKeepsSnapshotComplete(t *testing.T) {
+	e := newEnv(t, nil)
+	e.dev.extra = map[string]string{"Rule1": `{"Rule1":{"State":"OFF"}}`, "Rule2": `{"Rule2":{"State":"OFF"}}`, "Rule3": `{"Rule3":{"State":"OFF"}}`, "Timers": `{"Timers":"OFF"}`}
+	e.dev.errs = map[string]error{"Status 9": tasmota.ErrCommandError}
+	got, err := e.m.Backup(context.Background(), "t", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[1].Note != "" {
+		t.Errorf("Command Error on Status 9 marked the snapshot incomplete: %q", got[1].Note)
+	}
+
+	e.dev.errs = map[string]error{"Status 9": tasmota.ErrTimeout, "Status 11": tasmota.ErrCommandError}
+	e.clk.t = e.clk.t.Add(time.Minute)
+	got, err = e.m.Backup(context.Background(), "t", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got[1].Note, "Status 9") || !strings.Contains(got[1].Note, "Status 11") {
+		t.Errorf("a timeout on Status 9 and Command Error on Status 11 must stay gaps: %q", got[1].Note)
 	}
 }
 

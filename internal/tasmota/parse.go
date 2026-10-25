@@ -59,7 +59,7 @@ func classifyObject(m map[string]json.RawMessage) error {
 	if cmd, _ := stringField(m, "Command"); cmd == "Unknown" {
 		return ErrUnknownCommand
 	} else if cmd == "Error" {
-		return badResponse("device answered Command Error")
+		return ErrCommandError
 	}
 	if w, ok := stringField(m, "WARNING"); ok && strings.HasPrefix(w, "Need user") {
 		return ErrAuth

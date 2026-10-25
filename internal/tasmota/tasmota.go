@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"time"
@@ -30,6 +31,10 @@ var (
 	ErrTimeout        = errors.New("tasmota: timeout")
 	ErrForbiddenAddr  = errors.New("tasmota: address outside device networks")
 	ErrBadResponse    = errors.New("tasmota: unparsable response")
+	// ErrCommandError is {"Command":"Error"}: a known command that has nothing to
+	// say on this device (Status 9 without energy monitoring). It is a bad
+	// response for every caller that needs the data, hence the wrap.
+	ErrCommandError   = fmt.Errorf("%w: device answered Command Error", ErrBadResponse)
 	ErrNotImplemented = errors.New("tasmota: not implemented")
 )
 

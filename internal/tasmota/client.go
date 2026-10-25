@@ -305,7 +305,7 @@ func (c *httpClient) command(ctx context.Context, t Target, cmnd string) (json.R
 		return nil, err
 	}
 	if err := classifyReply(body); err != nil {
-		if errors.Is(err, ErrBadResponse) {
+		if errors.Is(err, ErrBadResponse) && !errors.Is(err, ErrCommandError) {
 			return nil, &deviceError{ErrBadResponse, "reply to command is not a JSON object"}
 		}
 		return nil, err

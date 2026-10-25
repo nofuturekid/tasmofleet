@@ -46,11 +46,28 @@ func (h *handler) backupDownload(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data) //nolint:gosec // G705: attachment served as octet-stream with nosniff, not rendered
 }
 
-// safeName builds a download name from the stored backup, never from user input.
+// safeName builds the download name from the stored backup, never from user
+// input: "<device>-<UTC stamp>.dmp", with "-snapshot"/"-decoded" before the
+// extension for the JSON kinds. The stored file name repeats the kind
+// ("...-dmp.dmp") and says nothing about the device, so it is only the fallback.
 func safeName(b model.Backup) string {
-	base := path.Base(b.Path)
+	ext := path.Ext(b.Path)
+	if b.TakenAt.IsZero() || ext == "" {
+		return sanitizeName(path.Base(b.Path), fmt.Sprintf("backup-%d", b.ID))
+	}
+	name := sanitizeName(b.DeviceName, fmt.Sprintf("device-%d", b.DeviceID))
+	name += "-" + b.TakenAt.UTC().Format("20060102T150405Z")
+	if b.Kind != model.BackupConfigDump {
+		name += "-" + string(b.Kind)
+	}
+	return name + sanitizeName(ext, ".bin")
+}
+
+// sanitizeName keeps letters, digits, dot, dash and underscore; everything else
+// becomes "_". An empty result yields fallback.
+func sanitizeName(s, fallback string) string {
 	var sb strings.Builder
-	for _, r := range base {
+	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
 			sb.WriteRune(r)
@@ -58,8 +75,8 @@ func safeName(b model.Backup) string {
 			sb.WriteByte('_')
 		}
 	}
-	if sb.Len() == 0 {
-		return fmt.Sprintf("backup-%d", b.ID)
+	if strings.Trim(sb.String(), "_.-") == "" {
+		return fallback
 	}
 	return sb.String()
 }

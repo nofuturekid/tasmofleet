@@ -554,6 +554,29 @@ func TestBackupDownloadIsAuditedAttachment(t *testing.T) {
 	}
 }
 
+// Why: a downloaded dump must say which device it belongs to (issue #55); the
+// stored name "<stamp>-dmp.dmp" does not, and repeats the kind. The name is
+// device-derived, so it must stay filesystem- and header-safe.
+func TestBackupDownloadNameCarriesDeviceNotKindTwice(t *testing.T) {
+	e := setup(t)
+	at := time.Date(2026, 10, 25, 16, 15, 35, 0, time.UTC)
+	e.bk.list = []model.Backup{
+		{ID: 7, DeviceID: 1, DeviceName: "Küche \"Spot\"/1", Kind: model.BackupConfigDump, TakenAt: at, Path: "backups/1/20261025T161535Z-dmp.dmp"},
+		{ID: 8, DeviceID: 1, DeviceName: "Küche \"Spot\"/1", Kind: model.BackupSnapshot, TakenAt: at, Path: "backups/1/20261025T161535Z-snapshot.json"},
+		{ID: 9, DeviceID: 4, DeviceName: "", Kind: model.BackupConfigDump, TakenAt: at, Path: "backups/4/20261025T161535Z-dmp.dmp"},
+	}
+	for id, want := range map[int]string{
+		7: `attachment; filename="K_che__Spot__1-20261025T161535Z.dmp"`,
+		8: `attachment; filename="K_che__Spot__1-20261025T161535Z-snapshot.json"`,
+		9: `attachment; filename="device-4-20261025T161535Z.dmp"`,
+	} {
+		resp, _ := e.do(t, "GET", fmt.Sprintf("/backups/%d", id), "admin", nil)
+		if got := resp.Header.Get("Content-Disposition"); got != want {
+			t.Errorf("backup %d: Content-Disposition %q, want %q", id, got, want)
+		}
+	}
+}
+
 func TestNotFoundAndBadID(t *testing.T) {
 	e := setup(t)
 	for _, p := range []string{"/devices/999", "/devices/abc", "/devices/0"} {
