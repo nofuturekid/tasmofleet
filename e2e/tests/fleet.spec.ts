@@ -321,5 +321,6 @@ test("backup now, download is admin only", async ({ page, request }) => {
   expect(asOperator.status()).toBe(403);
   const asAdmin = await request.get(app.url + href!, { headers: admin });
   expect(asAdmin.status()).toBe(200);
-  expect(asAdmin.headers()["content-disposition"]).toContain("attachment");
+  // the file name says which device it is from (#55), not "<stamp>-dmp.dmp"
+  expect(asAdmin.headers()["content-disposition"]).toMatch(/^attachment; filename="plug-4m-\d{8}T\d{6}Z(-snapshot|-decoded)?\.(dmp|json)"$/);
 });
