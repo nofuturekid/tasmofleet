@@ -49,6 +49,9 @@ func validateWant(command, want string) error {
 	if f, ok := settings.Lookup(command); ok && f.Validate != nil {
 		return f.Validate(want)
 	}
+	if settings.SetOptionParam(command) {
+		return settings.ValidateSetOptionParam(want)
+	}
 	return nil
 }
 

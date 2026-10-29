@@ -182,6 +182,13 @@ func controlFor(command, want string, keepInvalid bool) valueControl {
 		if !keepInvalid && want != "" && f.Validate != nil && f.Validate(want) != nil {
 			vc.Want = ""
 		}
+	case settings.SetOptionParam(command):
+		vc.Kind = "number"
+		vc.Min, vc.Max, vc.HasRange = 0, settings.SetOptionParamMax, true
+		vc.Hint = command + " is a number, not an on/off switch (0 to 255)."
+		if !keepInvalid && want != "" && settings.ValidateSetOptionParam(want) != nil {
+			vc.Want = ""
+		}
 	case setOptionRe.MatchString(command) && (want == "" || want == "0" || want == "1"):
 		vc.Kind = "toggle"
 	case settings.Generic(command):

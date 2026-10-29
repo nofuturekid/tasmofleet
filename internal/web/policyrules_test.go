@@ -528,3 +528,37 @@ func TestPolicyRuleValueControlClearsTheCommandError(t *testing.T) {
 		t.Errorf("a reason survives in the swap: %s", body)
 	}
 }
+
+// Why: SetOption32..49 are one-byte numeric parameters in Tasmota (button hold
+// time, bistable pulse time, ...). A 0/1 toggle made it impossible to require
+// e.g. SetOption45 = 40; every other SetOption stays a flag.
+func TestPolicyRuleSetOptionParametersAreNumbers(t *testing.T) {
+	for _, c := range []struct{ cmd, kind string }{
+		{"SetOption32", "number"}, {"SetOption45", "number"}, {"SetOption49", "number"},
+		{"SetOption0", "toggle"}, {"SetOption31", "toggle"}, {"SetOption50", "toggle"}, {"SetOption114", "toggle"},
+	} {
+		vc := controlFor(c.cmd, "", false)
+		if vc.Kind != c.kind {
+			t.Errorf("%s: control %q, want %q", c.cmd, vc.Kind, c.kind)
+		}
+		if c.kind == "number" && (!vc.HasRange || vc.Min != 0 || vc.Max != 255) {
+			t.Errorf("%s: range %v %d..%d, want 0..255", c.cmd, vc.HasRange, vc.Min, vc.Max)
+		}
+	}
+	// A saved 40 is kept (it was a toggle-only 0/1 before).
+	if vc := controlFor("SetOption45", "40", false); vc.Want != "40" {
+		t.Errorf("SetOption45 40 kept as %q", vc.Want)
+	}
+}
+
+// Why: the editor round trip for a numeric SetOption must save the number.
+func TestPolicyRuleSetOptionParameterRoundTrip(t *testing.T) {
+	e, _, _ := rulesEnv(t, "")
+	saveRule(t, e, url.Values{"command": {"SetOption45"}, "want": {"40"}, "name": {"Bistable pulse"}})
+	_, body := e.do(t, "GET", "/policy/rules/value-control?command=SetOption45&want=40", "admin", nil)
+	for _, w := range []string{`type="number"`, `min="0"`, `max="255"`, `value="40"`} {
+		if !strings.Contains(body, w) {
+			t.Errorf("control lacks %q:\n%s", w, body)
+		}
+	}
+}

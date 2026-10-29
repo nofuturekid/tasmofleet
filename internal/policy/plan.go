@@ -79,6 +79,11 @@ func CommandText(command, want string) (string, error) {
 		return f.Command(want), nil
 	}
 	if setOptionRe.MatchString(command) && setOptionValueRe.MatchString(want) {
+		if settings.SetOptionParam(command) {
+			if err := settings.ValidateSetOptionParam(want); err != nil {
+				return "", err
+			}
+		}
 		return command + " " + want, nil
 	}
 	return genericText(command, want)

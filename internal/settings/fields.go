@@ -405,6 +405,29 @@ func Lookup(key string) (Field, bool) {
 	return Field{}, false
 }
 
+// SetOption32 to SetOption49 are not flags: they are Settings->param[0..17], one
+// byte each (button hold time, boot loop threshold, bistable pulse time, ...).
+const (
+	setOptionParamFirst = 32
+	setOptionParamLast  = 49
+	// SetOptionParamMax is the largest value a one-byte parameter holds.
+	SetOptionParamMax = 255
+)
+
+// SetOptionParam says whether cmd is one of the numeric SetOption32..49.
+func SetOptionParam(cmd string) bool {
+	if !setOptionKeyRe.MatchString(cmd) {
+		return false
+	}
+	n, err := strconv.Atoi(cmd[len("SetOption"):])
+	return err == nil && n >= setOptionParamFirst && n <= setOptionParamLast
+}
+
+// ValidateSetOptionParam checks the value of a numeric SetOption.
+func ValidateSetOptionParam(want string) error {
+	return intRange(0, SetOptionParamMax)(want)
+}
+
 var setOptionKeyRe = regexp.MustCompile(`^SetOption[0-9]{1,3}$`)
 
 // Curated says whether cmd names a curated field or a SetOption, in any letter

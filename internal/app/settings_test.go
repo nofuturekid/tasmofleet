@@ -196,3 +196,14 @@ func TestPolicyRulesRefuseSecretsLoudly(t *testing.T) {
 		}
 	}
 }
+
+// Why: saving a rule must refuse a SetOption32..49 value a one-byte parameter
+// cannot hold, instead of failing only when Make compliant sends it.
+func TestValidateWantSetOptionParameter(t *testing.T) {
+	if err := validateWant("SetOption45", "40"); err != nil {
+		t.Errorf("SetOption45 40: %v", err)
+	}
+	if err := validateWant("SetOption45", "256"); err == nil {
+		t.Error("SetOption45 256 must be refused")
+	}
+}
