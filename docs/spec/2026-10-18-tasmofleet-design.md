@@ -1183,8 +1183,8 @@ one command at a time, and set with `<Command> <want>`. Never allowed: `Status` 
 whose set form needs a console confirmation. The checks are `cmdpolicy.PolicyReadable` and
 `cmdpolicy.PolicySetText`; the claims are in docs/security/command-policy.md (G1 to G6). A
 generic rule has no value validator, is not read from backups and never restarts the device.
-`Sleep` is the one nested reply (`{"Sleep":{"50":{"Active":"100"}}}`): the rule compares the
-configured value (the object key), not the active one.
+`Sleep`, `SerialLog` and `SysLog` reply nested (`{"Sleep":{"50":{"Active":"100"}}}`); the rule
+compares the configured value (the object key), not the active one.
 
 ### 14.5 Notifications
 

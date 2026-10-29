@@ -153,7 +153,7 @@ func TestSleepRuleComparesTheConfiguredValueNotTheActiveOne(t *testing.T) {
 // Why: only the exact Sleep shape is unwrapped. Any other nested reply stays unknown, never a guess.
 func TestSleepUnwrapIsExact(t *testing.T) {
 	for _, in := range []string{
-		`{"Sleep":{"50":{"Active":"100","X":1}}}`, `{"Sleep":{"abc":{"Active":"1"}}}`, `{"Sleep":{"50":{"Other":"1"}}}`,
+		`{"Sleep":{"50":{"Active":"100","X":1}}}`, `{"Sleep":{"abc":{"Active":"1"}}}`, `{"Sleep":{"50":{"Other":"1"}}}`, `{"Sleep":{"50":{"Active":{"x":1}}}}`, `{"Sleep":{"50":{"Active":"x"}}}`,
 		`{"Sleep":{"50":{"Active":"1"},"60":{"Active":"1"}}}`, `{"Sleep":{"050":{"Active":"1"}}}`, `{"Sleep":{"-1":{"Active":"1"}}}`,
 	} {
 		if v := ParseReply([]byte(in)); v != nil {

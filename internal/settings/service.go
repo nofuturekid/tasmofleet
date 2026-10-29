@@ -233,13 +233,19 @@ func replyScalar(cmd string, val json.RawMessage) (string, bool) {
 // {"Sleep":{"50":{"Active":"100"}}}: the object key is Settings->sleep (what a rule sets), "Active"
 // the value in effect now (it differs while dynamic sleep adapts). Only the configured one is
 // comparable with a rule; any other shape is not this reply.
+func plainDecimal(s string) bool {
+	n, err := strconv.Atoi(s)
+	return err == nil && n >= 0 && strconv.Itoa(n) == s
+}
+
 func sleepConfigured(val json.RawMessage) (string, bool) {
-	var outer map[string]map[string]json.RawMessage
+	var outer map[string]map[string]string
 	if json.Unmarshal(val, &outer) != nil || len(outer) != 1 {
 		return "", false
 	}
 	for k, inner := range outer {
-		if _, ok := inner["Active"]; !ok || len(inner) != 1 {
+		active, ok := inner["Active"]
+		if !ok || len(inner) != 1 || !plainDecimal(active) {
 			return "", false
 		}
 		if n, err := strconv.Atoi(k); err != nil || n < 0 || strconv.Itoa(n) != k {
