@@ -246,7 +246,7 @@ func (g *genericDevice) Command(_ context.Context, _ tasmota.Target, cmnd string
 	case "LedState":
 		return json.RawMessage(`{"LedState":1}`), nil
 	case "Sleep":
-		return json.RawMessage(`{"Sleep":50}`), nil
+		return json.RawMessage(`{"Sleep":{"50":{"Active":"50"}}}`), nil
 	case "Baudrate":
 		return json.RawMessage(`{"Baudrate":"https://admin:hunter2@host/x"}`), nil
 	}
@@ -306,7 +306,7 @@ func TestMQTTUpdatesKeepGenericKeys(t *testing.T) {
 	ch := make(chan policyUpdate, 4)
 	at := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
 	ch <- policyUpdate{topic: "plug", vals: settings.ParseReply([]byte(`{"LEDSTATE":"OFF"}`)), at: at}
-	ch <- policyUpdate{topic: "plug", vals: settings.ParseReply([]byte(`{"Sleep":20}`)), at: at}
+	ch <- policyUpdate{topic: "plug", vals: settings.ParseReply([]byte(`{"Sleep":{"20":{"Active":"20"}}}`)), at: at}
 	ch <- policyUpdate{topic: "plug", vals: settings.ParseReply([]byte(`{"Password":"s3cret"}`)), at: at}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})

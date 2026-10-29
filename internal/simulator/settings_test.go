@@ -273,3 +273,19 @@ func TestAllEditorCommandsKnown(t *testing.T) {
 		}
 	}
 }
+
+// Why: the simulator once answered {"Sleep":50}, so tests passed while a real device never matched
+// a Sleep rule. Tasmota v16 (CmndSleep, S_JSON_COMMAND_NVALUE_ACTIVE_NVALUE) answers
+// {"Sleep":{"<configured>":{"Active":"<active>"}}}; LedState (ResponseCmndNumber) a plain number.
+func TestSleepAndLedStateReplyLikeV16(t *testing.T) {
+	d := newSettingsDevice(t)
+	if got := cm(t, d, "Sleep 50"); got != `{"Sleep":{"50":{"Active":"50"}}}` {
+		t.Errorf("Sleep 50 -> %s", got)
+	}
+	if got := cm(t, d, "Sleep"); got != `{"Sleep":{"50":{"Active":"50"}}}` {
+		t.Errorf("Sleep -> %s", got)
+	}
+	if got := cm(t, d, "LedState 3"); got != `{"LedState":3}` {
+		t.Errorf("LedState 3 -> %s", got)
+	}
+}

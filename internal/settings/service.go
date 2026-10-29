@@ -209,7 +209,43 @@ func replyValue(key string, raw json.RawMessage) (string, bool) {
 		if !strings.EqualFold(k, key) { // e.g. {"Command":"ok"} answers nothing we asked
 			return "", false
 		}
-		return scalar(val)
+		return replyScalar(key, val)
+	}
+	return "", false
+}
+
+// activeReplyCommands answer with S_JSON_COMMAND_NVALUE_ACTIVE_NVALUE in Tasmota v16
+// (support_command.ino: CmndSleep, CmndSeriallog, CmndSyslog). Every other command is read as is.
+var activeReplyCommands = []string{"Sleep", "SerialLog", "SysLog"}
+
+// replyScalar is scalar plus the one reply shape that is not a scalar: configured/active.
+func replyScalar(cmd string, val json.RawMessage) (string, bool) {
+	if slices.ContainsFunc(activeReplyCommands, func(c string) bool { return strings.EqualFold(c, cmd) }) {
+		if v, ok := sleepConfigured(val); ok {
+			return v, true
+		}
+	}
+	return scalar(val)
+}
+
+// sleepConfigured reads the configured value out of Tasmota's Sleep reply (SerialLog and SysLog use
+// the same format). Sleep answers
+// {"Sleep":{"50":{"Active":"100"}}}: the object key is Settings->sleep (what a rule sets), "Active"
+// the value in effect now (it differs while dynamic sleep adapts). Only the configured one is
+// comparable with a rule; any other shape is not this reply.
+func sleepConfigured(val json.RawMessage) (string, bool) {
+	var outer map[string]map[string]json.RawMessage
+	if json.Unmarshal(val, &outer) != nil || len(outer) != 1 {
+		return "", false
+	}
+	for k, inner := range outer {
+		if _, ok := inner["Active"]; !ok || len(inner) != 1 {
+			return "", false
+		}
+		if n, err := strconv.Atoi(k); err != nil || n < 0 || strconv.Itoa(n) != k {
+			return "", false
+		}
+		return k, true
 	}
 	return "", false
 }

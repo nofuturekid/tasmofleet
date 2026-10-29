@@ -263,6 +263,11 @@ func (d *simDevice) settingCmdLocked(base string, idx int, hasIdx bool, data str
 		}
 		name := map[string]string{"sleep": "Sleep", "ledstate": "LedState"}[base]
 		body = []byte(`{"` + name + `":` + d.get(base) + `}`)
+		if base == "sleep" {
+			// Tasmota v16 CmndSleep: {"Sleep":{"<Settings->sleep>":{"Active":"<TasmotaGlobal.sleep>"}}}
+			// (S_JSON_COMMAND_NVALUE_ACTIVE_NVALUE). The simulator has no dynamic sleep: both are equal.
+			body = []byte(`{"Sleep":{"` + d.get(base) + `":{"Active":"` + d.get(base) + `"}}}`)
+		}
 	case "setoption":
 		if !hasIdx {
 			return nil, false

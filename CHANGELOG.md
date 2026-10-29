@@ -64,6 +64,10 @@ always upgrade automatically.
   overtaken by a live message (#161).
 - A correct ESP32-S2 or ESP32-P4 update no longer ends as "not taken": these chips report the shared
   image name afterwards, so the check now compares with what the device can report.
+- Policy rules for `Sleep` compared the whole reply and never matched a real device: Tasmota answers
+  `{"Sleep":{"50":{"Active":"100"}}}`. The rule now compares the configured value (50), so Make
+  compliant no longer resends it forever. `SerialLog` and `SysLog` answer in the same format and are
+  read the same way.
 
 ### Security
 

@@ -82,7 +82,7 @@ func ParseReply(payload []byte) map[string]string {
 		if Generic(cmd) {
 			raw = cmdpolicy.ScrubReply(raw)
 		}
-		if v, ok := scalar(raw); ok {
+		if v, ok := replyScalar(cmd, raw); ok {
 			out[cmd] = safeValue(cmd, replyNumber(cmd, v))
 		}
 	}

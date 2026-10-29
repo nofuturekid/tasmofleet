@@ -48,7 +48,7 @@ func TestGenericCommandsDoNotRestartTheDevice(t *testing.T) {
 // credentials, which must not survive into the policy values.
 func TestReadKeysGenericCommand(t *testing.T) {
 	c := &fakeClient{replies: map[string]string{
-		"Sleep":      `{"SLEEP":50}`,
+		"Sleep":      `{"SLEEP":{"50":{"Active":"100"}}}`,
 		"LedState":   `{"LedState":"ON"}`,
 		"WebLog":     `{"Command":"Unknown"}`,
 		"Latitude":   `{"Latitude":{"a":1}}`,
@@ -115,5 +115,60 @@ func TestParseReplyKeepsGenericKeys(t *testing.T) {
 	}
 	if got := ParseReply([]byte(`{"SetOption19":"OFF"}`)); got["SetOption19"] != "0" {
 		t.Errorf("a curated key still maps to its catalog name: %v", got)
+	}
+}
+
+// Why: Tasmota v16 answers a bare Sleep with a nested object, not a number: CmndSleep calls
+// Response_P(S_JSON_COMMAND_NVALUE_ACTIVE_NVALUE, command, Settings->sleep, TasmotaGlobal.sleep) and
+// the format is {"%s":{"%d":{"Active":"%d"}}} (include/i18n.h). A rule Sleep=50 compares the
+// configured value (the first %d, the one Make compliant sets); read as a whole object it never
+// matched a real device and Make compliant would resend Sleep 50 forever. The simulator answered
+// {"Sleep":50}, which hid it.
+func TestSleepReplyInTheV16Format(t *testing.T) {
+	const real = `{"Sleep":{"50":{"Active":"50"}}}` // printf '{"%s":{"%d":{"Active":"%d"}}}' Sleep 50 50
+	m, _ := newSvc(&fakeClient{replies: map[string]string{"Sleep": real}})
+	got, err := m.ReadKeys(t.Context(), 1, []string{"Sleep"})
+	if err != nil || got["Sleep"] != "50" {
+		t.Fatalf("read %v, %v; want Sleep=50", got, err)
+	}
+	if v := ParseReply([]byte(real)); v["Sleep"] != "50" {
+		t.Errorf("a RESULT message (the reply to Make compliant's Sleep 50) gave %v", v)
+	}
+}
+
+// Why: with dynamic sleep the active value moves (Settings->sleep 50, active 100); the rule is
+// about what is configured, so the active value must not decide the match.
+func TestSleepRuleComparesTheConfiguredValueNotTheActiveOne(t *testing.T) {
+	const dynamic = `{"Sleep":{"50":{"Active":"100"}}}`
+	m, _ := newSvc(&fakeClient{replies: map[string]string{"Sleep": dynamic}})
+	got, err := m.ReadKeys(t.Context(), 1, []string{"Sleep"})
+	if err != nil || got["Sleep"] != "50" {
+		t.Fatalf("read %v, %v; want the configured 50", got, err)
+	}
+	if v := ParseReply([]byte(`{"SLEEP":{"0":{"Active":"1"}}}`)); v["SLEEP"] != "0" {
+		t.Errorf("configured 0 (dynamic sleep off) gave %v", v)
+	}
+}
+
+// Why: only the exact Sleep shape is unwrapped. Any other nested reply stays unknown, never a guess.
+func TestSleepUnwrapIsExact(t *testing.T) {
+	for _, in := range []string{
+		`{"Sleep":{"50":{"Active":"100","X":1}}}`, `{"Sleep":{"abc":{"Active":"1"}}}`, `{"Sleep":{"50":{"Other":"1"}}}`,
+		`{"Sleep":{"50":{"Active":"1"},"60":{"Active":"1"}}}`, `{"Sleep":{"050":{"Active":"1"}}}`, `{"Sleep":{"-1":{"Active":"1"}}}`,
+	} {
+		if v := ParseReply([]byte(in)); v != nil {
+			t.Errorf("%s gave %v, want unknown", in, v)
+		}
+	}
+	// SerialLog and SysLog use the same S_JSON_COMMAND_NVALUE_ACTIVE_NVALUE format
+	if v := ParseReply([]byte(`{"SysLog":{"2":{"Active":"2"}}}`)); v["SysLog"] != "2" {
+		t.Errorf("SysLog gave %v", v)
+	}
+	if v := ParseReply([]byte(`{"SerialLog":{"2":{"Active":"3"}}}`)); v["SerialLog"] != "2" {
+		t.Errorf("SerialLog gave %v", v)
+	}
+	// no heuristics for other commands: the same shape under another name stays unknown
+	if v := ParseReply([]byte(`{"WebLog":{"50":{"Active":"1"}}}`)); v != nil {
+		t.Errorf("WebLog gave %v", v)
 	}
 }
