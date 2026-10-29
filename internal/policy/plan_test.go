@@ -126,6 +126,8 @@ func TestCommandTextValidates(t *testing.T) {
 		{"PowerOnState", "0", "PowerOnState 0"},
 		{"SetOption0", "OFF", "SetOption0 0"}, // ON/OFF are the policy's own synonyms
 		{"SetOption114", "1", "SetOption114 1"},
+		{"SetOption45", "1", "SetOption45 1"}, {"SetOption45", "250", "SetOption45 250"},
+		{"SetOption34", "0", "SetOption34 0"}, {"SetOption34", "255", "SetOption34 255"},
 		{"SetOption45", "40", "SetOption45 40"}, // SetOption32..49 are numeric parameters
 		{"Timezone", "99", "Timezone 99"},
 	} {
@@ -136,7 +138,7 @@ func TestCommandTextValidates(t *testing.T) {
 	}
 	for _, c := range []struct{ cmd, want string }{
 		{"PowerOnState", "9"}, {"SaveData", "9999"}, {"MqttPassword", "x"}, {"Restart", "1"}, {"SetOption0", "1; Restart 1"}, {"SetOption0", "x"},
-		{"Hostname", "a;b"}, {"SetOption45", "256"}, // the parameters are one byte
+		{"Hostname", "a;b"}, {"SetOption45", "0"}, {"SetOption45", "251"}, {"SetOption34", "256"}, // Tasmota answers Command Error out of range
 		{"SetOption32", "-1"},
 	} {
 		if got, err := CommandText(c.cmd, c.want); err == nil {

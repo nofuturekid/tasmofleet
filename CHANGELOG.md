@@ -54,7 +54,7 @@ always upgrade automatically.
 
 ### Fixed
 
-- Policy rule editor: SetOption32 to SetOption49 take a number (0 to 255), not an on/off toggle. They are numeric parameters in Tasmota (e.g. SetOption45, bistable relay pulse time), and a value above 255 is refused
+- Policy rule editor: SetOption32 to SetOption49 take a number (1 to 250 for SetOption32, 33 and 45, otherwise 0 to 255), not an on/off toggle. They are numeric parameters in Tasmota (e.g. SetOption45, bistable relay pulse time), and an out-of-range value is refused
 - An ESP32 with the single-app (safeboot) layout never gets the plain upload into its running app, even when Status 4 Free is larger than the image or its upload page could not be read when planning: a push goes through safeboot (or downloads while that is off), and the upload itself refuses such a page (#191)
 - An OtaUrl whose password contains `/`, `#` or `?` could be shown or compared in part. The
   URL credential redaction now parses the URL, and a value that cannot be cleaned safely is

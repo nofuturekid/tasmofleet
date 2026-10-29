@@ -541,8 +541,12 @@ func TestPolicyRuleSetOptionParametersAreNumbers(t *testing.T) {
 		if vc.Kind != c.kind {
 			t.Errorf("%s: control %q, want %q", c.cmd, vc.Kind, c.kind)
 		}
-		if c.kind == "number" && (!vc.HasRange || vc.Min != 0 || vc.Max != 255) {
-			t.Errorf("%s: range %v %d..%d, want 0..255", c.cmd, vc.HasRange, vc.Min, vc.Max)
+		lo, hi := 0, 255
+		if c.cmd == "SetOption32" || c.cmd == "SetOption45" {
+			lo, hi = 1, 250
+		}
+		if c.kind == "number" && (!vc.HasRange || vc.Min != lo || vc.Max != hi) {
+			t.Errorf("%s: range %v %d..%d, want %d..%d", c.cmd, vc.HasRange, vc.Min, vc.Max, lo, hi)
 		}
 	}
 	// A saved 40 is kept (it was a toggle-only 0/1 before).
@@ -556,7 +560,7 @@ func TestPolicyRuleSetOptionParameterRoundTrip(t *testing.T) {
 	e, _, _ := rulesEnv(t, "")
 	saveRule(t, e, url.Values{"command": {"SetOption45"}, "want": {"40"}, "name": {"Bistable pulse"}})
 	_, body := e.do(t, "GET", "/policy/rules/value-control?command=SetOption45&want=40", "admin", nil)
-	for _, w := range []string{`type="number"`, `min="0"`, `max="255"`, `value="40"`} {
+	for _, w := range []string{`type="number"`, `min="1"`, `max="250"`, `value="40"`} {
 		if !strings.Contains(body, w) {
 			t.Errorf("control lacks %q:\n%s", w, body)
 		}

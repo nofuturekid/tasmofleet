@@ -410,8 +410,6 @@ func Lookup(key string) (Field, bool) {
 const (
 	setOptionParamFirst = 32
 	setOptionParamLast  = 49
-	// SetOptionParamMax is the largest value a one-byte parameter holds.
-	SetOptionParamMax = 255
 )
 
 // SetOptionParam says whether cmd is one of the numeric SetOption32..49.
@@ -423,9 +421,21 @@ func SetOptionParam(cmd string) bool {
 	return err == nil && n >= setOptionParamFirst && n <= setOptionParamLast
 }
 
+// SetOptionParamRange is the range Tasmota accepts (CmndSetoptionBase):
+// SetOption32, 33 and 45 take 1 to 250, the others 0 to 255. Anything else
+// is a Command Error on the device, not clamped.
+func SetOptionParamRange(cmd string) (lo, hi int) {
+	switch cmd {
+	case "SetOption32", "SetOption33", "SetOption45":
+		return 1, 250
+	}
+	return 0, 255
+}
+
 // ValidateSetOptionParam checks the value of a numeric SetOption.
-func ValidateSetOptionParam(want string) error {
-	return intRange(0, SetOptionParamMax)(want)
+func ValidateSetOptionParam(cmd, want string) error {
+	lo, hi := SetOptionParamRange(cmd)
+	return intRange(lo, hi)(want)
 }
 
 var setOptionKeyRe = regexp.MustCompile(`^SetOption[0-9]{1,3}$`)

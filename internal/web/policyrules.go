@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -184,9 +185,10 @@ func controlFor(command, want string, keepInvalid bool) valueControl {
 		}
 	case settings.SetOptionParam(command):
 		vc.Kind = "number"
-		vc.Min, vc.Max, vc.HasRange = 0, settings.SetOptionParamMax, true
-		vc.Hint = command + " is a number, not an on/off switch (0 to 255)."
-		if !keepInvalid && want != "" && settings.ValidateSetOptionParam(want) != nil {
+		lo, hi := settings.SetOptionParamRange(command)
+		vc.Min, vc.Max, vc.HasRange = lo, hi, true
+		vc.Hint = fmt.Sprintf("%s is a number, not an on/off switch (%d to %d).", command, lo, hi)
+		if !keepInvalid && want != "" && settings.ValidateSetOptionParam(command, want) != nil {
 			vc.Want = ""
 		}
 	case setOptionRe.MatchString(command) && (want == "" || want == "0" || want == "1"):

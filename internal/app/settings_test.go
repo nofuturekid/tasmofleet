@@ -203,7 +203,12 @@ func TestValidateWantSetOptionParameter(t *testing.T) {
 	if err := validateWant("SetOption45", "40"); err != nil {
 		t.Errorf("SetOption45 40: %v", err)
 	}
-	if err := validateWant("SetOption45", "256"); err == nil {
-		t.Error("SetOption45 256 must be refused")
+	for _, w := range []string{"0", "251"} {
+		if err := validateWant("SetOption45", w); err == nil {
+			t.Errorf("SetOption45 %s must be refused", w)
+		}
+	}
+	if err := validateWant("SetOption34", "0"); err != nil {
+		t.Errorf("SetOption34 0: %v", err)
 	}
 }

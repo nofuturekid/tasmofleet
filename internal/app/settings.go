@@ -50,7 +50,7 @@ func validateWant(command, want string) error {
 		return f.Validate(want)
 	}
 	if settings.SetOptionParam(command) {
-		return settings.ValidateSetOptionParam(want)
+		return settings.ValidateSetOptionParam(command, want)
 	}
 	return nil
 }

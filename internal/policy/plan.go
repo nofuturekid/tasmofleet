@@ -80,7 +80,7 @@ func CommandText(command, want string) (string, error) {
 	}
 	if setOptionRe.MatchString(command) && setOptionValueRe.MatchString(want) {
 		if settings.SetOptionParam(command) {
-			if err := settings.ValidateSetOptionParam(want); err != nil {
+			if err := settings.ValidateSetOptionParam(command, want); err != nil {
 				return "", err
 			}
 		}
