@@ -4,6 +4,13 @@ All notable changes. Breaking changes are marked **breaking**. tasmofleet has no
 compatibility shims (see CLAUDE.md), so read this before upgrading. Database migrations
 always upgrade automatically.
 
+## Unreleased
+
+### Fixed
+
+- An Ethernet-capable ESP32 seen both through its `tasmota/discovery` config (Ethernet MAC) and through a scan
+  or `Status 5` (Wi-Fi MAC first) is now one proposal on the Discovered tab, not two (#45, thanks @Noschvie).
+
 ## 0.16.1 (2026-10-28)
 
 ### Fixed
@@ -1025,6 +1032,7 @@ always upgrade automatically.
   actions.
 
 ### Breaking
+
 - The policy rules page `<base>/policy/rules` is gone (no redirect): the rules are edited on
   `<base>/policy`. The export moved to `<base>/policy/io/export`, the import to
   `POST <base>/policy/io/import`; `<base>/policy/rules/diff` is replaced by `<base>/policy?v=<id>`.

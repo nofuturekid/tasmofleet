@@ -501,7 +501,7 @@ func (m *Manager) propose(ctx context.Context, c candidate, kind string, existin
 		Kind: kind, Via: c.via, Reason: reason, ExistingID: existing, SeenAt: m.clk.Now(),
 		Device: model.Device{Name: c.name, Address: c.ip.String(), Port: c.port, MAC: c.mac, Topic: c.topic, FullTopic: c.fullTopic},
 	}
-	if err := m.mergeSighting(ctx, &row); err != nil {
+	if err := m.mergeSighting(ctx, &row, c.allMACs()); err != nil {
 		return err
 	}
 	_, err := m.o.Store.UpsertProposal(ctx, row, limit)
@@ -517,11 +517,17 @@ func (m *Manager) propose(ctx context.Context, c candidate, kind string, existin
 // mergeSighting folds the stored row of the same MAC into row, so the two
 // sources describe one device without overwriting each other (D14): MQTT
 // owns topic, full topic, name and source, a scan contributes the port.
-func (m *Manager) mergeSighting(ctx context.Context, row *store.ProposalRow) error {
-	prev, ok, err := m.storedRow(ctx, row.Device.MAC)
+//
+// An Ethernet-capable ESP32 has two MACs: tasmota/discovery names the
+// Ethernet one, a scan or Status 5 the Wi-Fi one first (#45). A stored row
+// of any of macs is the same device, so the new sighting joins it under the
+// MAC the row already has instead of making a second proposal.
+func (m *Manager) mergeSighting(ctx context.Context, row *store.ProposalRow, macs []string) error {
+	prev, ok, err := m.storedRowOf(ctx, macs)
 	if err != nil || !ok {
 		return err
 	}
+	row.Device.MAC = prev.Device.MAC
 	if row.Via == ViaScan && prev.Via == ViaMQTT {
 		row.Via = ViaMQTT
 		row.Device.Name, row.Device.Topic, row.Device.FullTopic = prev.Device.Name, prev.Device.Topic, prev.Device.FullTopic
@@ -534,14 +540,22 @@ func (m *Manager) mergeSighting(ctx context.Context, row *store.ProposalRow) err
 
 // storedRow finds the visible or dismissed proposal of mac.
 func (m *Manager) storedRow(ctx context.Context, mac string) (store.ProposalRow, bool, error) {
+	return m.storedRowOf(ctx, []string{mac})
+}
+
+// storedRowOf finds the visible or dismissed proposal of any of macs; the
+// first MAC in macs that has one wins.
+func (m *Manager) storedRowOf(ctx context.Context, macs []string) (store.ProposalRow, bool, error) {
 	for _, list := range []func(context.Context) ([]store.ProposalRow, error){m.o.Store.ListProposals, m.o.Store.ListDismissedProposals} {
 		rows, err := list(ctx)
 		if err != nil {
 			return store.ProposalRow{}, false, err
 		}
-		for _, r := range rows {
-			if r.Device.MAC == mac {
-				return r, true, nil
+		for _, mac := range macs {
+			for _, r := range rows {
+				if r.Device.MAC == mac {
+					return r, true, nil
+				}
 			}
 		}
 	}
