@@ -1,7 +1,7 @@
 # tasmofleet design
 
-Status: accepted for implementation, 2026-10-18. Owner: the maintainer. Author: architect agent.
-The code skeleton in `internal/` implements the contracts in this document. If code and
+Status: accepted 2026-10-18, implemented; every statement about current behaviour was checked against the code of 0.19.2 on 2026-10-30. Owner: the maintainer. Author: architect agent.
+The code in `internal/` implements the contracts in this document. If code and
 spec disagree, fix one of them in the same change.
 
 Inputs: device captures in `testdata/fixtures/` (Tasmota 16.0.0, 6 devices, 6.7 min of
@@ -70,7 +70,7 @@ firmware updates, configuration backups, device settings and fleet-wide commands
 | M         | Content                                                                                                                                                                                                                                                           |
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M1 core   | inventory (manual + TasmoAdmin import), health (HTTP poll + optional MQTT), firmware cache + firmware server, OTA engine, backups (raw + decoded), auth (OIDC, header, local accounts, standalone TLS), audit, metrics, image, Unraid template, Grafana dashboard |
-| M2 parity | device list with live state + power toggle, device settings editing, console/commands, bulk commands, autoscan (HTTP) + MQTT discovery, policy/drift view, backup diff + restore, custom firmware upload, notifications                                           |
+| M2 parity | device list with live state + power toggle, device settings editing, console/commands, bulk commands, autoscan (HTTP) + MQTT discovery, policy/drift view, backup diff + restore, custom firmware upload (notifications were planned, not built: §14.5)                                           |
 | M3        | Home Assistant add-on (ingress), move to public GitHub                                                                                                                                                                                                            |
 
 ---
@@ -93,7 +93,7 @@ placeholders).
 | Observability | Prometheus scrapes `/metrics`; blackbox probes `/healthz`. A log collector (e.g. Loki via Alloy) reads Docker JSON logs, so tasmofleet logs JSON to stdout. tasmofleet ships `deploy/grafana/tasmofleet.json`                                                                                                                                           |
 | Notifications | optional, later: mail, or a Home Assistant webhook (§14.5)                                                                                                                                                                                                                                                                                              |
 | Fleet policy  | PowerOnState 0, SetOption0 0 (`save_state`), SaveData 0, Timezone 99 with DST rules, NTP from DHCP. Exception: ESP32 lamps use SetOption0 1. M2 policy view flags drift (§14.4)                                                                                                                                                                         |
-| CI            | GitHub Actions on GitHub-hosted runners. Images go to `ghcr.io/nofuturekid/tasmofleet`                                                                                                                                                                                                                                                                  |
+| CI            | GitHub Actions on GitHub-hosted runners. Images go to `ghcr.io/nofuturekid/tasmofleet` and `docker.io/nofuturekid/tasmofleet` (same tags)                                                                                                                                                                                                                                                                  |
 
 Example environment for this deployment: `deploy/unraid/tasmofleet.env.example`.
 
@@ -160,7 +160,12 @@ everything.
 | `app`                                   | wiring, lifecycle                             | `Run(ctx, cfg)`                                                                                                                                                                                                                    | everything                             |
 | `simulator`                             | Tasmota simulator (test only)                 | `NewFleet`, `Fleet`, `Device`, `DeviceSpec`, `Profile`, `Fault`                                                                                                                                                                    | model, mochi-mqtt (embedded broker)    |
 | `testutil/oidcmock`                     | mock IdP (test only)                          | `Provider{Issuer, Handler, NextLogin}`                                                                                                                                                                                             | stdlib                                 |
-| `discovery`, `bulk`, `policy`, `notify` | M2                                            | see package docs                                                                                                                                                                                                                   |                                        |
+| `discovery`, `policy` | MQTT-first and scan discovery; policy rules and outcomes | see package docs | |
+| `cmdpolicy` | **pure** classification of free-form commands | `Authorize`, `Classify`, `Class`, `PolicyReadable`, `PolicySetText` (console, bulk "Send command", policy rules) | model |
+| `devicecmd`, `devlock` | single device commands; one operation at a time per device | restore, OTA and backup take the per-device lock | see package docs |
+| `restore`, `settings`, `sysconfig` | restore and replace device; curated device settings; system settings and policy rule versions in the database | see package docs | |
+| `changelog`, `netaddr`, `web/ui` | What's new page parser; address formatting; templ components | see package docs | |
+| `bulk`, `notify` | **not wired** | `bulk.DefaultAllowlist` and the `notify.Notifier` interface exist; nothing in `app` uses them (§14.1, §14.5) | |
 
 Boundaries are enforced in `.golangci.yml` (depguard) and listed in `CLAUDE.md`.
 
@@ -204,19 +209,24 @@ knows, and says so. Before applying migrations, the store writes a copy of the d
 to `<DATA_DIR>/tasmofleet.db.pre-<N>` (only when migrations are pending; the newest 3
 copies are kept).
 
-Tables (authoritative: `0001_init.sql`):
+Tables (34 migrations, `0001` to `0034`; the files in `internal/store/migrations/` are authoritative, this list names what each table is for):
 
 | Table                                       | Content                                               | Notes                                                                                                                                          |
 | ------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `devices`                                   | inventory + detected identity + coarse health         | unique MAC (if known), unique topic (if set), unique (address, port). `http_password` sealed with secretbox. `ota_excluded`, `mqtt_capability` |
-| `health_events`                             | health state transitions                              | written on change only, pruned (default 90 days)                                                                                               |
+| `health_events` | health state transitions | written on change only, pruned after 90 days (fixed) |
 | `firmware_artifacts`                        | cache index                                           | unique (release, filename), sha256, family proven by image header, `safeboot` flag                                                             |
 | `ota_batches`, `ota_jobs`, `ota_job_events` | OTA                                                   | partial unique index: at most one non-terminal job per device. Every transition writes a row to `ota_job_events`                               |
-| `backups`                                   | backup index                                          | files under `<DATA_DIR>/backups/<hostname>/` (every row stores its own relative path)                                                          |
-| `audit_log`                                 | append-only audit                                     | pruned by `AUDIT_RETENTION` (default 1 year)                                                                                                   |
-| `sessions`                                  | web sessions                                          | the store holds `sha256(cookie)`, never the cookie                                                                                             |
+| `backups`                                   | backup index                                          | files under `<DATA_DIR>/backups/<dir>/` (`<dir>` is the sanitised hostname, see below; every row stores its own relative path); `kept` pins a run, `trigger` says what started it                                                          |
+| `audit_log` | append-only audit | pruned by `AUDIT_RETENTION` (default 1 year); the same age also prunes old jobs and failed backup attempts |
+| `sessions` | web sessions | the store holds `sha256(cookie)`, never the cookie |
+| `device_cookies` | remembered browsers for the login rate limit | hashed id, bound to the password generation (§15.1) |
 | `local_users`                               | local accounts (role, disabled, must_change_password) | written by CLI and admin UI with step-up                                                                                                       |
-| `settings`                                  | small key/value (e.g. last firmware index refresh)    | not for configuration, which is env/file                                                                                                       |
+| `settings` | small key/value (e.g. last firmware index refresh) | not for configuration |
+| `system_settings`, `policy_rule_versions` | operational settings (§16) and every saved version of the policy rules | sealed secrets, append-only versions |
+| `principals`, `user_prefs` | SSO and proxy users seen at sign-in; per-user UI preferences | roles of principals are a record of the last sign-in |
+| `discovery_proposals`, `device_macs` | discovered devices waiting for an admin (expire after 30 days); the MAC set of a device | |
+| `restore_jobs`, `firmware_custom`, `backup_attempts` | restores; provenance of uploaded firmware; failed backups | |
 
 Timestamps are INTEGER unix milliseconds, UTC. JSON columns (`tags`, `identity_before`,
 `principal`, `detail`) are plain TEXT, encoded and decoded in `store`.
@@ -227,11 +237,14 @@ File layout under `/data`:
 /data/tasmofleet.db (+ -wal, -shm)
 /data/secret.key                 32 random bytes, 0600 (device passwords at rest)
 /data/firmware/<release>/<file>  cache, 0644 (served to devices; contains no secrets)
-/data/backups/<hostname>/<UTC stamp>_<hostname>.dmp            0600
-/data/backups/<hostname>/<UTC stamp>_<hostname>.snapshot.json
-/data/backups/<hostname>/<UTC stamp>_<hostname>.decoded.json
+/data/backups/<dir>/<UTC stamp>_<hostname>.dmp               0600
+/data/backups/<dir>/<UTC stamp>_<hostname>.snapshot.json
+/data/backups/<dir>/<UTC stamp>_<hostname>.decoded.json
 /data/tmp/                       decoder scratch (PyInstaller extraction), cleaned on start
 /data/tasmofleet.env             optional config file
+/data/csrf.key                   32 random bytes, 0600 (CSRF, device cookies, session signing)
+/data/tls/                       generated self-signed certificate (§15.3a)
+/data/initial-admin-password     only until the first admin has changed it (§15.1)
 ```
 
 Backup naming (0.18): `<hostname>` is the device's current hostname (Status 5) reduced to
@@ -630,7 +643,7 @@ the OTA partition size and is ignored; ESP32 is always direct.
 | `github`          | `github-releases` | `GET https://api.github.com/repos/arendst/Tasmota/releases?per_page=10` (JSON, machine-readable)                                          | `api.github.com`, `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` |
 | `ota.tasmota.com` | `ota-tasmota`     | HTML listing of `/tasmota/release/` and `/tasmota32/release/` (only `href` file names are parsed; version from the release notes heading) | `ota.tasmota.com` (http allowed)                                                                        |
 
-`FIRMWARE_SOURCES` orders them. GitHub is the primary index because it is JSON. If both
+`FIRMWARE_SOURCES` (System settings, applied at the next restart) orders them. A file only one source offers is refused unless `FIRMWARE_ALLOW_SINGLE_SOURCE` is on. GitHub is the primary index because it is JSON. If both
 sources are enabled, every download is fetched from both and the SHA-256 must match
 (cheap cross-check against a tampered mirror). A mismatch rejects the file and raises an
 error in the UI. The index is refreshed at start (async, backoff 30 s..30 min until the first success) and then every `FIRMWARE_REFRESH_INTERVAL` (default 6 h); a failed refresh keeps the previous index (gauge `tasmofleet_firmware_index_age_seconds`). It is never fetched on page render
@@ -641,8 +654,9 @@ error in the UI. The index is refreshed at start (async, backoff 30 s..30 min un
 `/data/firmware/<release>/<filename>`, immutable, indexed in `firmware_artifacts` with
 size, SHA-256, header-proven family, variant, language and safeboot flag. Downloads go to
 a temp file, then fsync and rename. Size limit 8 MiB. A redirect hop outside the allowlist
-aborts. `Prune(keep)` deletes releases beyond the newest `FIRMWARE_KEEP_RELEASES` (default 3)
-unless an active job references them. Uploads never wipe the cache (TasmoAdmin lesson B6).
+aborts. The cache is never pruned automatically: `Cache.Prune(keep)` exists, but nothing calls it and there is no
+`FIRMWARE_KEEP_RELEASES` setting (the original plan kept the newest 3 releases). Files leave the cache by the
+admin's Delete and "delete unused" (§8.2a). Uploads never wipe the cache (TasmoAdmin lesson B6).
 
 ### 8.2a Firmware page: cache management, prefetch, changelog (M2)
 
@@ -683,7 +697,7 @@ listing, no other routes, and no authentication (devices cannot authenticate). E
 request is logged with the device IP and published as an event. The engine uses "device X
 started downloading" as a progress hint. All files of one release share a directory, so
 Tasmota's own fallback (it rewrites the OtaUrl file name to `tasmota-minimal.bin.gz` in the
-same directory, SRC) also resolves. M2 adds `/restore/<token>` (§12.4).
+same directory, SRC) also resolves. It also serves `/restore/<token>` (§12.4) and, for uploaded firmware, `/c/<key>/fw/<release>/<filename>` (§8.6). Requests are rate limited per client IP (120 per minute).
 
 `FIRMWARE_BASE_URL` is the URL devices use (`http://<container-ip>`). It must be plain
 `http://` (validated). There is no auto-detection: in ipvlan/bridge setups the right
@@ -696,8 +710,7 @@ the chosen release (from the index). The default is the detected variant.
 
 ### 8.5 Channels
 
-`stable` (releases) in M1. `development` builds (ota.tasmota.com root) in M2, behind a
-config switch.
+`stable` (releases) only. A `development` channel (ota.tasmota.com root) was planned and is not built.
 
 ### 8.6 Custom firmware upload (M2)
 
@@ -738,6 +751,11 @@ The same Guard applies; audit: `firmware.custom.upload`, `firmware.custom.use`,
   `ota_job_events`.
 - HTTP only. MQTT `stat/<t>/UPGRADE` and firmware-server download events are hints that
   can only speed things up; nothing depends on them.
+
+The same engine, batch and transaction pages also run the other multi-device operations as job
+kinds (`model.JobKind`): `policy` (Make compliant), `command` (bulk Send command and Restart) and
+`backup` (bulk Back up). They reuse persistence, per-device locking (`devlock`), cancel and "Retry
+failed"; none of them touches firmware, so the Guard and the states below concern `update` jobs.
 
 ### 9.2 States
 
@@ -1115,15 +1133,19 @@ shows the decoded secrets. The diff/drift view redacts keys matching
 
 ### 12.4 Schedules, retention, restore
 
-- Manual (device page, batch) and automatic before every OTA (job state `backup`, skippable
+- Manual (device page, Backups tab, bulk "Back up") and automatic before every OTA (job state `backup`, skippable
   per batch).
 - Manual backups have a cooldown of 1 minute per device (HTTP 429 "Try again in ..."); deleting the last backup of a device ends it.
   Every backup reads the device config over its single-threaded web server, so repeated
   clicks must not hammer an ESP8266. Pre-OTA and scheduled backups are not limited. Optional periodic schedule `BACKUP_INTERVAL` (default off).
-- Retention: newest `BACKUP_KEEP` (10) runs per device; older runs are deleted after a
-  successful new backup.
+- Retention (`backup.Prunable`, the one rule pruning and the "Pruned at next run" label share): per
+  device the newest `BACKUP_KEEP` (10) runs stay, plus every run younger than `BACKUP_MAX_AGE` (30 days,
+  `720h`, so repeated manual runs cannot evict the restore points), plus runs pinned with Keep (an
+  operator action; kept runs do not count against `BACKUP_KEEP`). Older runs are deleted after a
+  successful new backup, never otherwise. A run is the set of files of one backup. A backup that
+  failed stores nothing; the attempt is listed as a "Failed" row with Retry (`backup_attempts`).
 - M2 diff view: decoded JSON of two backups, redacted, rendered side by side ("what changed
-  since the last backup").
+  since the last backup"). Operators see which keys changed with the values hidden; admins see the redacted values.
 - M2 restore: admin picks a backup. tasmofleet creates a one-time token (random 128 bit,
   valid 5 min, bound to the device IP) and sends `WebGetConfig http://<fw>/restore/<token>`.
   The firmware listener serves the `.dmp` once to that IP only. Audited. This avoids
@@ -1136,12 +1158,16 @@ shows the decoded secrets. The diff/drift view redacts keys matching
 - **Device list with live state**: health, version, variant, family, IP, uptime, RSSI, power
   state(s) with a toggle (`Power<n> TOGGLE`, operator role), filters by tag, health and
   family. Updated via SSE, no browser polling.
-- **Console**: operator sends one command to one device and gets the JSON reply. Commands
-  outside the allowlist (§14.1) need the admin role and a confirmation. Every command is
-  audited. Replies are shown as escaped text.
-- **Settings editing**: typed forms for a curated set (FriendlyName, Hostname, Topic,
-  FullTopic, TelePeriod, PowerOnState, SetOption0/3/4/19 shown with names, MQTT host/port/user,
-  NtpServer, Timezone/TimeDst/TimeStd). Every field has a validator. Values are never
+- **Console**: sends one command line to one device and shows the JSON reply. `cmdpolicy.Authorize`
+  classifies every line: queries and harmless actions (`Power`, `Restart 1`, `Status N`, the example
+  list `cmdpolicy.DefaultOperator`) need the operator role, everything else the admin role (admins
+  may send any Tasmota command, decision 2026-10-21), a malformed line is never sent. Destructive
+  or lock-out commands (`Reset`, `WifiConfig`, firmware commands, ...) get exactly one confirmation
+  that names the consequence; arguments of credential commands are never logged or audited.
+  Every command is audited. Replies are shown as escaped text. Claims: docs/security/command-policy.md.
+- **Settings editing** (admin, device Settings tab): typed forms for a curated set (FriendlyName1..4,
+  Hostname, Topic, FullTopic, TelePeriod, PowerOnState, SaveData, SetOption0/3/4/19 shown with names,
+  MQTT host/port/user/password, NtpServer1..3, Timezone/TimeDst/TimeStd). Every field has a validator. Values are never
   concatenated into `Backlog` strings: each field becomes its own command, and `;` in a
   value is rejected (TasmoAdmin lesson B3). Secret fields (passwords) are write-only.
 - SetOption numbers are always displayed with their internal name and a one-line
@@ -1153,21 +1179,25 @@ shows the decoded secrets. The diff/drift view redacts keys matching
 
 ### 14.1 Bulk commands
 
-Targets come from a selection, tags or a filter. There is a preview step with a
-confirmation token that is bound to the target list and the command. The default
-allowlist is in `bulk.DefaultAllowlist`; anything else is admin-only plus confirmation.
-`Backlog` is allowed only through the allowlisted command set. Results go into a
-per-device table with timing and a "retry failed" action. Execution is bounded (4
-devices at a time) and audited.
+The device list's selection bar offers "Update", "Back up", "Send command", "Restart" (admins) and
+power (operators; `POST /devices/bulk/power`). "Send command" is admin only: one command line,
+a `Backlog` included, goes to every selected device. The command passes the same `cmdpolicy`
+verdict, confirmation texts and redaction as the console, and the preview is the confirmation: a
+token bound to the command line and the device list. The send runs as a `command` transaction (per-device
+result, "Retry failed", audit). "Devices at a time" is 1, 3 (default) or 5. There is no configurable
+allowlist: `bulk.DefaultAllowlist` is a leftover that nothing uses (design change; the policy of
+the console decides).
 
 ### 14.2 Fleet settings templates
 
-Named command sets (e.g. "home flash policy") applied to tagged devices, built on
-bulk commands.
+Planned as named command sets applied to tagged devices. Not built: the policy rules (§14.4) and
+"Make compliant" cover the use case, and the policy editor offers rule templates ("Use template").
 
 ### 14.3 Restart
 
-`Restart 1` as a bulk action with confirmation.
+`Restart 1` as a bulk action ("Restart" in the selection bar, admin) with a confirmation page, run
+as a `command` transaction with the same "Devices at a time" choice. A single device has its own
+Restart (device page).
 
 ### 14.4 Policy and drift view
 
@@ -1216,8 +1246,8 @@ expected value is refused; the audit entry `policy.copy` names device and comman
 
 **Overview (`/policy`).** Five tiles: Rules (enabled and disabled), Compliant devices, Deviating
 (required and advisory), Not judged (all `policy.FleetTally`) and the live-check tile (state, last
-run, Run now, Pause or Resume for admins, Retry now after a failure). Tabs follow (Rules, and the other
-views as their pages exist), then the rule table in stored order: a drag handle (admins), name (a link to
+run, Run now, Pause or Resume for admins, Retry now after a failure). Tabs follow (Rules, Deviating devices, History; History only with managed rules, not with `POLICY_RULES`;
+Import or export has its own page, `/policy/io`), then the rule table in stored order: a drag handle (admins), name (a link to
 `/policy/rules/{id}`, Disabled chip), setting, applies to with the device count, Required or Advisory, a
 compliance bar from `policy.Tally` read by rule id, and the row menu (Edit, Duplicate, Enable or Disable,
 Move up, Move down, Delete). A disabled rule is dimmed and is not checked. A banner names the devices that
@@ -1225,6 +1255,14 @@ break a Required rule, with Show and Make compliant. Every list operation names 
 version the person saw (stale: 409); the drag posts positions plus the version. Unknown query
 parameters are ignored: the old `?edit=`, `?new=` and `?v=` no longer open an editor or a diff.
 The empty page offers New rule and the first templates (admins), or says an admin can add rules.
+
+**Rule editor** (`/policy/rules/new`, `/policy/rules/{id}`, admins; operators get the read-only rule page).
+"Cancel" and "Save rule" both leave the editor for the overview: Cancel changes nothing, Save shows
+the saved rule's name and marks its row (`?ok=saved&rule=<id>`). Duplicate (row menu) opens the editor with
+an unsaved copy (`/policy/rules/duplicate`); nothing is stored until Save rule, and the copy lands right
+below its source. "Copy from a device" (`/policy/rules/new/copy`) starts a draft from one device's value
+the same way. Saving checks the version the editor was opened on (409 when someone else saved first).
+The compliance column of the table has a fixed width of 230 px (bar and numbers).
 
 The Deviating devices tab (`GET /policy/deviations`, `?show=required|advisory|unknown`, `?q=`) lists every
 deviation grouped by device. Admins get a box per row read live (a backup-only value has none): Required rows
@@ -1239,9 +1277,10 @@ hint and Run now.
 
 ### 14.5 Notifications
 
-`notify.Notifier` implementations for a webhook (e.g. a Home Assistant webhook trigger)
-and Resend mail. Triggers: batch finished (with failures), device offline longer than X,
-backup failed. Off by default.
+Planned, **not built**: the `notify.Notifier` interface exists (webhook and Resend mail were meant as
+implementations; triggers batch finished with failures, device offline longer than X, backup failed),
+but nothing in `app` creates or calls a notifier. Transactions, the audit log and `/metrics` are the
+ways to see failures today.
 
 ---
 
@@ -1255,7 +1294,7 @@ forward-auth proxy, and (c) **standalone**: a plain Docker host on a LAN with no
 and no IdP. `AUTH_MODE` selects the primary method. Local accounts (`LOCAL_LOGIN`,
 default on) can be combined with every mode and are the only method in `local` mode.
 
-**OIDC (`AUTH_MODE=oidc`, the default)**
+**OIDC (`AUTH_MODE=oidc`; the default mode is `local`)**
 
 - Discovery from `OIDC_ISSUER` at start, retried with backoff. Readiness reports not ready
   until it succeeds.
@@ -1322,12 +1361,15 @@ default on) can be combined with every mode and are the only method in `local` m
     password change or disable revokes that user's sessions.
   - Header principals have no session and nothing to confirm with: the page is view only
     for them.
-- First run: if no local user exists and `AUTH_MODE=local` (or there is no other working
-  method), an `admin` account is created from `INITIAL_ADMIN_PASSWORD`. If that is unset, a
-  random password is generated and written to `<DATA_DIR>/initial-admin-password` (0600,
-  created exclusively). It is **never logged**; the log only names the file. The account
-  has `must_change_password`. The first login forces a change before any other page. The
-  file is deleted after the change, and at the next start.
+- First run: if no local user exists and local login is on, an `admin` account is created when
+  `AUTH_MODE=local` or `INITIAL_ADMIN_PASSWORD` is set (an OIDC install is not seeded with a surprise
+  account). Without `INITIAL_ADMIN_PASSWORD` a random password is generated and written to
+  `<DATA_DIR>/initial-admin-password` (0600, created exclusively). It is **never logged**; the log
+  names the file and prints a one-time **setup link** (`/setup/account`, valid until the account has a
+  password of its own) with which the admin sets the password. Signing in with the file's password
+  works too. The account has `must_change_password`; the first login forces a change before any other
+  page. The file is deleted after the change, and at the next start. The first-run wizard (`/setup`)
+  follows: device networks, optional MQTT, optional SSO, first scan.
 - Account invariants, attackers and tests: `docs/security/account-lifecycle.md`
   (password generations revoke sessions and device cookies atomically; actor-checked
   mutations; last-admin guard).
@@ -1375,8 +1417,8 @@ Two roles. Every authenticated principal has one of them; no mapped role means n
 
 | Role     | May                                                                                                                                                           |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| operator | read everything except backup downloads and decoded backups; OTA batches, backups, power toggle, allowlisted commands, cancel jobs, change own local password |
-| admin    | + inventory edits, import, firmware management, non-allowlisted commands, restore, backup download, settings editing, local user management (with step-up)    |
+| operator | read everything except backup downloads and backup values (diffs show the keys that changed, values hidden); OTA batches, backups, power toggle (single and bulk), read and harmless console commands (`cmdpolicy` classes read and operator), cancel jobs, refresh a device's identity, change own local password |
+| admin | + inventory edits, discovery, import, firmware management, any other console or bulk command (`cmdpolicy` class admin), restore, backup download and delete, device settings, system settings, policy rule editing, audit log, About, local user management (with step-up) |
 
 Example: `Tasmofleet Users` -> operator, `Tasmofleet Admins` -> admin.
 
@@ -1414,7 +1456,7 @@ Example: `Tasmofleet Users` -> operator, `Tasmofleet Admins` -> admin.
   (form field `csrf` or header `X-CSRF-Token`, which HTMX sends via `hx-headers`).
   Login POST (`/login/local`) uses a pre-session token cookie (double submit).
 - CSP: `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;
-connect-src 'self'; frame-ancestors 'self' <FRAME_ANCESTORS>; form-action 'self' <issuer>`.
+connect-src 'self'; frame-ancestors 'self'; form-action 'self' <issuer origin>`. `frame-ancestors` is not configurable (the code passes no extra sources).
   No inline scripts (HTMX config via meta/attributes). `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: same-origin`.
 - All output goes through templ, which escapes every value. Device-provided strings are untrusted.
@@ -1433,7 +1475,7 @@ in backups, the OIDC client secret, firmware integrity, the audit trail.
 | Forged identity headers                                               | trusted only from `TRUSTED_PROXIES` by RemoteAddr                                                                                                                                                                                                                   |
 | CSRF / cross-site actions                                             | CrossOriginProtection + token + SameSite                                                                                                                                                                                                                            |
 | XSS via device-supplied names/replies (A6, B3)                        | templ escaping, CSP without inline script                                                                                                                                                                                                                           |
-| Credential takeover through the web session (A6, B5)                  | no passkeys; local user management only for admins with step-up (current password), own password change needs the current one, password change/disable revokes sessions, no open registration (first admin from env or one-time logged password with forced change) |
+| Credential takeover through the web session (A6, B5)                  | no passkeys; local user management only for admins with step-up (current password), own password change needs the current one, password change/disable revokes sessions, no open registration (first admin from the environment or a generated password in a 0600 file, with a one-time setup link and forced change) |
 | Session theft / fixation (A4)                                         | server-side sessions, rotation, HttpOnly/Secure/`__Host-`, no files                                                                                                                                                                                                 |
 | Brute force / lockout abuse on local login (B5)                       | three-tier rate limit without account lockout, max 2 concurrent hash checks, audit, min. 12 characters, can be disabled                                                                                                                                             |
 | Open redirect after login                                             | local-path check                                                                                                                                                                                                                                                    |
@@ -1451,8 +1493,9 @@ in backups, the OIDC client secret, firmware integrity, the audit trail.
 ## 16. Configuration
 
 **Principle: a fresh install needs no configuration.** `docker run -p 8443:8080 -v data:/data tasmofleet`
+(`8443` is the host port you map, the UI inside the container is always on `8080`; pick any free host port)
 serves a self-signed certificate (no proxy, no certificate and no `ALLOW_INSECURE_HTTP`
-set), creates the first local admin (random password in `<DATA_DIR>/initial-admin-password`,
+set), creates the first local admin (random password in `<DATA_DIR>/initial-admin-password`, a one-time setup link in the log,
 changed at the first sign-in) and shows the setup (device networks, optional MQTT, optional
 single sign-on, first scan). Everything else is adjusted in the web UI.
 
@@ -1470,7 +1513,8 @@ Two tiers:
 
 | Key (bootstrap, environment only)                                                                             | Default                                                    | Meaning                                                                                |
 | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `DATA_DIR`                                                                                                    | `/data`                                                    |                                                                                        |
+| `DATA_DIR` | `/data` | |
+| `CONFIG_FILE` | `<DATA_DIR>/tasmofleet.env` | the env file to read |
 | `LISTEN`                                                                                                      | `:8080` (one port in every mode; containers do not set it) | UI/API listener                                                                        |
 | `FIRMWARE_LISTEN`                                                                                             | `:80`                                                      | device-facing firmware listener                                                        |
 | `PUBLIC_URL`                                                                                                  | —                                                          | external URL; required for oidc, optional otherwise                                    |
@@ -1490,12 +1534,12 @@ Two tiers:
 | Setting (System settings page)                                                                                                                                                                          | Default                                                                              | Applies                                                                                 |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | `AUTH_MODE` (`local`, `oidc`), `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_SCOPES`, `OIDC_GROUPS_CLAIM`, `OIDC_USERNAME_CLAIM`, `OIDC_DISPLAY_NAME`, `ADMIN_GROUPS`, `OPERATOR_GROUPS` | `local`, …, `openid,profile,email`, `groups`, `preferred_username`, `Single sign-on` | restart; step-up for all but the button name and scopes (2026-10-20); environment locks |
-| `DEVICE_NETWORKS`                                                                                                                                                                                       | — (no device is contacted until set)                                                 | restart                                                                                 |
-| `FIRMWARE_BASE_URL`, `FIRMWARE_SOURCES`, `FIRMWARE_ALLOW_SINGLE_SOURCE`, `FIRMWARE_REFRESH_INTERVAL`                                                                                                    | —, `github,ota.tasmota.com`, `false`, `6h`                                           | restart                                                                                 |
-| `OTA_PARALLEL`, `OTA_RESTORE_OTAURL`, `OTA_POWER_MAX_AGE`                                                                                                                                               | `2`, `true`, `20m`                                                                   | restart                                                                                 |
-| `BACKUP_KEEP`, `BACKUP_MAX_AGE`, `BACKUP_INTERVAL`                                                                                                                                                      | `10`, `720h`, `0s` (manual)                                                          | `BACKUP_INTERVAL` live                                                                  |
-| `POLL_INTERVAL`, `TELEPERIOD`                                                                                                                                                                           | `5m`, `300s`                                                                         | restart                                                                                 |
-| `MQTT_URL`, `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_FULLTOPIC`                                                                                                                                              | —, —, —, `%prefix%/%topic%/`                                                         | restart                                                                                 |
+| `DEVICE_NETWORKS` | — (no device is contacted until set) | live |
+| `FIRMWARE_BASE_URL`, `FIRMWARE_SOURCES`, `FIRMWARE_ALLOW_SINGLE_SOURCE`, `FIRMWARE_REFRESH_INTERVAL`                                                                                                    | —, `github,ota.tasmota.com`, `false`, `6h` | restart (the firmware cache, the device-facing listener and the OTA routes are built at start) |
+| `OTA_PARALLEL`, `OTA_RESTORE_OTAURL`, `OTA_POWER_MAX_AGE`                                                                                                                                               | `2`, `true`, `20m` | live |
+| `BACKUP_KEEP`, `BACKUP_MAX_AGE`, `BACKUP_INTERVAL`                                                                                                                                                      | `10`, `720h`, `0s` (manual) | live |
+| `POLL_INTERVAL`, `TELEPERIOD`                                                                                                                                                                           | `5m`, `300s` | live |
+| `MQTT_URL`, `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_FULLTOPIC`                                                                                                                                              | —, —, —, `%prefix%/%topic%/` | live (the broker connection is switched in place) |
 | `DEVICE_DEFAULT_PASSWORD` (secret; prefill for add device / accept proposal, user `admin`)                                                                                                              | —                                                                                    | live                                                                                    |
 | `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; the environment locks it)                                                                                                                                | `info`                                                                               | live                                                                                    |
 | `DISCOVERY_MQTT`, `DISCOVERY_SCAN`, `DISCOVERY_SCAN_INTERVAL`, `DISCOVERY_SCAN_CIDRS`                                                                                                                   | `true`, `false`, `24h`, —                                                            | live                                                                                    |
@@ -1526,61 +1570,81 @@ same validators; a stored value that stops validating is skipped with a log line
 
 ## 17. HTTP routes
 
-UI listener (all paths relative to the base path; `R` = role needed; non-GET = CSRF checked):
+UI listener (all paths relative to the base path; `R` = role needed; non-GET = CSRF checked). The
+authoritative lists are `internal/web/web.go` (and the `register*` functions it calls),
+`internal/auth/service.go`, `internal/auth/accountweb.go` and `internal/app/app.go`. Pages that exist
+only when their feature is wired (updates, firmware, policy, ...) are listed with it.
 
-| Method    | Path                                                                | R                                 | Purpose                                                                                    | M   |
-| --------- | ------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ | --- |
-| GET       | `/healthz`                                                          | —                                 | liveness, no session, no DB write                                                          | 1   |
-| GET       | `/readyz`                                                           | —                                 | DB ping, OIDC discovery done, firmware listener up                                         | 1   |
-| GET       | `/metrics`                                                          | token/—                           | Prometheus                                                                                 | 1   |
-| GET       | `/static/*`                                                         | —                                 | embedded assets                                                                            | 1   |
-| GET       | `/login`                                                            | —                                 | sign-in page (IdP button and local form); redirects to the IdP if OIDC is the only method  | 1   |
-| GET       | `/login/sso`                                                        | —                                 | start the OIDC flow (the button)                                                           | 1   |
-| GET       | `/oidc/callback`                                                    | —                                 | OIDC redirect target                                                                       | 1   |
-| GET, POST | `/login/local`                                                      | —                                 | GET redirects to `/login`; POST checks the local login                                     | 1   |
-| POST      | `/logout`                                                           | any                               | logout (+ RP-initiated)                                                                    | 1   |
-| GET       | `/`                                                                 | operator                          | dashboard: health counters, running batches, recent failures                               | 1   |
-| GET       | `/devices`                                                          | operator                          | device list (filters; live via SSE)                                                        | 1   |
-| GET, POST | `/devices/new`                                                      | admin                             | add (with probe)                                                                           | 1   |
-| GET       | `/devices/{id}`                                                     | operator                          | detail: identity, health history, jobs, backups                                            | 1   |
-| POST      | `/devices/{id}`                                                     | admin                             | edit                                                                                       | 1   |
-| POST      | `/devices/{id}/delete`                                              | admin                             | delete                                                                                     | 1   |
-| POST      | `/devices/{id}/probe`                                               | operator                          | refresh identity                                                                           | 1   |
-| POST      | `/devices/{id}/backup`                                              | operator                          | backup now                                                                                 | 1   |
-| GET       | `/backups/{id}`                                                     | admin                             | download (audited)                                                                         | 1   |
-| GET       | `/firmware`                                                         | operator                          | releases, cache                                                                            | 1   |
-| POST      | `/firmware/refresh`, `/firmware/fetch`                              | admin                             | index refresh / pre-fetch                                                                  | 1   |
-| GET/POST  | `/firmware/artifacts/{id}/delete`, `/firmware/unused/delete`        | admin                             | confirm / delete a cached file, delete all unused (§8.2a)                                  | 2   |
-| POST/GET  | `/firmware/prefetch`, `/firmware/prefetch/{id}[/stream]`            | admin                             | prefetch the fleet's files of a release, progress (§8.2a)                                  | 2   |
-| GET       | `/updates/new`                                                      | operator                          | select devices, release, policy                                                            | 1   |
-| POST      | `/updates/preview`                                                  | operator                          | dry run table                                                                              | 1   |
-| POST      | `/updates`                                                          | operator                          | submit batch                                                                               | 1   |
-| GET       | `/updates/{batch}`                                                  | operator                          | batch progress (SSE)                                                                       | 1   |
-| POST      | `/jobs/{id}/cancel`, `/updates/{batch}/cancel`                      | operator                          | cancel                                                                                     | 1   |
-| GET       | `/jobs`                                                             | operator                          | job history                                                                                | 1   |
-| GET       | `/audit`                                                            | admin                             | audit log                                                                                  | 1   |
-| GET       | `/account`                                                          | signed-in user                    | own account: profile, how they sign in; the password and profile forms for a local account | 1   |
-| POST      | `/account/password`                                                 | local user                        | change own password (current one required)                                                 | 1   |
-| GET       | `/users`                                                            | admin                             | all principals; no step-up for viewing (header admins: view only)                          | 1   |
-| GET       | `/users/new`                                                        | admin                             | the add-user form; saving needs the step-up                                                | 1   |
-| POST      | `/users`, `/users/local/{name}`, `/users/stepup`, `/users/sessions` | admin + step-up (password or IdP) | local user management, End sessions for SSO users                                          | 1   |
-| GET       | `/about`                                                            | operator                          | version, decoder version, effective config (secrets masked)                                | 1   |
-| GET       | `/events`                                                           | operator                          | SSE stream (health, job, device, backup)                                                   | 1   |
-| POST      | `/devices/{id}/power/{n}`                                           | operator                          | toggle                                                                                     | 2   |
-| GET, POST | `/devices/{id}/console`                                             | operator/admin                    | command                                                                                    | 2   |
-| GET, POST | `/devices/{id}/settings`                                            | admin                             | settings editor                                                                            | 2   |
-| GET       | `/backups/{a}/diff/{b}`                                             | admin                             | decoded diff (redacted)                                                                    | 2   |
-| POST      | `/backups/{id}/restore`                                             | admin                             | restore                                                                                    | 2   |
-| GET, POST | `/discovery`, `/discovery/scan`                                     | admin                             | proposals, scans                                                                           | 2   |
-| GET, POST | `/bulk`, `/bulk/preview`                                            | operator/admin                    | bulk commands                                                                              | 2   |
-| GET       | `/policy`                                                           | operator                          | overview: tiles, rule table, live check                                                    | 2   |
-| GET       | `/policy/rules/{id}`                                                | operator                          | rule page (read-only for operators)                                                        | 2   |
-| GET, POST | `/policy/rules/new, /new/copy`                                      | admin                             | New rule: template, any command, copy from a device (unsaved draft)                        | 2   |
-| POST      | `/import/tasmoadmin`                                                | admin                             | web import                                                                                 | 2   |
-| POST      | `/firmware/upload`                                                  | admin                             | custom firmware                                                                            | 2   |
+| Method | Path | R | Purpose |
+| --- | --- | --- | --- |
+| GET | `/healthz` | none | liveness, no session, no DB write |
+| GET | `/readyz` | none | DB ping, OIDC discovery done, firmware listener up |
+| GET | `/metrics` | token or local scraper | Prometheus; 404 when `METRICS_ENABLED` is off |
+| GET | `/static/*`, `/favicon.ico` | none | embedded assets |
+| GET | `/login` | none | sign-in page (IdP button and local form); redirects to the IdP if OIDC is the only method |
+| GET | `/login/sso` | none | start the OIDC flow (the button) |
+| GET | `/oidc/callback` | none | OIDC redirect target |
+| GET, POST | `/login/local` | none | GET redirects to `/login`; POST checks the local login |
+| POST | `/logout` | any | logout (+ RP-initiated) |
+| POST | `/oidc/stepup` | admin | step-up by re-authentication at the IdP |
+| GET | `/` | operator | dashboard: six stat tiles, fleet health bar, "Needs attention", update transactions |
+| GET | `/devices`, `/devices/table` | operator | device list (filters `q`, `health`, `family`, `tag`, `chip`; rows live via SSE) |
+| GET, POST | `/devices/new` | admin | add a device (with probe) |
+| GET | `/devices/{id}`, `/devices/{id}/history`, `/devices/{id}/live` | operator | overview tab, health history, live values |
+| GET, POST | `/devices/{id}/edit`, `/devices/{id}` | admin | edit |
+| GET, POST | `/devices/{id}/delete`, `/devices/{id}/restart` | admin | confirm and delete / restart one device |
+| POST | `/devices/{id}/probe` | operator | refresh identity |
+| POST | `/devices/{id}/name/adopt`, `/devices/{id}/name/keep` | admin | answer the "Name on the device" notice (§5) |
+| GET, POST | `/devices/{id}/replace`, `/devices/{id}/replace/preview` | admin | Replace device (new hardware, same identity) |
+| GET, POST | `/devices/{id}/settings` | admin | settings editor |
+| GET, POST | `/devices/{id}/console` | operator | console; `cmdpolicy` raises the needed role to admin per command |
+| POST | `/devices/{id}/power/{n}` | operator | power toggle |
+| POST | `/devices/bulk/power` | operator | power for the selection |
+| POST | `/devices/bulk/command`, `/devices/bulk/command/run`, `/devices/bulk/restart`, `/devices/bulk/restart/run`, `/devices/bulk/backup` | admin | bulk Send command, Restart, Back up (§14.1) |
+| GET | `/devices/bulk/result/{batch}` | admin | result of a bulk run |
+| POST | `/devices/{id}/backup` | operator | backup now (1 minute cooldown per device, §12.4) |
+| GET | `/devices/{id}/backups`, `/devices/{id}/backups/diff`, `/devices/{id}/drift` | operator | Backups tab, diff (values hidden for operators), Drift tab |
+| POST | `/backups/{id}/keep` | operator | pin or unpin a backup run |
+| GET | `/backups/{id}` | admin | download (audited) |
+| GET, POST | `/backups/{id}/delete`, `/devices/{id}/backups/delete`; GET `/devices/{id}/backups/prune` | admin | delete backups |
+| GET, POST | `/backups/{id}/restore` | admin | restore (confirm, start) |
+| GET | `/restores/{id}`, `/restores/{id}/status` | admin | restore progress |
+| GET | `/firmware`, `/firmware/releases/{version}` | operator | releases, cache, release notes |
+| POST | `/firmware/refresh`, `/firmware/fetch` | admin | index refresh / fetch one file |
+| GET, POST | `/firmware/artifacts/{id}/delete`; POST `/firmware/delete-selected` | admin | confirm / delete cached files (§8.2a) |
+| POST, GET | `/firmware/prefetch`, `/firmware/prefetch/{id}`, `/firmware/prefetch/{id}/stream` | admin | prefetch the fleet's files of a release, progress (§8.2a) |
+| POST | `/firmware/custom` | admin | upload custom firmware (§8.6) |
+| GET, POST | `/updates/new` | operator | select devices, release, policy |
+| POST | `/updates/preview` | operator | dry run table |
+| POST | `/updates` | operator | submit batch |
+| GET | `/transactions` | operator | transaction history (updates, policy fixes, commands, backups) |
+| GET | `/transactions/{batch}`, `/transactions/{batch}/live` | operator | batch progress (SSE) |
+| GET, POST | `/transactions/{batch}/cancel`, `/transactions/{batch}/retry`, `/jobs/{id}/cancel` | operator | cancel a batch or job; retry the failed devices |
+| GET | `/policy`, `/policy/deviations`, `/policy/history`, `/policy/io`, `/policy/io/export` | operator | overview, deviating devices, version history, import or export page, export |
+| GET | `/policy/rules/{id}` | operator | rule page (read-only for operators) |
+| POST | `/policy/live` | operator | run the live check now |
+| POST | `/policy/live/pause`, `/policy/live/resume` | admin | pause or resume the background reads |
+| GET, POST | `/policy/rules/new`, `/policy/rules/duplicate`, `/policy/rules/new/copy`, `/policy/rules/preview`, `/policy/rules/save`, `/policy/rules/delete`, `/policy/rules/value-control`, `/policy/rules/order`, `/policy/rules/enable`, `/policy/rules/disable`, `/policy/rules/revert/{id}`, `/policy/io/import` | admin | rule editor and list operations (§14.4) |
+| POST | `/policy/fix`, `/policy/fix/apply` | admin | Make compliant: preview, apply |
+| GET, POST | `/discovery`, `/discovery/scan`, `/discovery/scan/{id}`, `/discovery/scan/{id}/stream`, `/discovery/scan/{id}/cancel`, `/discovery/proposals/...` (accept, dismiss, undismiss, one or many) | admin | "Add devices": proposals and scans |
+| GET, POST | `/import/tasmoadmin`, `/import/tasmoadmin/apply`, `/import/tasmoadmin/report.csv` | admin | web import |
+| GET, POST | `/settings/system` (+ `/stepup`, `/mqtt-test`, `/sso-test`, `/reset`) | admin | System settings (§16) |
+| GET, POST | `/setup`, `/setup/mqtt-test`, `/setup/finish` | admin | first-run wizard |
+| GET, POST | `/setup/account` | setup link | set the initial admin password |
+| GET | `/audit` | admin | audit log |
+| GET | `/about` | admin | version, decoder version, effective config (secrets masked) |
+| GET | `/whats-new`, `/nav`, `/styleguide`, `/events` | operator | What's new, navigation page, style guide (sample data), SSE stream (health, job, device, backup) |
+| POST | `/prefs/{key}` | operator | per-user UI preference |
+| GET | `/account` | signed-in user | own account: profile, how they sign in |
+| POST | `/account/password`, `/account/profile` | local user | change own password (current one required), profile |
+| GET | `/users`, `/users/new`, `/users/{name}`, `/users/principal/{subject...}` | admin | all principals and their detail; no step-up for viewing (header admins: view only) |
+| POST | `/users`, `/users/stepup`, `/users/local/{name}`, `/users/sessions` | admin + step-up (password or IdP) | local user management, End sessions for SSO users |
 
-Firmware listener: `GET|HEAD /fw/<release>/<filename>`, M2 `GET /restore/<token>`.
-Everything else is 404.
+Every other path answers with the app's own not-found page. (`GET /jobs` and `/updates/{batch}`
+no longer exist; the transactions pages replaced them.)
+
+Firmware listener: `GET|HEAD /fw/<release>/<filename>`, `GET|HEAD /c/<key>/fw/<release>/<filename>` (uploaded
+firmware) and `GET /restore/<token>`. Everything else is 404.
 
 A JSON API for automation (with API tokens) is out of scope until there is a consumer.
 Home Assistant already gets device data from Tasmota.
@@ -1590,25 +1654,28 @@ Home Assistant already gets device data from Tasmota.
 ## 18. UI
 
 Server-rendered pages and HTMX partials in templ (committed generated code, no build step). No inline
-scripts. One small embedded stylesheet with `prefers-color-scheme` dark mode. Usable at
-phone width. Pages:
+scripts. One embedded stylesheet with a light, a dark and an automatic theme (the user's choice is a
+stored preference). Usable at phone width. Every page renders inside the shell with a top bar,
+a group menu and a sub-navigation (`internal/web/ui/nav.go`; every role sees the same menu, each
+page enforces its own permission). Groups and pages:
 
-- **Dashboard**: counts per health state (each links to a filtered device list), running
-  batches with progress, last failures.
-- **Devices**: table with name, health badge, version + variant, family, IP, last seen, RSSI,
-  uptime. M2 adds power toggles. Filters: tag, health, family, variant, "update
-  available". Multi-select feeds "Update" (M1) and "Backup" (M1), plus "Command" and
-  "Restart" (M2).
-- **Device detail**: identity (family, hardware, flash, free, MQTT capability), health
-  timeline, OTA history, backups (download/diff/restore), and M2 tabs console and
-  settings.
-- **Update flow**: select release + policy (+ variant override; the preview shows it, no
-  confirmation checkbox since 2026-10-20), then a preview table, then submit, then a live batch page (per
-  device: state, stage, attempt, last event, elapsed time).
-- **Firmware**: releases from the index, cached artifacts (size, SHA-256, family),
-  refresh/fetch.
-- **Audit**: filterable table.
-- **About**: versions, decoder, effective configuration with secrets masked, links to docs.
+- **Dashboard** (Overview): six stat tiles (Online, Offline, Unknown, Firmware behind, Policy
+  deviations, New devices found; each links to a filtered device list), the fleet health bar,
+  "Needs attention" and the newest update transactions.
+- **Devices**: *All devices*, *Add devices* (discovery, scans, manual add, TasmoAdmin import; admin) and
+  *Policy*. The device list is a sortable table with filter chips and a search box (`q`, health,
+  family, tag, chip); the selection bar feeds Update, Back up, Send command, Restart and power.
+- **Device page** (tabs): Overview (tiles, identity, network facts), Settings and Console where the
+  device allows them, Backups, Drift and Replace device (admin).
+- **Updates**: *Transactions* (batches of every job kind, with progress, cancel and retry) and *Firmware*
+  (releases, cache, prefetch, upload, release notes). The update flow is: select release + policy
+  (+ variant override; the preview shows it, no confirmation checkbox since 2026-10-20), a preview
+  table, submit, then the live transaction page (per device: state, stage, attempt, last event,
+  elapsed time).
+- **System**: *Settings* (System settings, admin), *Audit log* (admin), *Users* (admin), *About*
+  (admin: versions, decoder, effective configuration with secrets masked, links to docs) and
+  *Styleguide* (sample data). *What's new* (parsed from `CHANGELOG.md`) and the account page open from
+  the avatar menu; the first-run wizard `/setup` appears for admins until it is finished.
 
 Accessibility: semantic tables and forms, labels, focus styles, no colour-only status
 (each badge has text).
@@ -1636,14 +1703,16 @@ component, device, job, batch, request_id, remote, user`. No secrets (redactor),
 - **Image**: multi-stage `Dockerfile`; Go build with `CGO_ENABLED=0`; final
   `gcr.io/distroless/cc-debian13:nonroot` (glibc for the decoder), user 65532. Includes the
   decoder (§12.2). Size about 100 MB with decoder, about 35 MB without. `HEALTHCHECK` uses
-  `tasmofleet healthcheck` (no curl in distroless). `VOLUME /data`; ports 8080 (UI) and 80
+  `tasmofleet healthcheck` (no curl in distroless). `VOLUME /data`; ports 8080 (UI, always this container port: map any free host port to it) and 80
   (firmware). Binding port 80 as non-root relies on Docker's default
   `net.ipv4.ip_unprivileged_port_start=0` in the container namespace. If a runtime
   doesn't set it, use `FIRMWARE_LISTEN=:8081` and a port mapping.
-- **Registry**: `ghcr.io/nofuturekid/tasmofleet`, tags `<version>` (X.Y.Z) and `latest`.
-  Built and published by GitHub Actions.
+- **Registry**: `ghcr.io/nofuturekid/tasmofleet` and, when the repository's Docker Hub secrets are set,
+  `docker.io/nofuturekid/tasmofleet` (overview text `deploy/dockerhub/README.md`), with the same tags
+  `<version>` (X.Y.Z) and `latest`. Built and published by GitHub Actions.
 - **Unraid**: `deploy/unraid/tasmofleet.xml` (br0, fixed IP, `/data` ->
-  a host data directory, env vars, WebUI link to `PUBLIC_URL`).
+  a host data directory, env vars, WebUI link to `PUBLIC_URL`). Unraid users take the Community
+  Applications template, see CLAUDE.md "Releases".
 - **Traefik**: example dynamic config in `deploy/traefik/tasmofleet.yml` (router on
   `websecure`, service `http://172.31.12.61:8080`). No forward-auth middleware in OIDC mode;
   an Authentik outpost middleware in header mode.
@@ -1657,8 +1726,8 @@ component, device, job, batch, request_id, remote, user`. No secrets (redactor),
 ### 20.1 Home Assistant add-on path (M3)
 
 The design is ingress-ready from M1: base path from `X-Ingress-Path` (trusted proxy
-`172.30.32.2`), relative links everywhere, SSE under the base path, CSP
-`frame-ancestors` configurable. M3 adds:
+`172.30.32.2`), relative links everywhere, SSE under the base path. The CSP allows `frame-ancestors 'self'` only, so
+the ingress frame may need a configurable source when M3 is built. M3 adds:
 
 - an add-on repository with `config.yaml` (`ingress: true`, `ingress_port: 8080`, port 80
   mapped for firmware, `map: [addon_config]`. The add-on options are bootstrap settings only
@@ -1678,10 +1747,10 @@ The design is ingress-ready from M1: base path from `X-Ingress-Path` (trusted pr
 | Layer                           | What                                                                                                                                                                                                                                                                         | Where                                  | Gate                                                                                                                                      |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | Unit                            | pure logic, parsers (fixture-driven), handlers with fakes via `httptest`                                                                                                                                                                                                     | `*_test.go` next to code               | `make test`, `make race`                                                                                                                  |
-| Fuzz                            | `fwselect.Detect`, `InspectImage`, `tasmota.Parse*`, `tasmoadmin.ParseDevices`, config file parser                                                                                                                                                                           | `Fuzz*` with seed corpus from fixtures | short run in CI (`-fuzztime=10s` per target, part of `make integration`)                                                                  |
-| Mutation                        | `ota` (machine.go), `fwselect`                                                                                                                                                                                                                                               | gremlins                               | `make mutation`; efficacy threshold 0 % now, raised by the owning WPs to **≥ 90 % for fwselect, ≥ 85 % for ota machine** before M1 closes |
-| Integration (tag `integration`) | engine + simulator fleet (all profiles and faults), store on real SQLite, mqttbus + embedded broker, auth against oidcmock, decoder against the real binary (skipped with a reason only if `DECODER_PATH` is missing; CI image has it)                                       | `*_integration_test.go`                | `make integration`                                                                                                                        |
-| e2e                             | real binary + `tasmofleet-devenv` (mixed fleet: MQTT and HTTP-only devices, ESP8266 1 MB staged, ESP32 direct, unknown chip refused), login via mock OIDC with Authentik claims, update flow end to end, header mode via a test proxy, base path `/tasmofleet`, no-MQTT mode | `e2e/tests/*.spec.ts`                  | `make e2e`                                                                                                                                |
+| Fuzz | `fwselect.Detect`, `InspectImage`, `tasmoadmin` parsers, `cmdpolicy`, `mqttbus` topic decoding, firmware notes and server paths, settings URL credentials | `Fuzz*` with seed corpus from fixtures | the seed corpora run as ordinary tests in `make test`; no timed fuzzing in CI |
+| Mutation | `fwselect`, `ota`, `policy`, `cmdpolicy` | gremlins | `make mutation` (`MUTATION` in the Makefile): efficacy **≥ 90 % fwselect, ≥ 85 % ota, ≥ 85 % policy, ≥ 90 % cmdpolicy**; PRs touching a `SAFETY` package run `make mutation-changed` |
+| Integration (tag `integration`) | engine + simulator fleet (all profiles and faults), store on real SQLite, mqttbus + embedded broker, auth against oidcmock, decoder against the real binary (skipped with a reason only if `DECODER_PATH` is missing; CI sets `REQUIRE_DECODER=1`, so there a missing decoder fails)                                       | `*_integration_test.go`                | `make integration`                                                                                                                        |
+| e2e                             | real binary + `tasmofleet-devenv` (mixed fleet: MQTT and HTTP-only devices, ESP8266 1 MB staged, ESP32 direct, unknown chip refused), login via mock OIDC with Authentik claims, update flow end to end, header mode via a test proxy, base path `/tasmofleet`, no-MQTT mode | `e2e/tests/*.spec.ts` | `make e2e` (all but quarantined), `make e2e-core` (tag `@core`) |
 | Static                          | gofmt, go vet, staticcheck, golangci-lint (incl. depguard, exhaustive, gosec, bodyclose, noctx)                                                                                                                                                                              |                                        | `make check`                                                                                                                              |
 | Supply chain                    | govulncheck                                                                                                                                                                                                                                                                  |                                        | `make vuln`                                                                                                                               |
 
@@ -1696,9 +1765,11 @@ re-sends Upgrade); lost Upgrade response; another tool changed OtaUrl; auth fail
 HTTP-only device without MQTT; flapping LWT; `{"Command":"Unknown"}` for Status on
 minimal.
 
-CI (`.github/workflows`): job `gates` runs
-`make check race integration mutation`; job `e2e` runs in the Playwright image. An
-image job builds and pushes on tags.
+CI (`.github/workflows/ci.yml`): two tiers. FAST on every PR and push to `main` (lint, unit and integration tests
+from the cache, build, `@core` e2e in two shards, safety race and mutation when a `SAFETY` package changed;
+the `required` job gates the merge). FULL nightly, on tags and by dispatch (every e2e test, race on all
+packages, uncached tests, full mutation); a tag's image is published only after FULL passed. Details:
+CLAUDE.md "Test tiers in CI".
 
 ---
 
@@ -1734,7 +1805,8 @@ on a real fleet.
 **M2 parity**: device list live state + toggle, console, settings editor, bulk commands
 
 - templates, restart, autoscan + MQTT discovery, policy/drift view, backup diff +
-  restore, custom firmware upload, development channel, notifications, web import.
+  restore, custom firmware upload, web import. Planned and not built: the development channel, notifications,
+  fleet settings templates (§8.5, §14.5, §14.2).
   Exit criterion: TasmoAdmin can be retired.
 
 **M3**: Home Assistant add-on with ingress auth, public GitHub repository

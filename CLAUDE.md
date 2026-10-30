@@ -48,13 +48,14 @@ must upgrade cleanly.
 ## Architecture map
 
 ```
-cmd/tasmofleet            CLI: serve, user, sessions, import, healthcheck, version
+cmd/tasmofleet            CLI: serve, user, sessions, settings, import, healthcheck, version
 cmd/tasmofleet-devenv     simulator fleet + embedded MQTT broker + mock OIDC, for e2e/dev
 internal/model            plain domain types (leaf package, stdlib only)
 internal/config           env + file configuration (TASMOFLEET_*)
 internal/store            SQLite (modernc.org/sqlite), embedded migrations, repositories; the ONLY SQL
 internal/secretbox        AES-GCM for device passwords at rest
 internal/clock            time abstraction for testable timeouts
+internal/cmdpolicy        PURE: classifies free-form device commands (console, bulk Send command, policy rules)
 internal/tasmota          device HTTP API client + response parsers (SSRF-guarded)
 internal/fwselect         PURE: identity detection, artifact selection, image header check, safety guard, plan
 internal/firmware         upstream sources, firmware cache, device-facing firmware HTTP server
@@ -63,8 +64,16 @@ internal/mqttbus          optional MQTT connection (paho), topic decoding
 internal/health           health tracker (MQTT + HTTP poll fallback)
 internal/events           in-process pub/sub for SSE
 internal/inventory        device service layer (validation, upsert, audit)
+internal/devicecmd        single commands to single devices on behalf of a person
+internal/devlock          per-device operation lock (restore, OTA, backup)
 internal/tasmoadmin       TasmoAdmin devices.csv / MyConfig.json parsers
 internal/backup           .dmp + snapshot + decoded JSON backups, retention, Decoder
+internal/restore          restore a stored .dmp onto a device, Replace device
+internal/settings         curated device settings (one validated command per field)
+internal/sysconfig        System settings in the database, policy rule versions
+internal/importer         web import of TasmoAdmin data
+internal/changelog        CHANGELOG.md parser for the What's new page
+internal/netaddr          the one place that formats network addresses
 internal/audit            audit recorder
 internal/auth             OIDC, trusted headers, local break-glass, sessions, roles
 internal/httpx            proxy/base-path/public-URL handling, security headers, CSRF
@@ -74,14 +83,16 @@ internal/metrics          Prometheus text exposition (no client_golang)
 internal/app              wiring and lifecycle only
 internal/simulator        Tasmota device simulator (tests and devenv only)
 internal/testutil/oidcmock mock OIDC provider (tests and devenv only)
-internal/discovery, bulk, policy, notify   M2 features
+internal/testutil/quarantine  quarantine.Test for flaky Go tests
+internal/discovery, policy   MQTT-first and scan discovery; policy rules and outcomes
+internal/bulk, notify        not wired into app (leftovers; see spec 14.1, 14.5)
 internal/deps            build-tagged file pinning third-party modules in go.mod (maintainer only)
 ```
 
 ## Package boundaries (enforced by depguard in `.golangci.yml`)
 
 - `internal/model` imports only the standard library.
-- `internal/fwselect` and `internal/ota/machine*.go` are pure: no `net`, `os`, `database/sql`.
+- `internal/fwselect`, `internal/cmdpolicy` and `internal/ota/machine*.go` are pure: no `net`, `os`, `database/sql`.
   They take data and return decisions. These are the safety-critical parts and run
   under mutation testing.
 - Only `internal/store` imports `database/sql` / `modernc.org/sqlite`.
@@ -94,8 +105,8 @@ internal/deps            build-tagged file pinning third-party modules in go.mod
   never on concrete types from another package. Fakes live in the consumer's `_test.go`.
 - Device network access goes only through `tasmota.Client` with a `tasmota.Target`
   built from an inventory device. Firmware downloads go only through `firmware`
-  sources. Nothing else makes outbound HTTP requests (OIDC discovery in `auth` is the
-  one configured exception).
+  sources. Nothing else makes outbound HTTP requests (OIDC discovery and the SSO connection test in
+  `auth` are the configured exceptions).
 
 ## Generated code: templ
 

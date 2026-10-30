@@ -13,6 +13,7 @@ always upgrade automatically.
 
 ### Changed
 
+- Docs: design spec and CLAUDE.md checked against the code; corrected the route list, backup retention, settings that apply live, first-run and sign-in text, and features that were planned but never built (notifications, development channel, firmware cache pruning)
 - Policy: Save rule ends the editor too: the overview names the saved rule and marks its row
 - Policy overview: shorter compliance bar, so rule names and scopes do not wrap
 
