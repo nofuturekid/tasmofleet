@@ -16,6 +16,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 type fakeOTA struct {
@@ -608,5 +609,51 @@ func TestPreviewOnlyS2NeedsAChoiceNotADeadEnd(t *testing.T) {
 	_, body = e.do(t, "POST", "/updates/preview", "operator", form)
 	if !strings.Contains(body, `value="s2" form="recheck" checked`) || !strings.Contains(body, "custom or unrecognised firmware") {
 		t.Fatalf("refused with a build: %s", body)
+	}
+}
+
+// Why (D10): a device whose language build cannot be read must wait for the person, never get a guessed
+// one; the choice reaches the engine and the start form, and the row says the update goes over MQTT.
+func TestPreviewAsksForTheLanguageAndShowsTheMQTTPath(t *testing.T) {
+	e, o, _, _ := setupOTA(t)
+	e.inv.devs[4] = model.Device{ID: 4, Name: "mq-plug", Address: "10.0.0.4", Identity: model.Identity{Family: model.ChipESP8266, Hardware: "ESP8285", Version: "15.0.0", Variant: "tasmota"}}
+	o.items[4] = ota.PreviewItem{DeviceID: 4, Decision: "refuse", Reason: "select: language build never read from the device, choose a language", LanguageChoice: true}
+	form := url.Values{"id": {"1", "4"}, "release": {"16.1.0"}, "policy": {"only-newer"}}
+	_, body := e.do(t, "POST", "/updates/preview", "operator", form)
+	for _, want := range []string{"Language build of this device", `name="language_4"`, `<option value="DE"`, "Needs a choice", "Recheck"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("preview lacks %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "<dt>Refused</dt>") || strings.Contains(body, " selected") {
+		t.Fatalf("waiting for a language counts as refused, or a language is preselected: %s", body)
+	}
+	o.items[4] = ota.PreviewItem{DeviceID: 4, Decision: "upgrade", Plan: model.PlanDirect, Filename: "tasmota-DE.bin.gz",
+		Path: transport.DownloadMQTT, PathText: "the device is reached over MQTT because its HTTP API does not answer", LanguageDeclared: true, Language: "DE"}
+	form.Set("language_4", "DE")
+	_, body = e.do(t, "POST", "/updates/preview", "operator", form)
+	if o.previewReqs[1].Language != "DE" || o.previewReqs[0].Language != "" {
+		t.Fatalf("requests: %+v", o.previewReqs)
+	}
+	if !strings.Contains(body, "Over MQTT: the device is reached over MQTT") {
+		t.Fatalf("the row does not show the path: %s", body)
+	}
+	start, _, _ := strings.Cut(body[strings.Index(body, `<form id="start"`):], "</form>")
+	if !strings.Contains(start, `name="language_4" value="DE"`) {
+		t.Fatalf("the choice is not carried to Start: %s", start)
+	}
+}
+
+// Why (L4): the language is a form value; only the languages the page offers reach the engine.
+func TestPreviewRefusesALanguageThePageDoesNotOffer(t *testing.T) {
+	e, o, _, _ := setupOTA(t)
+	form := url.Values{"id": {"1"}, "release": {"16.1.0"}, "policy": {"only-newer"}, "language_1": {"XX"}}
+	resp, body := e.do(t, "POST", "/updates/preview", "operator", form)
+	if resp.StatusCode != 422 || !strings.Contains(body, "unknown language") || len(o.previewReqs) != 0 {
+		t.Fatalf("%d, reached the engine: %v", resp.StatusCode, o.previewReqs)
+	}
+	form.Set("language_1", "de")
+	if resp, _ = e.do(t, "POST", "/updates/preview", "operator", form); resp.StatusCode != 200 || o.previewReqs[0].Language != "de" {
+		t.Fatalf("%d %+v", resp.StatusCode, o.previewReqs)
 	}
 }

@@ -423,15 +423,6 @@ func (r *Router) DownloadConfig(ctx context.Context, t tasmota.Target) ([]byte, 
 	return r.http.DownloadConfig(ctx, t)
 }
 
-// RootPage is HTTP only: over MQTT the page does not exist. The identity of a device that only
-// MQTT reaches comes from INFO1 and Status 2 (mqttidentity), not from here.
-func (r *Router) RootPage(ctx context.Context, t tasmota.Target) (tasmota.RootInfo, error) {
-	if pin, ok := PathFrom(ctx); ok && pin == MQTT {
-		return tasmota.RootInfo{}, fmt.Errorf("%w: the main page of a device cannot be read over MQTT yet", tasmota.ErrNotImplemented)
-	}
-	return r.http.RootPage(ctx, t)
-}
-
 // UploadFirmware passes straight to HTTP: an upload never fails over (D4).
 func (r *Router) UploadFirmware(ctx context.Context, t tasmota.Target, filename string, size int64, body io.Reader) error {
 	u, ok := r.o.HTTP.(tasmota.Uploader)

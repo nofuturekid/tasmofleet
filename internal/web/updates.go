@@ -18,6 +18,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -414,6 +415,9 @@ func (h *handler) requests(r *http.Request, ids []model.DeviceID) ([]ota.Request
 	}
 	var reqs []ota.Request
 	for _, id := range ids {
+		if l := strings.TrimSpace(r.PostFormValue("language_" + strconv.FormatInt(int64(id), 10))); l != "" && !slices.ContainsFunc(languageOptions, func(o struct{ Value, Label string }) bool { return o.Value == strings.ToUpper(l) }) {
+			return nil, fmt.Errorf("unknown language %q", l)
+		}
 		d, err := h.d.Inventory.Get(r.Context(), id)
 		if err != nil {
 			return nil, fmt.Errorf("device %d: %w", id, err)
@@ -423,7 +427,9 @@ func (h *handler) requests(r *http.Request, ids []model.DeviceID) ([]ota.Request
 			SkipPowerRestore: skipPower, RestoreRelays: restoreRelays,
 			// The chip build of a device that has two (ESP32-S2) is chosen per device in the preview; the engine
 			// refuses a build that does not belong to the device.
-			Build: strings.TrimSpace(r.PostFormValue("build_" + strconv.FormatInt(int64(id), 10)))}
+			Build: strings.TrimSpace(r.PostFormValue("build_" + strconv.FormatInt(int64(id), 10))),
+			// The language build of a device that only MQTT reaches cannot be read; the person says it (D10).
+			Language: strings.TrimSpace(r.PostFormValue("language_" + strconv.FormatInt(int64(id), 10)))}
 		if q.Variant == "" && (d.Identity.Variant == "minimal" || d.Identity.Variant == "safeboot") {
 			q.Variant, q.AllowVariantChange = "tasmota", true
 		}
@@ -445,6 +451,37 @@ type previewRow struct {
 	// two builds (ESP32-S2); Build is the one the user chose (the row then goes ahead).
 	BuildOptions []buildOption
 	Build        string
+	// LanguageChoice: the row waits for the language build of the device (it cannot be read over MQTT);
+	// Language is the one chosen, "" before the choice.
+	LanguageChoice bool
+	Language       string
+}
+
+// languageOptions are the upstream language builds a person can say a device runs ("" is English).
+var languageOptions = []struct{ Value, Label string }{
+	{"EN", "English"}, {"AF", "Afrikaans"}, {"AD", "Catalan"}, {"BG", "Bulgarian"}, {"BR", "Portuguese (Brazil)"},
+	{"CN", "Chinese (simplified)"}, {"TW", "Chinese (traditional)"}, {"CZ", "Czech"}, {"NL", "Dutch"}, {"FR", "French"},
+	{"FY", "Frisian"}, {"DE", "German"}, {"GR", "Greek"}, {"HE", "Hebrew"}, {"HU", "Hungarian"}, {"IT", "Italian"},
+	{"KO", "Korean"}, {"PL", "Polish"}, {"PT", "Portuguese"}, {"RO", "Romanian"}, {"RU", "Russian"}, {"SK", "Slovak"},
+	{"ES", "Spanish"}, {"SE", "Swedish"}, {"TR", "Turkish"}, {"UK", "Ukrainian"}, {"VN", "Vietnamese"},
+}
+
+// LanguageName is the field name of the select that chooses the language build of the device.
+func (r previewRow) LanguageName() string {
+	return "language_" + strconv.FormatInt(int64(r.Device.ID), 10)
+}
+
+// PathText says how the update reaches the device when that is not the plain HTTP download: over MQTT,
+// with the reason, or the reason there is no path. "" for the usual HTTP rows.
+func (r previewRow) PathText() string {
+	switch r.Item.Path {
+	case transport.DownloadMQTT:
+		return "Over MQTT: " + r.Item.PathText
+	case transport.None:
+		return r.Item.PathText
+	case transport.HTTP, transport.MQTT, transport.DownloadHTTP, transport.PushHTTP, transport.PushSafeboot, transport.PushMQTT:
+	}
+	return ""
 }
 
 // buildOption is one chip build the user may choose for a device.
@@ -541,7 +578,18 @@ func (p previewPage) Upgrades() int {
 func (p previewPage) Refused() int {
 	n := 0
 	for _, r := range p.Rows {
-		if r.Item.Decision == "refuse" && len(r.BuildOptions) == 0 {
+		if r.Item.Decision == "refuse" && len(r.BuildOptions) == 0 && !r.LanguageChoice {
+			n++
+		}
+	}
+	return n
+}
+
+// ChoosingLanguages counts the devices that wait for the user to say their language build.
+func (p previewPage) ChoosingLanguages() int {
+	n := 0
+	for _, r := range p.Rows {
+		if r.LanguageChoice {
 			n++
 		}
 	}
@@ -561,7 +609,7 @@ func (p previewPage) ChoosingBuilds() int {
 
 // Skips counts the devices that need nothing (already at the target); a refused device is not one of them.
 func (p previewPage) Skips() int {
-	return len(p.Rows) - p.Upgrades() - p.Refused() - p.ChoosingBuilds()
+	return len(p.Rows) - p.Upgrades() - p.Refused() - p.ChoosingBuilds() - p.ChoosingLanguages()
 }
 
 type previewPage struct {
@@ -569,6 +617,7 @@ type previewPage struct {
 	Form        updateForm
 	Rows        []previewRow
 	Builds      map[string]string // device id -> the build the user chose (rows that go ahead only)
+	Languages   map[string]string // device id -> the language build the user said (rows that go ahead only)
 	IDs         []string          // the devices the update starts on
 	Picked      []string          // every device the user picked (the way back to the picker)
 	Error       string
@@ -673,6 +722,13 @@ func (h *handler) updatePreview(w http.ResponseWriter, r *http.Request) {
 			row.BuildOptions = buildOptionsFor(d.Identity)
 		}
 		row.Build = q.Build
+		row.LanguageChoice, row.Language = it.LanguageChoice, q.Language
+		if row.Go && q.Language != "" {
+			if p.Languages == nil {
+				p.Languages = map[string]string{}
+			}
+			p.Languages[strconv.FormatInt(int64(it.DeviceID), 10)] = q.Language
+		}
 		if row.Go && q.Build != "" {
 			row.Note = "Build " + q.Build + ", chosen by you."
 			if p.Builds == nil {

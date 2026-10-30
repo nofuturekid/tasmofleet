@@ -1,0 +1,68 @@
+package web
+
+import "github.com/nofuturekid/tasmofleet/internal/web/ui"
+
+// pathsCard is the card of #261: how TasmoFleet reaches the device and which way each action
+// takes. It sits under Identity and Connection, is never dimmed (it explains an offline device).
+// Both lists are folds, closed so the phone overview keeps its height budget. The live refresh
+// swaps the summaries and the lists by id (pathsLive), never the folds, so an open fold stays open.
+// The Forget button is the admin's: a viewer without it sees the card read-only.
+templ pathsCard(c pathCard) {
+	<section id="devpaths" class="devcard" aria-labelledby="dc-paths">
+		<div class="devcard-head"><h2 id="dc-paths">How TasmoFleet reaches this device</h2></div>
+		<details class="fold">
+			@pathSummary("devpaths-facts-sum", c.FactsSummary(), nil)
+			@pathList("devpaths-facts", c.Facts, c, nil)
+		</details>
+		<details class="fold">
+			@pathSummary("devpaths-actions-sum", c.ActionsSummary(), nil)
+			@pathList("devpaths-actions", c.Actions, c, nil)
+		</details>
+	</section>
+}
+
+// pathsLive is the live refresh of the card: the four parts out of band.
+templ pathsLive(c pathCard) {
+	@pathSummary("devpaths-facts-sum", c.FactsSummary(), templ.Attributes{"hx-swap-oob": "true"})
+	@pathList("devpaths-facts", c.Facts, c, templ.Attributes{"hx-swap-oob": "true"})
+	@pathSummary("devpaths-actions-sum", c.ActionsSummary(), templ.Attributes{"hx-swap-oob": "true"})
+	@pathList("devpaths-actions", c.Actions, c, templ.Attributes{"hx-swap-oob": "true"})
+}
+
+templ pathSummary(id, text string, attrs templ.Attributes) {
+	<summary id={ id } { attrs... }>{ text }</summary>
+}
+
+templ pathList(id string, rows []pathRow, c pathCard, attrs templ.Attributes) {
+	<dl id={ id } class="ukv" { attrs... }>
+		for _, r := range rows {
+			<div class="ukv-row">
+				<dt>
+					{ r.Key }
+					if r.Experiment {
+						{ " " }
+						@ui.Badge(ui.ToneAccent, "Experimental")
+					}
+				</dt>
+				<dd>
+					<div>@ui.Badge(r.Tone, r.Value)</div>
+					if r.Sub != "" {
+						<p class="devcard-note">
+							{ r.Sub }
+							if !r.Since.IsZero() {
+								{ " Since " }
+								<time data-visual-mask { ui.StampAttrs(r.Since, ui.StampDay)... }>{ r.SinceText }</time>.
+							}
+						</p>
+					}
+					if r.Forget && c.Forget != "" {
+						<form method="post" action={ templ.SafeURL(c.Forget) }>
+							<input type="hidden" name="csrf" value={ c.CSRF }/>
+							<button type="submit" class="btn btn-link">Forget</button>
+						</form>
+					}
+				</dd>
+			</div>
+		}
+	</dl>
+}

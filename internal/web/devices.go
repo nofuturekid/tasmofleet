@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -21,6 +20,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/restore"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -54,6 +54,8 @@ type deviceRow struct {
 	Power   powerCell
 	// Outdated and Deviations are set by fleetFacts.annotate on the device
 	// list and the dashboard only (N7); elsewhere they stay zero.
+	// ViaMQTT: commands to the device go over MQTT now (Paths.Commands is MQTT), the "MQTT" marker.
+	ViaMQTT    bool
 	Outdated   bool // a newer stable release is in the cached feed
 	Deviations int  // policy values that differ from a rule
 }
@@ -92,6 +94,7 @@ func (h *handler) rows(ctx context.Context) ([]deviceRow, error) {
 	}
 	all := h.d.Health.All()
 	minimal, _ := h.d.Health.(interface{ Minimal(model.DeviceID) bool })
+	failing := h.failingHTTP(ctx, devs)
 	out := make([]deviceRow, 0, len(devs))
 	for _, d := range devs {
 		hl, ok := all[d.ID]
@@ -102,6 +105,9 @@ func (h *handler) rows(ctx context.Context) ([]deviceRow, error) {
 		r := deviceRow{Device: d, Health: hl, Vitals: vitalsOf(hl), Power: h.powerCellOf(httpx.BasePath(ctx), d.ID, hl)}
 		if minimal != nil {
 			r.Minimal = minimal.Minimal(d.ID)
+		}
+		if f, ok := failing[d.ID]; ok {
+			r.ViaMQTT = transport.Choose(f).Commands == transport.MQTT
 		}
 		out = append(out, r)
 	}
@@ -293,7 +299,10 @@ type deviceTabs struct {
 	Active   string // overview, settings, console or backups
 	Settings bool   // the Settings tab exists (admin, feature on)
 	Console  bool   // the Console tab exists (feature on)
-	Reason   string // why Settings and Console cannot be used now; empty = usable
+	Reason   string // why nothing that needs the device can be used now (running, never answered, offline); empty = usable
+	// The reason per action, "" = usable. Without a transport service they all equal Reason; with
+	// one, the path TasmoFleet would take decides (deviceconn.go).
+	SettingsWhy, ConsoleWhy, BackupWhy, RestoreWhy, UpdateWhy string
 
 	// The device header (devicehead.templ) is the same on every tab.
 	Name       string
@@ -330,6 +339,7 @@ func tabsFor(v view, d model.Device, hl model.Health, running *model.Job, active
 		t.Address += ":" + strconv.Itoa(d.Port)
 	}
 	t.Reason = blockReason(d, hl, running)
+	t.applyPaths(transport.Paths{}, false)
 	return t
 }
 
@@ -344,7 +354,7 @@ func blockReason(d model.Device, hl model.Health, running *model.Job) string {
 	case hl.LastSeen.IsZero() && d.Identity.DetectedAt.IsZero():
 		return "The device has not answered yet."
 	case hl.State == model.HealthOffline:
-		return "The device is offline."
+		return reasonOffline
 	}
 	return ""
 }
@@ -386,7 +396,7 @@ func (h *handler) deviceState(r *http.Request, d model.Device) (model.Health, *m
 // only costs the reason; the tabs still render.
 func (h *handler) tabsOf(r *http.Request, v view, d model.Device, active string) deviceTabs {
 	hl, running := h.deviceState(r, d)
-	return h.headOf(v, d, hl, running, active)
+	return h.headOf(r.Context(), v, d, hl, running, active)
 }
 
 // canReplace says whether the viewer gets the Replace device link.
@@ -594,9 +604,7 @@ func (h *handler) deviceBackupFromList(w http.ResponseWriter, r *http.Request, d
 	if data.Error != "" {
 		text, tone = data.Error, "danger"
 	}
-	if trig, err := json.Marshal(map[string]any{"toast": map[string]string{"text": text, "tone": tone}}); err == nil {
-		w.Header().Set("HX-Trigger", string(trig))
-	}
+	setHXTrigger(w, map[string]any{"toast": map[string]string{"text": text, "tone": tone}})
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 }

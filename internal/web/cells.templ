@@ -130,6 +130,10 @@ templ (h *handler) deviceRows(d rowsData) {
 					{ " " }
 					<span class="tag" title={ h.hint("no-ota") }>no OTA</span>
 				}
+				if row.ViaMQTT {
+					{ " " }
+					<span class="tag" data-via-mqtt title="HTTP to this device fails, so TasmoFleet manages it over MQTT">MQTT</span>
+				}
 			</td>
 			<td data-label="Status" class="nowrap s"><span class="dv-live" sse-swap={ "health-" + devID(row.Device.ID) }>
 				@h.statusCell(row.Health)

@@ -14,6 +14,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/fwselect"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 // commandGap is the pause between two commands to the same device. ESP8266
@@ -85,6 +86,12 @@ func (a *deviceAPI) firmwareInputs(ctx context.Context, t tasmota.Target, withRo
 	in.Status2 = raw
 	if unknown || withRoot {
 		ri, err := a.c.RootPage(ctx, t)
+		if err != nil && !unknown && errors.Is(err, transport.ErrNoInfo) {
+			// Over MQTT the page is built from INFO1, which a device sends once per boot. Firmware that
+			// answered Status 2 needs the page only for its language, which stays unknown (D10); minimal
+			// firmware needs it for its image, so there the missing INFO1 stops the probe.
+			return in, unknown, nil
+		}
 		if err != nil {
 			return in, unknown, fmt.Errorf("root page: %w", err)
 		}

@@ -71,7 +71,8 @@ func TestNeverAnsweredDeviceDisablesBackupAndExplains(t *testing.T) {
 	e, _, _ := subPageEnv(t)
 	_, body := e.do(t, "GET", "/devices/2", "admin", nil) // attic: no health, never probed
 	for _, want := range []string{
-		`disabled title="The device has not answered yet.">Back up</button>`,
+		`disabled title="The device has not answered yet." aria-disabled="true" aria-describedby="devhd-why">Back up</button>`,
+		`<p class="devcard-note" id="devhd-why">Back up: The device has not answered yet.</p>`,
 		"This device has not answered yet",
 		`<h2 id="dc-act">Activity</h2>`,
 		"No state changes or transactions yet.",
@@ -92,7 +93,7 @@ func TestBackupIsDisabledWhileAnOperationHoldsTheDevice(t *testing.T) {
 	e, _, j, _ := setupOTA(t)
 	j.jobs = []model.Job{{ID: 1, BatchID: 7, DeviceID: 1, Kind: model.KindBackup, Commands: model.BackupMarker, State: model.JobApplying, CreatedAt: time.Now()}}
 	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
-	if !strings.Contains(body, `disabled title="Unavailable while a backup of the device is running.">Back up<`) {
+	if !strings.Contains(body, `disabled title="Unavailable while a backup of the device is running." aria-disabled="true" aria-describedby="devhd-why">Back up<`) {
 		t.Errorf("Back up now is not disabled with its reason:\n%s", body)
 	}
 	j.jobs = []model.Job{{ID: 2, BatchID: 8, DeviceID: 1, State: model.JobUpgradeIssued, CreatedAt: time.Now()}}

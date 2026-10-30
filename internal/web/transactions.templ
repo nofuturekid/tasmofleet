@@ -422,13 +422,15 @@ templ updatePreviewPage(p previewPage, csrf string) {
 							<span class="upd-prow-file" title={ r.Item.Filename }>{ r.FileText() }</span>
 						} else {
 							<span class="upd-prow-dec">
-								if len(r.BuildOptions) > 0 {
+								if len(r.BuildOptions) > 0 || r.LanguageChoice {
 									@ui.Badge(ui.ToneWarn, "Needs a choice")
 								} else {
 									@ui.Badge(r.Tone(), label(r.Item.Decision))
 								}
 							</span>
-							if len(r.BuildOptions) > 0 && r.Build == "" {
+							if r.LanguageChoice {
+								<span class="upd-prow-why" title={ r.Item.Reason }>The language build of this device cannot be read over MQTT, and the wrong one would change the device's language.</span>
+							} else if len(r.BuildOptions) > 0 && r.Build == "" {
 								<span class="upd-prow-why">This chip has two builds that cannot be told apart from the device.</span>
 							} else if len(r.BuildOptions) > 0 {
 								<span class="upd-prow-why" title={ r.Item.Reason }>This device runs a custom or unrecognised firmware, which is only replaced on request: go Back and enter the variant override "tasmota", then choose the build.</span>
@@ -447,6 +449,20 @@ templ updatePreviewPage(p previewPage, csrf string) {
 								}
 							</fieldset>
 						}
+						if r.LanguageChoice {
+							<label class="upd-prow-build">
+								Language build of this device
+								<select name={ r.LanguageName() } form="recheck" required>
+									<option value="">Choose the language</option>
+									for _, o := range languageOptions {
+										<option value={ o.Value } selected?={ r.Language == o.Value }>{ o.Label }</option>
+									}
+								</select>
+							</label>
+						}
+						if r.PathText() != "" {
+							<span class="upd-prow-note" data-path>{ r.PathText() }</span>
+						}
 						if r.Go && r.Item.Plan == model.PlanStaged {
 							<span class="upd-prow-note">Staged: minimal firmware first, then the release.</span>
 						}
@@ -462,9 +478,13 @@ templ updatePreviewPage(p previewPage, csrf string) {
 					</div>
 				}
 			</div>
-			if p.ChoosingBuilds() > 0 {
+			if p.ChoosingBuilds() > 0 || p.ChoosingLanguages() > 0 {
 				<div class="upd-prev-foot">
-					<p class="upd-hint">Nothing is guessed: choose the build of each device, then recheck.</p>
+					if p.ChoosingLanguages() == 0 {
+						<p class="upd-hint">Nothing is guessed: choose the build of each device, then recheck.</p>
+					} else {
+						<p class="upd-hint">Nothing is guessed: choose the build or language of each device, then recheck.</p>
+					}
 					<button type="submit" class="btn btn-primary" form="recheck">Recheck</button>
 				</div>
 			}
@@ -477,8 +497,8 @@ templ updatePreviewPage(p previewPage, csrf string) {
 				if p.Refused() > 0 {
 					<dt>Refused</dt><dd class="upd-bad">{ plural(p.Refused(), "device") }</dd>
 				}
-				if p.ChoosingBuilds() > 0 {
-					<dt>Needs a choice</dt><dd class="upd-warn">{ plural(p.ChoosingBuilds(), "device") }</dd>
+				if p.ChoosingBuilds()+p.ChoosingLanguages() > 0 {
+					<dt>Needs a choice</dt><dd class="upd-warn">{ plural(p.ChoosingBuilds()+p.ChoosingLanguages(), "device") }</dd>
 				}
 				if p.Skips() > 0 {
 					<dt>Skipped</dt><dd>{ plural(p.Skips(), "device") }</dd>
@@ -508,8 +528,12 @@ templ updatePreviewPage(p previewPage, csrf string) {
 					<button type="submit" class="btn btn-primary btn-tall" form="start">Start update</button>
 				}
 			</div>
-			if len(p.IDs) == 0 && p.ChoosingBuilds() > 0 {
-				<p class="upd-hint">Choose a build above, then recheck.</p>
+			if len(p.IDs) == 0 && p.ChoosingBuilds()+p.ChoosingLanguages() > 0 {
+				if p.ChoosingLanguages() == 0 {
+					<p class="upd-hint">Choose a build above, then recheck.</p>
+				} else {
+					<p class="upd-hint">Choose above, then recheck.</p>
+				}
 			} else if len(p.IDs) == 0 {
 				<p class="upd-hint">No device can be updated with these settings.</p>
 			}
@@ -543,6 +567,9 @@ templ previewFields(p previewPage, csrf string, ids []string) {
 	for _, id := range ids {
 		if b := p.Builds[id]; b != "" {
 			<input type="hidden" name={ "build_" + id } value={ b }/>
+		}
+		if l := p.Languages[id]; l != "" {
+			<input type="hidden" name={ "language_" + id } value={ l }/>
 		}
 	}
 }

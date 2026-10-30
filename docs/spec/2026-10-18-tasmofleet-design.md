@@ -1092,6 +1092,15 @@ TasmoAdmin's flow therefore left every device with the **minimal URL** stored. t
 Direct flows also restore. If `OriginalOtaURL` was empty or already equal, nothing is
 written.
 
+### 9.4a Transport of a job (0.20.0)
+
+The path of an update is chosen once, in the preview, which is also the preflight of Submit: `transport.Choose` over the device's facts (spec "Transport and path choice") gives `Paths.Update`. `None` refuses the device with the chooser's sentence. A download over MQTT stores `Job.Transport = mqtt`; every device call of the job then runs under `transport.WithPath` (HTTP or MQTT, never rerouted, no failover), also after a restart. Over MQTT:
+
+- The Router builds `RootPage` from the INFO1 seen after the device's latest LWT Online (version, image tag, minimal/safeboot); none gives `ErrBadResponse` (`transport.ErrNoInfo`), so minimal firmware is never recognised on a guess. Firmware that answered Status 2 needs the page only for its language, so a missing INFO1 is tolerated there. The language is never known (`LangKnown=false`): the preview asks for it where a language build exists (`Request.Language`, kept as the language of the job's `IdentityBefore`).
+- `stat/<t>/UPGRADE` `Failed ... connection failed` ends the stage without a second `Upgrade 1` (`ErrTextFWUnreachable`); the application records FWReach=no.
+- The job does not store the identity it probes (it is not an HTTP probe), so the device's GroupTopic read stays fresh for the writes of the job.
+- MQTT timings: reply 8 s, connection failure about 66 s after `Upgrade 1`, RebootWindow unchanged. The pre-OTA backup needs the MQTT backup (#257); without it the job fails at the backup unless the backup is switched off.
+
 ### 9.5 Timeouts and limits (defaults, configurable)
 
 | Name           | Default                          | Reason                                                                                       |

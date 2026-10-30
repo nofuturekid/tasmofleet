@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/nofuturekid/tasmofleet/internal/firmware"
 	"github.com/nofuturekid/tasmofleet/internal/model"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -45,8 +47,15 @@ func deviceCrumbs(d model.Device) []ui.Crumb {
 
 // headOf builds the device header and tabs for the viewer: tabsFor plus what needs the
 // handler (the cached release feed for "Update to", the drift and replace capabilities).
-func (h *handler) headOf(v view, d model.Device, hl model.Health, running *model.Job, active string) deviceTabs {
+func (h *handler) headOf(ctx context.Context, v view, d model.Device, hl model.Health, running *model.Job, active string) deviceTabs {
+	_, p, ok := h.transportOf(ctx, d.ID)
+	return h.headWith(v, d, hl, running, active, p, ok)
+}
+
+// headWith is headOf for a caller that has the paths already.
+func (h *handler) headWith(v view, d model.Device, hl model.Health, running *model.Job, active string, p transport.Paths, pathsOK bool) deviceTabs {
 	t := tabsFor(v, d, hl, running, active)
+	t.applyPaths(p, pathsOK)
 	t.CanReplace = h.canReplace(v)
 	_, t.Drift = h.d.Backups.(LiveSnapshotter)
 	if cl, ok := h.d.Firmware.(firmware.CachedLister); ok && v.Features.Updates {
@@ -66,10 +75,10 @@ func (t deviceTabs) headTabs() []ui.Tab {
 	p := func(rest string) string { return t.Base + devPath(t.ID, rest) }
 	tabs := []ui.Tab{{Label: "Overview", Href: p(""), Current: t.Active == "overview"}}
 	if t.Settings {
-		tabs = append(tabs, ui.Tab{Label: "Settings", Href: p("/settings"), Current: t.Active == "settings", Reason: t.Reason})
+		tabs = append(tabs, ui.Tab{Label: "Settings", Href: p("/settings"), Current: t.Active == "settings", Reason: t.SettingsWhy})
 	}
 	if t.Console {
-		tabs = append(tabs, ui.Tab{Label: "Console", Href: p("/console"), Current: t.Active == "console", Reason: t.Reason})
+		tabs = append(tabs, ui.Tab{Label: "Console", Href: p("/console"), Current: t.Active == "console", Reason: t.ConsoleWhy})
 	}
 	tabs = append(tabs, ui.Tab{Label: "Backups", Href: p("/backups"), Current: t.Active == "backups"})
 	if t.Drift {

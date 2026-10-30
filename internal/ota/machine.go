@@ -162,6 +162,7 @@ const (
 const (
 	ErrTextOtaURLChanged   = "OtaUrl changed by someone else"
 	ErrTextNoUpgradeStart  = "device did not start the upgrade"
+	ErrTextFWUnreachable   = "the device cannot reach the firmware server"
 	ErrTextNotBack         = "device did not come back"
 	ErrTextHardwareChanged = "hardware changed after upgrade (critical)"
 	ErrTextNoEffect        = "upgrade did not take effect"
@@ -440,6 +441,19 @@ func stepSetOtaURL(j model.Job, ev Event, now time.Time, cfg Config) (model.Job,
 	return j, nil
 }
 
+// FWUnreachableReport reports whether a stat/<t>/UPGRADE text says the device could not even connect
+// to the server it was sent to ("Failed HTTP error: connection failed"). Other "Failed" texts (a
+// 404, a short download, a bad image) keep the retry rule.
+//
+// The text is ESPhttpUpdate.getLastErrorString() behind "Failed " (support_tasmota.ino, Upgrade): on the
+// ESP8266 core "HTTP error: connection failed" (verified live on an ESP8285). The ESP32 HTTPUpdate lives in
+// the Arduino core, not in the Tasmota tree, and its text for an unreachable server ("connection refused"
+// for HTTPC_ERROR_CONNECTION_REFUSED) is not proven here, so an ESP32 keeps the retry rule until a capture
+// shows its text.
+func FWUnreachableReport(text string) bool {
+	return strings.HasPrefix(text, "Failed") && strings.Contains(strings.ToLower(text), "connection failed")
+}
+
 func stepUpgradeIssued(j model.Job, ev Event, now time.Time, cfg Config) (model.Job, []Action) {
 	switch ev.Kind {
 	case EvCommandOK:
@@ -481,6 +495,15 @@ func stepUpgradeIssued(j model.Job, ev Event, now time.Time, cfg Config) (model.
 	case EvUpgradeReport:
 		if !strings.HasPrefix(ev.Err, "Failed") {
 			return j, nil // "Successful" is only a hint; the probe decides
+		}
+		if FWUnreachableReport(ev.Err) && j.Delivery != model.DeliveryPush {
+			// The device was told to download from tasmofleet's firmware server (Guard allows no other
+			// URL) and could not connect to it: a second Upgrade 1 would fail the same way, after the
+			// same minute of waiting (D9). The app records it as "the device does not reach the server".
+			if j.CancelRequested {
+				return cancelled(j, now, withErr(ErrTextFWUnreachable, ev.Err))
+			}
+			return fail(j, now, withErr(ErrTextFWUnreachable, ev.Err))
 		}
 		return retry(j, now, cfg, ev.Err)
 	case EvTimeout:
@@ -574,6 +597,9 @@ func stepAwaitReboot(j model.Job, ev Event, now time.Time, cfg Config) (model.Jo
 		if j.ViaSafeboot {
 			return fail(j, now, joinNotes(ErrTextNotBack, "it may be in safeboot"+atAddr(ev.Addr)+": open its web page and upload the firmware, or use Upgrade by download"))
 		}
+		if j.Transport == model.TransportMQTT {
+			return fail(j, now, joinNotes(ErrTextNotBack, "restart the device and retry the update"))
+		}
 		return fail(j, now, ErrTextNotBack)
 	case EvStart, EvResume, EvIdentity, EvPlanned, EvCommandOK, EvCommandFailed, EvGuardRefused, EvBackupDone, EvBackupFailed, EvUpgradeReport, EvPowerReport, EvCancel:
 		// not in the transition table: the job stays unchanged
@@ -641,7 +667,9 @@ func stepVerify(j model.Job, ev Event, now time.Time, cfg Config) (model.Job, []
 	// whatever was installed (#88): compare with what Detect will read, not with the selection.
 	want := fwselect.DetectedVariant(fwselect.Selection{Family: j.IdentityBefore.Family, Variant: j.TargetVariant})
 	if id.Version == j.TargetRelease && id.Variant == want &&
-		id.Language == j.IdentityBefore.Language && id.Family == j.IdentityBefore.Family {
+		(id.Language == j.IdentityBefore.Language || !id.LanguageKnown) && id.Family == j.IdentityBefore.Family {
+		// A probe over MQTT cannot see the language build (LanguageKnown false): the person's choice or the
+		// stored language stays the reference then, and only a language that was read can contradict it.
 		return finalReached(j, ev, now, cfg)
 	}
 	return notTaken(j, ev, now, cfg)

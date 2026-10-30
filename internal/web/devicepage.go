@@ -32,6 +32,7 @@ type deviceOverview struct {
 	Live     liveView
 	Ident    identCard
 	Conn     connCard
+	Paths    *pathCard // nil without the transport service
 	Activity devActivity
 }
 
@@ -351,7 +352,7 @@ func (h *handler) deviceProbe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	hl, running := h.deviceState(r, d)
-	tabs := h.headOf(v, d, hl, running, "overview")
+	tabs := h.headOf(r.Context(), v, d, hl, running, "overview")
 	c := h.identity(v, d, running != nil, tabs.offline(), h.factsOf(r.Context(), d))
 	c.Notice, c.Error = notice, failure
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

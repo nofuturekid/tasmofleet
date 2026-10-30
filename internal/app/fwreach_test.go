@@ -14,6 +14,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/clock"
 	"github.com/nofuturekid/tasmofleet/internal/firmware"
 	"github.com/nofuturekid/tasmofleet/internal/model"
+	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/secretbox"
 	"github.com/nofuturekid/tasmofleet/internal/store"
 )
@@ -272,5 +273,34 @@ func TestConcurrentYesAuditsOnce(t *testing.T) {
 	wg.Wait()
 	if len(au.ev) != 1 {
 		t.Fatalf("%d audit rows", len(au.ev))
+	}
+}
+
+// Why (D9, D11): the job that ended on the device's own "connection failed" report is the one source of
+// "no"; a failure for any other reason, or any other event, must not teach it, or a flaky download would
+// block the device's update paths for 24 hours.
+func TestLearnFWReachNoOnlyFromTheConnectionFailedReport(t *testing.T) {
+	report := model.JobEvent{Event: string(ota.EvUpgradeReport), Detail: "Failed HTTP error: connection failed"}
+	for _, tc := range []struct {
+		name string
+		job  model.Job
+		ev   model.JobEvent
+		want model.FWReachState
+	}{
+		{"connection failed", model.Job{State: model.JobFailed}, report, model.FWReachNo},
+		{"other failure text", model.Job{State: model.JobFailed}, model.JobEvent{Event: string(ota.EvUpgradeReport), Detail: "Failed HTTP error: 404"}, ""},
+		{"same text on another event", model.Job{State: model.JobFailed}, model.JobEvent{Event: string(ota.EvTimeout), Detail: report.Detail}, ""},
+		{"job not failed", model.Job{State: model.JobSetOtaURL}, report, ""},
+		{"policy job", model.Job{State: model.JobFailed, Kind: model.KindPolicy}, report, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, st, ids, _ := fwFixture(t, "10.0.0.1")
+			tc.job.DeviceID = ids[0]
+			a.learnFWReachNoFromJob(tc.job, tc.ev)
+			a.bgWG.Wait()
+			if r := reachOf(t, st, ids[0]); r.State != tc.want {
+				t.Fatalf("%+v", r)
+			}
+		})
 	}
 }

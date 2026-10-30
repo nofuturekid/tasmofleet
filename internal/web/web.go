@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -23,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/a-h/templ"
 
@@ -39,6 +41,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -137,15 +140,19 @@ type Deps struct {
 	Artifacts     ArtifactLister
 	Hub           *events.Hub
 	Clock         clock.Clock
-	Pages         *Pages             // optional: the account pages of package auth join the app shell
-	Settings      SettingsService    // optional (M2-2): per-device settings editor
-	Policy        PolicyService      // optional (M2-2): nil hides the policy view
-	PolicyFix     PolicyFix          // optional: "Make compliant" on the policy page
-	CommandBatch  PolicyFix          // optional: "Send command" to several devices (admin)
-	BackupBatch   BackupBatch        // optional: "Back up" several devices (admin)
-	Restore       RestoreService     // optional: nil without FIRMWARE_BASE_URL (M2-5)
-	SysConfig     SysConfigService   // optional: system settings page
-	PolicyRules   PolicyRulesService // optional: policy rule editor
+	// Transport is optional: the facts the device page and the device list read to show how a
+	// device is reached and which actions are available (#261). Nil hides the card and leaves
+	// every action to the general reason.
+	Transport    transport.FactsSource
+	Pages        *Pages             // optional: the account pages of package auth join the app shell
+	Settings     SettingsService    // optional (M2-2): per-device settings editor
+	Policy       PolicyService      // optional (M2-2): nil hides the policy view
+	PolicyFix    PolicyFix          // optional: "Make compliant" on the policy page
+	CommandBatch PolicyFix          // optional: "Send command" to several devices (admin)
+	BackupBatch  BackupBatch        // optional: "Back up" several devices (admin)
+	Restore      RestoreService     // optional: nil without FIRMWARE_BASE_URL (M2-5)
+	SysConfig    SysConfigService   // optional: system settings page
+	PolicyRules  PolicyRulesService // optional: policy rule editor
 	// PolicyLivePause is optional: Pause / Resume of the automatic policy live check.
 	PolicyLivePause PolicyLivePause
 	Setup           SetupService         // optional: first-run setup
@@ -781,4 +788,28 @@ func channelsOf(now time.Time, window time.Duration, h model.Health) []channelIn
 		mk("MQTT", mqttFresh, h.LWT != "" || !h.SeenMQTT.IsZero(), tip("MQTT", h.SeenMQTT, "no messages from this device")),
 		httpc,
 	}
+}
+
+// setHXTrigger sets the HX-Trigger response header to the JSON of events. Header bytes are not
+// UTF-8 for a browser (it reads them as Latin-1, so "Küche" arrives garbled), hence every non-ASCII
+// rune is written as a \uXXXX escape, with surrogate pairs above U+FFFF; htmx decodes it as JSON.
+// All HX-Trigger headers go through here.
+func setHXTrigger(w http.ResponseWriter, events any) {
+	raw, err := json.Marshal(events)
+	if err != nil {
+		return
+	}
+	var b strings.Builder
+	for _, r := range string(raw) {
+		switch {
+		case r < 0x80:
+			b.WriteRune(r)
+		case r < 0x10000:
+			fmt.Fprintf(&b, "\\u%04x", r)
+		default:
+			hi, lo := utf16.EncodeRune(r)
+			fmt.Fprintf(&b, "\\u%04x\\u%04x", hi, lo)
+		}
+	}
+	w.Header().Set("HX-Trigger", b.String())
 }

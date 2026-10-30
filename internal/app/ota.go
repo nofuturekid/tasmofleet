@@ -12,14 +12,16 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/mqttbus"
 	"github.com/nofuturekid/tasmofleet/internal/ota"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 // jobNotifier turns persisted job transitions into SSE events and metrics.
 type jobNotifier struct{ rt *runtime }
 
-func (n jobNotifier) JobChanged(j model.Job, _ model.JobEvent) {
+func (n jobNotifier) JobChanged(j model.Job, ev model.JobEvent) {
 	n.rt.svc.Hub.Publish(events.Event{Topic: events.TopicJob, Payload: j})
 	n.rt.learnFWReachFromJob(j)
+	n.rt.learnFWReachNoFromJob(j, ev)
 	if j.State.Terminal() {
 		n.rt.svc.Std.OTAJobsTotal.With(string(j.State)).Inc()
 	}
@@ -38,6 +40,32 @@ func (a *runtime) learnFWReachFromJob(j model.Job) {
 	})
 }
 
+// learnFWReachNoFromJob: the device told us over MQTT that it could not connect to the firmware server
+// and the job ended on that report (D9, D11). The machine fails such a job without a second Upgrade;
+// the detail is the device's own text.
+func (a *runtime) learnFWReachNoFromJob(j model.Job, ev model.JobEvent) {
+	if j.State != model.JobFailed || j.Kind != "" || ev.Event != string(ota.EvUpgradeReport) || !ota.FWUnreachableReport(ev.Detail) {
+		return
+	}
+	id, detail := j.DeviceID, ev.Detail
+	a.learnFWReach(func(ctx context.Context, l *FWReachLearner) error {
+		return l.NoteFWReachNo(ctx, id, detail)
+	})
+}
+
+// updatePaths implements ota.UpdatePaths: transport.Choose over the facts of the device and the plan.
+type updatePaths struct{ facts *TransportFacts }
+
+func (u updatePaths) UpdatePath(ctx context.Context, d model.Device, q ota.PathQuery) (transport.Paths, error) {
+	f, err := u.facts.ForUpdate(ctx, d.ID, UpdateRequest{
+		Delivery: q.Delivery, ImageSize: q.ImageSize, UpLayout: q.Layout, HTTPPush: q.HTTPPush, HTTPPushNote: q.HTTPPushNote,
+	})
+	if err != nil {
+		return transport.Paths{}, err
+	}
+	return transport.Choose(f), nil
+}
+
 // setupOTA builds the OTA engine. It needs the firmware cache, which exists
 // only with FIRMWARE_BASE_URL; without it OTA is disabled and the UI hides it.
 func (a *runtime) setupOTA() {
@@ -49,7 +77,7 @@ func (a *runtime) setupOTA() {
 	cfgM.PowerRestoreMaxAge = a.cfg.OTAPowerMaxAge
 	a.engine = ota.NewEngine(
 		ota.Options{Machine: cfgM, MaxParallel: a.cfg.OTAParallel, Power: a.deviceCmd, Audit: a.svc.Audit, Policy: a.policyApplier(),
-			Commands: a.deviceCmd, Principals: principalResolver{local: a.svc.Store, dir: a.svc.Store}},
+			Commands: a.deviceCmd, Principals: principalResolver{local: a.svc.Store, dir: a.svc.Store}, Paths: a.updatePaths()},
 		a.svc.Store, a.svc.Store, ota.NewDeviceAPI(a.svc.Client), a.cache, a.backups, clock.Real{}, jobNotifier{rt: a},
 	)
 	a.goBG("ota", func() error { return a.engine.Run(a.bgContext) })
@@ -122,4 +150,12 @@ func powerRelay(suffix string) (int, bool) {
 	}
 	n, err := strconv.Atoi(rest)
 	return n, err == nil && n >= 1
+}
+
+// updatePaths is the chooser of the engine; nil (HTTP for every update) while the transport facts do not exist.
+func (a *runtime) updatePaths() ota.UpdatePaths {
+	if a.facts == nil {
+		return nil
+	}
+	return updatePaths{facts: a.facts}
 }

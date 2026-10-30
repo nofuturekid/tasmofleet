@@ -20,6 +20,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/store"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 // DeviceAPI is what the engine needs from a device. The production
@@ -119,6 +120,9 @@ type Options struct {
 	// Principals resolves the current role of a job's creator before each
 	// command is sent and when a command transaction is retried.
 	Principals PrincipalResolver
+	// Paths chooses the path of each update (HTTP or MQTT, D2). nil means every update is an HTTP
+	// one, as before MQTT transport.
+	Paths UpdatePaths
 }
 
 // Errors returned by Submit and Cancel.
@@ -205,6 +209,7 @@ type Engine struct {
 	clk     clock.Clock
 	notify  Notifier
 	sel     selector
+	paths   UpdatePaths
 	// safebootPush opens the push into safeboot (#30); NewEngine takes it from safebootPushEnabled.
 	safebootPush bool
 	log          *slog.Logger
@@ -232,7 +237,7 @@ func NewEngine(o Options, jobs store.JobStore, devices store.DeviceStore, api De
 	}
 	return &Engine{
 		opts: o, power: o.Power, audit: o.Audit, jobs: jobs, devices: devices, api: api, fw: fw, backups: b, clk: clk, notify: n,
-		sel: fwselectFuncs{}, safebootPush: safebootPushEnabled, log: slog.Default().With("component", "ota"),
+		sel: fwselectFuncs{}, paths: o.Paths, safebootPush: safebootPushEnabled, log: slog.Default().With("component", "ota"),
 		workers: map[model.JobID]chan Event{}, fixing: map[model.JobID]bool{}, byDev: map[model.DeviceID]model.JobID{}, wake: make(chan struct{}, 1),
 	}
 }
@@ -287,7 +292,11 @@ type Request struct {
 	// Build is the explicit chip build of an ESP32-S2 ("s2" or "s2cdc"), chosen
 	// per update by the user; empty for every other device (#88). Without it an
 	// S2 is refused. It is stored on the job (Job.TargetBuild).
-	Build      string
+	Build string
+	// Language is the language build the person says the device runs ("en", "de", ...), required when
+	// the engine cannot read it from the device (over MQTT, D10) and the device has language builds.
+	// Ignored for a device whose language was read from its web page.
+	Language   string
 	Policy     model.UpdatePolicy
 	SkipBackup bool
 	// SkipPowerRestore turns off the default: relays that are ON before the
@@ -333,6 +342,17 @@ type PreviewItem struct {
 	// PowerRelaysKept lists relays that are ON but not restored because
 	// relays are only restored on request (they keep their state).
 	PowerRelaysKept string
+	// Path is how the update would reach the device (transport.Choose) and PathText the sentence why;
+	// both empty without a path chooser. Transport is what the job would store.
+	Path      transport.Path
+	PathText  string
+	Transport model.Transport
+	// LanguageChoice: the refusal is only that the language build of the device cannot be read; the
+	// person may choose it (Request.Language). LanguageDeclared: the person's choice was used, and
+	// the job keeps it in its identity.
+	LanguageChoice   bool
+	LanguageDeclared bool
+	Language         string
 }
 
 const (
@@ -562,6 +582,15 @@ func (e *Engine) previewDevice(ctx context.Context, d model.Device, r Request) P
 		it.Reason = "probe failed: " + err.Error()
 		return it
 	}
+	if r.Language != "" && !ident.LanguageKnown {
+		lang, err := declaredLanguage(r.Language)
+		if err != nil {
+			it.Reason = err.Error()
+			return it
+		}
+		ident.Language, ident.LanguageKnown = lang, true
+		it.LanguageDeclared, it.Language = true, lang
+	}
 	fctx, cancel := context.WithTimeout(ctx, planTimeoutFactor*e.opts.Machine.CommandTimeout)
 	p, err := e.planFor(fctx, d, ident, choiceFor(r), r.Custom, r.Delivery)
 	cancel()
@@ -572,6 +601,7 @@ func (e *Engine) previewDevice(ctx context.Context, d model.Device, r Request) P
 		if errors.Is(err, fwselect.ErrBuildChoiceNeeded) || (ident.Family == model.ChipESP32S2 && errors.Is(err, fwselect.ErrVariantChange)) {
 			it.BuildChoice = true
 		}
+		it.LanguageChoice = errors.Is(err, fwselect.ErrLanguageUnknown)
 		return it
 	}
 	it.Decision = string(p.decision)
@@ -582,6 +612,10 @@ func (e *Engine) previewDevice(ctx context.Context, d model.Device, r Request) P
 	it.Plan = p.plan
 	it.Filename = p.sel.Filename
 	it.Delivery, it.DeliveryNote, it.ViaSafeboot = p.delivery, p.fallback, p.viaSafeboot
+	e.choosePath(ctx, d, r, p, &it)
+	if it.Decision == decisionRefuse {
+		return it
+	}
 	if !r.SkipPowerRestore && !isIntermediate(ident.Variant) {
 		e.previewPower(ctx, d, r.RestoreRelays, &it)
 	}
@@ -713,8 +747,10 @@ func (e *Engine) submit(ctx context.Context, actor string, reqs []Request, retry
 	// Each job stores the delivery its preview decided (push where possible).
 	delivery := map[model.DeviceID]model.Delivery{}
 	viaSafeboot := map[model.DeviceID]bool{}
+	byItem := map[model.DeviceID]PreviewItem{}
 	for _, it := range items {
 		delivery[it.DeviceID], viaSafeboot[it.DeviceID] = it.Delivery, it.ViaSafeboot
+		byItem[it.DeviceID] = it
 	}
 	now := e.clk.Now()
 	jobs := make([]model.Job, 0, len(rest))
@@ -724,6 +760,13 @@ func (e *Engine) submit(ctx context.Context, actor string, reqs []Request, retry
 			TargetRelease: r.Release, TargetBuild: r.Build, TargetCustom: r.Custom, Delivery: delivery[r.DeviceID], ViaSafeboot: viaSafeboot[r.DeviceID], OriginalOtaURL: r.OriginalOtaURL, CreatedBy: actor, CreatedAt: now, UpdatedAt: now}
 		if r.AllowVariantChange {
 			j.TargetVariant = r.Variant
+		}
+		it := byItem[r.DeviceID]
+		j.Transport = it.Transport
+		if it.LanguageDeclared {
+			// The choice is kept as the language of the identity the preflight will complete (and never
+			// replace by a guess): a job has no column of its own for it.
+			j.IdentityBefore = model.Identity{Language: it.Language, LanguageKnown: true}
 		}
 		jobs = append(jobs, j)
 	}
@@ -1064,6 +1107,7 @@ func (e *Engine) apply(ctx context.Context, j model.Job, ev Event) (model.Job, [
 
 // exec performs one action and turns its result into an event.
 func (e *Engine) exec(ctx context.Context, j model.Job, a Action) Event {
+	ctx = pinned(ctx, j) // every call below, also the ones with their own timeout, stays on the job's path
 	cfg := e.machine()
 	d, err := e.devices.GetDevice(ctx, j.DeviceID)
 	if err != nil {
@@ -1099,14 +1143,26 @@ func (e *Engine) exec(ctx context.Context, j model.Job, a Action) Event {
 		if err != nil {
 			return Event{Kind: EvCommandFailed, Err: err.Error()}
 		}
-		// A preflight is an HTTP probe: the stored identity says so (DetectedAt), which is what
-		// keeps MQTT-announced identities (#87) away from it. The event keeps the identity as probed.
+		// The stored identity keeps its DetectedAt: that stamp marks an HTTP probe (which keeps MQTT-announced
+		// identities away from it) and makes the device's GroupTopic read look stale to the transport's write
+		// rule, so a job must not move it for a device that has one (a mixed batch would block the MQTT jobs'
+		// OtaUrl writes). Only a device that never had one gets it, and only from an HTTP job. A job over MQTT
+		// writes what it verified (version, image) and keeps the language fields as the MQTT refresh does.
 		stored := ident
-		if stored.DetectedAt.IsZero() {
+		stored.DetectedAt = d.Identity.DetectedAt
+		switch {
+		case j.Transport == model.TransportMQTT:
+			stored.Language = d.Identity.Language
+			stored.LanguageKnown = d.Identity.LanguageKnown && ident.Version == d.Identity.Version && ident.Image == d.Identity.Image
+		case stored.DetectedAt.IsZero():
 			stored.DetectedAt = e.clk.Now()
 		}
 		if err := e.devices.UpdateIdentity(cctx, d.ID, stored); err != nil {
 			e.log.Warn("ota: could not store device identity", "device", d.ID, "err", err)
+		}
+		if j.State == model.JobPreflight && j.IdentityBefore.LanguageKnown && !ident.LanguageKnown {
+			// The language the person chose in the preview (D10), for a device that cannot tell it.
+			ident.Language, ident.LanguageKnown = j.IdentityBefore.Language, true
 		}
 		ev := Event{Kind: EvIdentity, Identity: ident, OtaURL: otaURL, Uptime: up}
 		// The relay state is read once, before the first OtaUrl/Upgrade: it
@@ -1533,5 +1589,12 @@ func retryRequest(j model.Job) Request {
 		r.Variant, r.AllowVariantChange = j.TargetVariant, true
 	}
 	r.Build = j.TargetBuild
+	if j.IdentityBefore.LanguageKnown {
+		// Kept for a device that still cannot tell its language; a device that can is read afresh.
+		r.Language = j.IdentityBefore.Language
+		if r.Language == "" {
+			r.Language = fwselect.LanguageEnglish
+		}
+	}
 	return r
 }

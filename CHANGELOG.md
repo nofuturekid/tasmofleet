@@ -10,8 +10,15 @@ always upgrade automatically.
 
 - Devices TasmoFleet cannot reach over HTTP are managed over MQTT when they use our broker: console, Send command, settings reads and writes, policy reads and Make compliant. HTTP stays first; MQTT takes over when HTTP is known to fail, or inside one call only when the request provably never left (connection refused, outside DEVICE_NETWORKS, SetOption128, 401). A timeout or a dropped connection is never followed by a second send on the other transport. The audit details of these writes say `via` http or mqtt. A background read of every device's GroupTopic (`Status 1`, one per two seconds) and the MQTT identity refresh keep the group-topic check of MQTT writes satisfied (Part of #256)
 
+- Firmware updates over MQTT (OtaUrl + Upgrade): a device TasmoFleet cannot reach over HTTP downloads the image from TasmoFleet's firmware server; staged ESP8266 updates included. The path is chosen once in the preview (the row says "Over MQTT" and why, or why there is no path), stored with the job and pins every call of it. The language build, which Tasmota shows only on its web page, is asked for in the preview for devices that cannot be read over HTTP. A job over MQTT keeps the identity stamp and the language fields; until the backup over MQTT is routed (#257) such a job needs "Back up each device" switched off, and the preview says so (Part of #259)
+
 - Device list: optional columns OTA URL and Group topic (hidden until chosen in Columns, sortable, long values cut off with the whole value on hover), each with the time it was read. The group topic comes from the same read-only `Status 1` as the OTA URL and from the boot announcement `tele/<topic>/INFO1`, so no new device read. Values read before this release show no time until the next probe. Migration 0035 (#239)
 - Internal tooling: Tasmota command catalogue (`internal/tasmotacmd`), generated from the pinned Tasmota v16.0.0 source by `make catalogue`: which RESULT key answers which command, with commands whose key cannot be derived statically listed as loose (#268)
+- The device page shows how TasmoFleet reaches the device (HTTP, MQTT, device MQTT password, firmware server, experimental upload over MQTT) and why an action is unavailable; disabled Back up, Restore, Update and the Settings and Console tabs carry the same sentence, and the device list marks devices managed over MQTT (#79)
+
+### Changed
+
+- A device that cannot reach the firmware server (`Failed HTTP error: connection failed` on its UPGRADE report) fails the update at once with that reason instead of retrying with a second `Upgrade 1`, and is remembered as not reaching it (Part of #259)
 
 ### Security
 
@@ -36,6 +43,7 @@ always upgrade automatically.
 
 ### Fixed
 
+- The toast after "Back up now" in the device list showed umlauts and other non-ASCII characters garbled (the header was sent as raw UTF-8, which browsers read as Latin-1) (#288, thanks @Noschvie)
 - Device list: switching a relay of an HTTP-only device could flip back to its old state when a health poll that read the device just before the toggle finished just after it, and likewise for a state reported over MQTT; the newer state now wins over that poll (#206)
 - CI: module downloads fall back to a direct fetch when proxy.golang.org fails, which once failed a full mutation shard (#225); the flaky e2e check of #237 is fixed in the test, and the one of #218 waits for the rows to have a box before it measures (a mitigation, the cause is not proven)
 - Policy: Cancel in the rule editor goes back to the policy overview (it reloaded the rule page, or opened the template picker for a new rule)

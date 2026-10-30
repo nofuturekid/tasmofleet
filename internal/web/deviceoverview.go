@@ -486,7 +486,8 @@ func (h *handler) overviewOf(r *http.Request, v view, d model.Device, just *rela
 	if p.Updating != nil {
 		running = &p.Updating.Job
 	}
-	p.Tabs = h.headOf(v, d, hl, running, "overview")
+	tf, tp, tpOK := h.transportOf(ctx, d.ID)
+	p.Tabs = h.headWith(v, d, hl, running, "overview", tp, tpOK)
 	if p.Updating == nil && hl.LastSeen.IsZero() && d.Identity.DetectedAt.IsZero() {
 		p.NotYet = "This device has not answered yet"
 		if !d.CreatedAt.IsZero() {
@@ -505,6 +506,9 @@ func (h *handler) overviewOf(r *http.Request, v view, d model.Device, just *rela
 	}
 	p.Ident = h.identity(v, d, p.Updating != nil, off, facts)
 	p.Conn = connOf(in)
+	if tpOK {
+		p.Paths = pathCardOf(v, d, tf, tp, p.Tabs)
+	}
 	return p, nil
 }
 

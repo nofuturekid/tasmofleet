@@ -18,6 +18,9 @@ templ backupsTab(p backupsView) {
 				}
 			}
 		} else {
+			if p.RestoreBlocked != "" {
+				<p class="devcard-note" id="bk-restore-why">Restore: { p.RestoreBlocked }</p>
+			}
 			<div class="bk-bar">
 				<div class="bk-retention">
 					{ p.Retention }
@@ -146,7 +149,9 @@ templ backupRowItem(p backupsView, b backupRow) {
 				if b.Download != "" {
 					<a class="btn" href={ templ.SafeURL(b.Download) }>Download</a>
 				}
-				if b.Restore != "" {
+				if b.Restore != "" && p.RestoreBlocked != "" {
+					<button type="button" class="btn" disabled title={ p.RestoreBlocked } aria-disabled="true" aria-describedby="bk-restore-why">Restore…</button>
+				} else if b.Restore != "" {
 					<a class="btn" href={ templ.SafeURL(b.Restore) }>Restore…</a>
 				}
 				if b.DeleteText != "" {

@@ -107,7 +107,7 @@ func (h *handler) nameAnswer(w http.ResponseWriter, r *http.Request, answer func
 	}
 	v := h.view(r, "", "", nil)
 	hl, running := h.deviceState(r, d)
-	tabs := h.headOf(v, d, hl, running, "overview")
+	tabs := h.headOf(r.Context(), v, d, hl, running, "overview")
 	c := h.identity(v, d, running != nil, tabs.offline(), h.factsOf(r.Context(), d))
 	c.Error = failure
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

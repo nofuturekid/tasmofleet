@@ -399,6 +399,25 @@ func TestStepUpgradeIssued(t *testing.T) {
 			check: func(t *testing.T, j model.Job, _ []Action) { wantErrContains(t, j, "404") },
 		},
 		{
+			// Why (D9): the device could not even connect to the firmware server. A second Upgrade 1 would
+			// fail the same way after the same minute, so the job ends at once, whatever the attempt count.
+			name: "upgrade_issued/upgrade_report connection failed/Attempt < Max", in: ui, ev: Event{Kind: EvUpgradeReport, Err: "Failed HTTP error: connection failed"},
+			state: model.JobFailed, actions: []ActionKind{ActNotify},
+			check: func(t *testing.T, j model.Job, _ []Action) { wantErrContains(t, j, ErrTextFWUnreachable) },
+		},
+		{
+			// Only the connection failure is final; a 404 or a short download keeps the retry rule.
+			name: "upgrade_issued/upgrade_report other HTTP error", in: ui, ev: Event{Kind: EvUpgradeReport, Err: "Failed HTTP error: 404"},
+			state: model.JobSetOtaURL, actions: []ActionKind{ActSetOtaURL},
+		},
+		{
+			// A cancel that waited for the stage still ends as cancelled, with the reason.
+			name: "upgrade_issued/upgrade_report connection failed/cancel requested", in: func() model.Job { j := ui; j.CancelRequested = true; return j }(),
+			ev:    Event{Kind: EvUpgradeReport, Err: "Failed HTTP error: connection failed"},
+			state: model.JobCancelled, actions: []ActionKind{ActNotify},
+			check: func(t *testing.T, j model.Job, _ []Action) { wantErrContains(t, j, ErrTextFWUnreachable) },
+		},
+		{
 			// "Successful" over MQTT is a hint only; the probe decides.
 			name: "upgrade_issued/upgrade_report Successful", in: ui, ev: Event{Kind: EvUpgradeReport, Err: ""},
 			state: model.JobUpgradeIssued, actions: nil,
@@ -499,6 +518,12 @@ func TestStepAwaitReboot(t *testing.T) {
 			check: func(t *testing.T, j model.Job, _ []Action) { wantDeadline(t, j, time.Minute) },
 		},
 		{
+			// Why (L5): a staged job over MQTT can leave the device on minimal; the text says what to do.
+			name: "await_reboot/timeout/over MQTT", in: func() model.Job { j := ar; j.Transport = model.TransportMQTT; return j }(), ev: Event{Kind: EvTimeout},
+			state: model.JobFailed, actions: []ActionKind{ActNotify},
+			check: func(t *testing.T, j model.Job, _ []Action) { wantErrContains(t, j, "restart the device and retry") },
+		},
+		{
 			name: "await_reboot/timeout", in: ar, ev: Event{Kind: EvTimeout},
 			state: model.JobFailed, actions: []ActionKind{ActNotify},
 			check: func(t *testing.T, j model.Job, _ []Action) { wantErrContains(t, j, ErrTextNotBack) },
@@ -570,6 +595,27 @@ func TestStepVerify(t *testing.T) {
 				}
 				wantDeadline(t, j, 30*time.Second)
 			},
+		},
+		{
+			// Why (H1): over MQTT the language cannot be read, so the probe says "unknown" and the job's reference
+			// (the person's choice) must not make a successful flash look like "not taken".
+			name: "verify/identity/stage final, language chosen, probe cannot read it", in: func() model.Job {
+				j := vFinal
+				j.IdentityBefore.Language, j.IdentityBefore.LanguageKnown = "DE", true
+				return j
+			}(),
+			ev:    ident(finalIdent(), minimalURL, 3),
+			state: model.JobRestoreOtaURL, actions: []ActionKind{ActRestoreOtaURL},
+		},
+		{
+			// A language that WAS read and differs still contradicts the plan.
+			name: "verify/identity/stage final, language read and different", in: func() model.Job {
+				j := vFinal
+				j.IdentityBefore.Language, j.IdentityBefore.LanguageKnown = "DE", true
+				return j
+			}(),
+			ev:    func() Event { e := ident(finalIdent(), minimalURL, 3); e.Identity.LanguageKnown = true; return e }(),
+			state: model.JobFailed, actions: []ActionKind{ActNotify},
 		},
 		{
 			name: "verify/identity/stage final, as planned, restore disabled", in: vFinal, ev: ident(finalIdent(), minimalURL, 3),
@@ -718,7 +764,7 @@ func TestStepVerify(t *testing.T) {
 			check: func(t *testing.T, j model.Job, _ []Action) { wantErrContains(t, j, ErrTextUnexpected) },
 		},
 		{
-			name: "verify/identity/wrong language", in: vFinal, ev: ident(langDE, "", 0),
+			name: "verify/identity/wrong language", in: vFinal, ev: ident(func() model.Identity { i := langDE; i.LanguageKnown = true; return i }(), "", 0),
 			state: model.JobFailed, actions: []ActionKind{ActNotify},
 		},
 		{

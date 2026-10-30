@@ -646,6 +646,9 @@ func (a *runtime) webDeps(guard web.Guard, rows []web.KV) web.Deps {
 	}
 	deps.MQTTBroker = a.svc.Broker
 	deps.MQTTOnly = a.onlyOverMQTT
+	if a.facts != nil {
+		deps.Transport = webFacts{a.facts} // the router\'s own view: the card shows what the router decides
+	}
 	deps.DefaultDevicePassword = func() string { return a.svc.Sys.Snapshot().DeviceDefaultPassword }
 	if a.tracker != nil {
 		deps.StaleAfter = a.tracker.StaleAfter
