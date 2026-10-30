@@ -8,9 +8,9 @@
 #  - pull requests that touch the Dockerfile or the module files: build only,
 #    nothing is pushed (proves the Dockerfile still works).
 # ghcr authentication is the workflow's GITHUB_TOKEN (packages: write). When the
-# repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN exist, a release build
+# repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN exist, the same build
 # is also pushed under the same tags to docker.io/<DOCKERHUB_USERNAME>/tasmofleet
-# (no rebuild; edge stays on ghcr only); without them (forks) that part is skipped.
+# (no rebuild); without them (forks) that part is skipped.
 # Layers are cached in the GitHub Actions cache.
 name: image
 
@@ -89,11 +89,10 @@ jobs:
             version="pr-$(echo "$SHA" | cut -c1-12)"
             tags="$image:pr"
           fi
-          # Same build, same tags on Docker Hub, for releases only (no edge: every push to main
-          # would leave the previous edge manifest and its attestation behind as untagged images);
-          # only when both secrets exist.
+          # Same build, same tags on Docker Hub (edge included, so both registries match); only
+          # when pushing and both secrets exist.
           dockerhub=false
-          if [ "$REF_TYPE" = tag ] && [ "$push" = true ] && [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+          if [ "$push" = true ] && [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
             dhimage="docker.io/$(echo "$DOCKERHUB_USERNAME" | tr 'A-Z' 'a-z')/tasmofleet"
             tags="$tags,$(echo "$tags" | sed "s|$image|$dhimage|g")"
             dockerhub=true
@@ -123,6 +122,9 @@ jobs:
           context: .
           platforms: linux/amd64
           push: ${{ steps.v.outputs.push == 'true' }}
+          # One plain image manifest per build: no attestation, so no image index. Each push of
+          # edge then leaves a single untagged manifest behind instead of three.
+          provenance: false
           tags: ${{ steps.v.outputs.tags }}
           build-args: VERSION=${{ steps.v.outputs.version }}
           labels: |

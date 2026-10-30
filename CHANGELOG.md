@@ -13,7 +13,7 @@ always upgrade automatically.
 
 ### Changed
 
-- Docker Hub gets release tags only; `edge` stays on ghcr.io (every push to main left untagged images behind on Docker Hub)
+- Images are built without provenance attestation: one manifest per build, so a push of `edge` no longer leaves three untagged entries behind on Docker Hub
 - Policy: Save rule ends the editor too: the overview names the saved rule and marks its row
 - Policy overview: shorter compliance bar, so rule names and scopes do not wrap
 

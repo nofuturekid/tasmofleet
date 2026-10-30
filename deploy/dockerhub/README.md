@@ -52,8 +52,9 @@ Docker Compose, Unraid and all settings:
 
 - `latest`: the newest release
 - `X.Y.Z`: a release ([changelog](https://github.com/nofuturekid/tasmofleet/blob/main/CHANGELOG.md))
-The same release images are on `ghcr.io/nofuturekid/tasmofleet`, which also has `edge` (the current
-`main`, not for production). linux/amd64 only.
+- `edge`: the current `main`, not for production
+
+The same images are on `ghcr.io/nofuturekid/tasmofleet`. linux/amd64 only.
 
 ## License
 
