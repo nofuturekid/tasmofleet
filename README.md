@@ -101,10 +101,11 @@ docker run -d --name tasmofleet \
 docker logs tasmofleet 2>&1 | grep -o '/setup/account?token=[^"]*'
 ```
 
-The image is published to two registries under the same tags: `ghcr.io/nofuturekid/tasmofleet`
-and `nofuturekid/tasmofleet` on Docker Hub. Use either name.
+Releases (`latest`, `X.Y.Z`) are published to two registries under the same tags:
+`ghcr.io/nofuturekid/tasmofleet` and `nofuturekid/tasmofleet` on Docker Hub. Use either name.
+The `edge` tag (current `main`) exists on ghcr.io only.
 
-The UI always listens on container port 8080; `8443:8080` is the host port you pick. Upgrading
+The UI always listens on container port 8080; `8443:8080` maps container port 8080 to host port 8443, which you can choose freely. Upgrading
 from 0.16 or older with a `-p 8443:8443` mapping? Read [Upgrading to 0.17](docs/upgrading.md) first.
 
 Open `https://<host>:8443` followed by the printed `/setup/account?token=...` path, accept the
