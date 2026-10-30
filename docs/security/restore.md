@@ -124,10 +124,3 @@ Recommendations:
    restoring on a network you do not trust, and after restoring an old backup:
    its credentials come back, even if they were rotated since (the confirmation
    page says so).
-
-## Open item for other packages
-
-R15 needs OTA, the settings editor and the console to take the same
-`devlock.Locks` (`runtime.deviceLocks()` in `internal/app/restore.go`) around
-their device writes; today only the restore does, and it also refuses while an
-OTA job is active.

@@ -99,7 +99,7 @@ the upgrade end at the upgrade.
 | L9    | `store.TestAddLocalUserNeverOverwrites`, `TestConcurrentWritersKeepAccountInvariants`                                                                                    |
 | L10   | `TestSetPasswordRevokesSessionsAndDeviceCookies`, `TestDisableRevokesAndEnableDoesNotResurrect`, `TestUserPasswdKeepsStateAndRevokesSessions`                            |
 | L11   | `TestStepUpIsBoundToSessionAndGeneration`, `TestAdminStepUp`                                                                                                              |
-| L12   | `TestOperatorCannotManageAccounts`, `TestEveryChangeNeedsStepUp`, `TestHeaderAdminIsViewOnly`, `TestOIDCAdminStepUpAllowsLocalAccountChanges`, `TestExternalAdminsHaveNoPasswordPage`, `TestOwnPasswordChange`, `TestOnlyAccountRoutesChangeCredentials`                     |
+| L12   | `TestOperatorCannotManageAccounts`, `TestEveryChangeNeedsStepUp`, `TestHeaderAdminIsViewOnly`, `TestOIDCAdminStepUpAllowsLocalAccountChanges`, `TestExternalAdminsHaveNoPasswordForm`, `TestOwnPasswordChange`, `TestOnlyAccountRoutesChangeCredentials`                     |
 | L13   | `TestStandaloneFirstRun`, `TestStandaloneEndToEnd`                                                                                                                        |
 | L14   | `TestStandaloneFirstRun`, `TestInitialPasswordFileRemovedAtStartupWhenSpent`                                                                                             |
 | L15   | _removed_ |
