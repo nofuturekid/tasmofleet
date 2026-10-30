@@ -45,6 +45,9 @@ func (c *Channel) onInfo(m mqttbus.Message) {
 	if !have && len(c.info) >= maxTopics {
 		return
 	}
+	if m.Suffix == "INFO3" {
+		c.bootsSeen[m.Topic]++
+	}
 	i := c.info[m.Topic]
 	if i == nil {
 		i = &Info{}

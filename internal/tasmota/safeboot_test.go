@@ -51,6 +51,17 @@ func TestParseUpLayout(t *testing.T) {
 		// The script defines upl(t) on every ESP32 page; only a call upl(this) counts.
 		{"dual page with the script that defines upl", "<script>function upl(t){return false;}</script>" + dualUpPage, UpLayoutDirect, nil},
 		{"no upload form", "<html>Firmware Upgrade</html>", "", ErrUploadUnsupported},
+		// Review #297: anything that is not exactly one of the two forms proves nothing.
+		{"both buttons", dualUpPage + strings.Replace(dualUpPage, "this.form.submit();", "return upl(this);", 1), "", ErrUpLayoutAmbiguous},
+		{"two plain forms", dualUpPage + dualUpPage, "", ErrUpLayoutAmbiguous},
+		{"plain form that also calls upl", strings.Replace(dualUpPage, "this.form.submit();", "this.form.submit();upl(this);", 1), "", ErrUpLayoutAmbiguous},
+		{"safeboot call and plain submit", strings.Replace(dualUpPage, "this.form.submit();", "this.form.submit();return upl(this);", 1), "", ErrUpLayoutAmbiguous},
+		{"form without either marker", strings.Replace(dualUpPage, "this.form.submit();", "go();", 1), "", ErrUpLayoutAmbiguous},
+		{"plain marker twice", strings.Replace(dualUpPage, "this.form.submit();", "this.form.submit();this.form.submit();", 1), "", ErrUpLayoutAmbiguous},
+		{"upl call without return", strings.Replace(dualUpPage, "this.form.submit();", "upl(this);", 1), "", ErrUpLayoutAmbiguous},
+		{"marker only in a comment, no form", "<!-- this.form.submit(); -->", "", ErrUploadUnsupported},
+		{"truncated page", dualUpPage[:len(dualUpPage)-40], "", ErrUpLayoutAmbiguous},
+		{"upper-case marker", strings.Replace(dualUpPage, "this.form.submit();", "THIS.FORM.SUBMIT();", 1), "", ErrUpLayoutAmbiguous},
 		{"empty", "", "", ErrUploadUnsupported},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -217,5 +228,45 @@ func TestSwitchBootSendsCredentials(t *testing.T) {
 	}
 	if user != "admin" || pass != testPassword || strings.Contains(user+pass, "wrong") {
 		t.Errorf("credentials %q/%q", user, pass)
+	}
+}
+
+// Why (review #297, M1): a single-OTA ESP32 that RUNS safeboot serves the plain upload form too, so the form
+// proves nothing about two app partitions. Only a page whose footer names a normal image, without the
+// SAFEBOOT banner, is a proof. The safeboot page is built from the captured single-OTA page the way the
+// v16 source writes it (plain form, SAFEBOOT banner, footer image release-safeboot).
+func TestUpPageProvesDualOTAOnlyForTheNormalFirmware(t *testing.T) {
+	real, err := os.ReadFile(filepath.Join(fixturesDir, "office-monitor-guest", "up.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	normal := strings.Replace(string(real), "return upl(this);", "this.form.submit();", 1) // dual layout: plain form, normal firmware
+	if !strings.Contains(normal, "(release-tasmota32) by Theo Arends") || strings.Contains(normal, safebootBanner) {
+		t.Fatal("the fixture does not look as assumed")
+	}
+	safeboot := strings.Replace(strings.Replace(normal, "(release-tasmota32)", "(release-safeboot)", 1), "<body>", "<body><span><h3>SAFEBOOT</h3></span>", 1)
+	for name, tc := range map[string]struct {
+		page    string
+		layout  UpLayout
+		image   string
+		banner  bool
+		proves  bool
+		wantErr bool
+	}{
+		"normal firmware on two partitions": {normal, UpLayoutDirect, "release-tasmota32", false, true, false},
+		"captured single-OTA page":          {string(real), UpLayoutSafeboot, "release-tasmota32", false, false, false},
+		"safeboot serving the plain form":   {safeboot, UpLayoutDirect, "release-safeboot", true, false, false},
+		"safeboot image without a banner":   {strings.Replace(normal, "(release-tasmota32)", "(release-safeboot)", 1), UpLayoutDirect, "release-safeboot", false, false, false},
+		"banner with a normal footer":       {strings.Replace(normal, "<body>", "<body><h3>SAFEBOOT</h3>", 1), UpLayoutDirect, "release-tasmota32", true, false, false},
+		"minimal image":                     {strings.Replace(normal, "(release-tasmota32)", "(release-minimal)", 1), UpLayoutDirect, "release-minimal", false, false, false},
+		"footer missing":                    {strings.Replace(normal, "Tasmota 16.0.0 (release-tasmota32) by Theo Arends", "", 1), UpLayoutDirect, "", false, false, false},
+		"two footers":                       {normal + normal[strings.Index(normal, "<p></p><div style='text-align:right"):], UpLayoutDirect, "", false, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, err := ParseUpPage([]byte(tc.page))
+			if (err != nil) != tc.wantErr || p.Layout != tc.layout || p.Image != tc.image || p.SafebootBanner != tc.banner || p.ProvesDualOTA() != tc.proves {
+				t.Fatalf("%+v, %v; want layout %q image %q banner %v proves %v", p, err, tc.layout, tc.image, tc.banner, tc.proves)
+			}
+		})
 	}
 }

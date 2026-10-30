@@ -2,6 +2,7 @@ package fwselect
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/model"
 )
@@ -71,6 +72,13 @@ func MQTTUploadFits(id model.Identity, layout UpLayoutHint, imageSize int64) (ok
 		// upload has; with one app partition the next update partition can be the running one. Until
 		// that is settled for the Arduino core in use, an upload over MQTT is never started there.
 		return false, 0, 0, "the device has the safeboot (single app partition) layout, where an upload over MQTT could overwrite the running firmware"
+	case layout != UpLayoutDirect:
+		// Status 4 Free cannot tell the layouts apart (a safeboot device reports the factory partition
+		// less the sketch, a dual device the other partition), and on the safeboot layout Tasmota's
+		// FileUpload calls Update.begin without the single-OTA handling, so the next update partition can
+		// be the running app: the device would fall into safeboot, which has no MQTT. Only a layout read
+		// from the device's /up page (HTTP, earlier) proves two app partitions.
+		return false, 0, 0, "the device's flash layout is not proven dual-OTA (it is only known from an earlier read of its /up page over HTTP)"
 	case id.FreeKB <= 0:
 		return false, 0, 0, "the device's free flash (Status 4) is unknown"
 	case imageSize <= 0:
@@ -83,4 +91,19 @@ func MQTTUploadFits(id model.Identity, layout UpLayoutHint, imageSize int64) (ok
 		return false, needKB, roomKB, fmt.Sprintf("the image does not fit for an upload over MQTT (needs %d KB, %d KB of the %d KB free are usable)", needKB, roomKB, id.FreeKB)
 	}
 	return true, needKB, roomKB, fmt.Sprintf("the image fits for an upload over MQTT (needs %d KB, %d KB usable)", needKB, roomKB)
+}
+
+// UpLayoutOf turns the layout the store recorded (Device.UpLayout, read at readAt) into a hint. A layout
+// without a read time is no proof and counts as unknown.
+func UpLayoutOf(stored string, readAt time.Time) UpLayoutHint {
+	if readAt.IsZero() {
+		return UpLayoutUnknown
+	}
+	switch stored {
+	case string(UpLayoutDirect):
+		return UpLayoutDirect
+	case string(UpLayoutSafeboot):
+		return UpLayoutSafeboot
+	}
+	return UpLayoutUnknown
 }

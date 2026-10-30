@@ -104,7 +104,7 @@ disconnects cleanly so that closing a fleet does not fire wills.
 
 ## 6. What stays unverified
 
-- Type 1 success on a real device (no ESP32 with a dual-OTA layout was tested); only Error 2 on the safeboot layout was seen live.
+- Type 1 success on a real device (no ESP32 with a dual-OTA layout was tested); only Error 2 on the safeboot layout was seen live. The engine flow built on it (experimental, simulator-tested only) is in the design spec, section 9.4b.
 - The empty `?` after a finished transfer: `MqttFilePublish` always publishes (`F` 79), so an empty message arrives on `stat/<topic>/FILEDOWNLOAD`; the simulator does the same (not seen live).
 - The `_1` garbage message of the stray-`?` run (not explained by the source read).
 - Whether `Update.begin()` can fail for reasons other than size; the simulator assumes it succeeds when head_room is enough.

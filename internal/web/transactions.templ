@@ -218,6 +218,9 @@ templ txnBody(p txnPage) {
 								if r.Build != "" {
 									· build { r.Build }
 								}
+								if r.Path != "" {
+									· { r.Path }
+								}
 							</span>
 						}
 						<span class="upd-row-state">
@@ -369,6 +372,9 @@ templ updateNewPage(f updateForm, csrf string) {
 							<option value={ o.Value } selected?={ o.Checked }>{ o.Label }</option>
 						}
 					</select>
+				</label>
+				<label class="upd-opt" data-mqtt-upload hidden?={ f.Delivery != "push" }>
+					<input type="checkbox" name="mqtt_upload" value="1" checked?={ f.MQTTUpload }/>Allow upload over MQTT (experimental: not tested on a real device)
 				</label>
 				<label class="upd-opt">
 					Variant override
@@ -564,6 +570,9 @@ templ previewFields(p previewPage, csrf string, ids []string) {
 	}
 	<input type="hidden" name="power_after" value={ p.Form.PowerAfter }/>
 	<input type="hidden" name="delivery" value={ p.Form.Delivery }/>
+	if p.Form.MQTTUpload {
+		<input type="hidden" name="mqtt_upload" value="1"/>
+	}
 	for _, id := range ids {
 		if b := p.Builds[id]; b != "" {
 			<input type="hidden" name={ "build_" + id } value={ b }/>

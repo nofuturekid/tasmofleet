@@ -172,13 +172,17 @@ func TestForUpdateFitsFromIdentity(t *testing.T) {
 	d := model.Device{ID: 1, Identity: model.Identity{Family: model.ChipESP32, Version: "16.0.0", Variant: "tasmota", FreeKB: 2000}}
 	s := newFacts([]model.Device{d}, fakeFactsHealth{}, nil)
 	f, err := s.ForUpdate(context.Background(), 1, UpdateRequest{Delivery: model.DeliveryPush, AllowMQTTUpload: true, ImageSize: 1 << 20,
-		UpLayout: fwselect.UpLayoutUnknown, HTTPPush: transport.PushHTTP, HTTPPushNote: "n"})
+		UpLayout: fwselect.UpLayoutDirect, HTTPPush: transport.PushHTTP, HTTPPushNote: "n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := f.Request
 	if !r.MQTTUploadFit.OK || r.MQTTUploadFit.NeedKB != 1024 || r.MQTTUploadFit.RoomKB != 2000-192 || r.Delivery != model.DeliveryPush || !r.AllowMQTTUpload || r.HTTPPush != transport.PushHTTP || r.HTTPPushNote != "n" {
 		t.Errorf("request: %+v", r)
+	}
+	f, _ = s.ForUpdate(context.Background(), 1, UpdateRequest{ImageSize: 1 << 20, UpLayout: fwselect.UpLayoutUnknown})
+	if f.Request.MQTTUploadFit.OK || !strings.Contains(f.Request.MQTTUploadFit.Reason, "not proven dual-OTA") {
+		t.Errorf("an unproven layout must be refused with its reason: %+v", f.Request.MQTTUploadFit)
 	}
 	f, _ = s.ForUpdate(context.Background(), 1, UpdateRequest{ImageSize: 1 << 20, UpLayout: fwselect.UpLayoutSafeboot})
 	if f.Request.MQTTUploadFit.OK || f.Request.MQTTUploadFit.Reason == "" {

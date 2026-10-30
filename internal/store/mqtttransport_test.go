@@ -222,6 +222,14 @@ func TestJobAndRestoreTransportRoundTrip(t *testing.T) {
 	if got, err = s.GetJob(ctx, ids[0]); err != nil || got.Transport != model.TransportMQTT || !got.MQTTUpload {
 		t.Fatalf("after transition: transport %q upload %v, %v", got.Transport, got.MQTTUpload, err)
 	}
+	// An upload that ended up uncertain must stay so across a restart (it decides the failure text).
+	prev, got.MQTTUploadState = got.State, model.MQTTUploadUnconfirmed
+	if err := s.SaveTransition(ctx, got, model.JobEvent{JobID: got.ID, From: prev, To: got.State, Event: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = s.GetJob(ctx, ids[0]); err != nil || got.MQTTUploadState != model.MQTTUploadUnconfirmed {
+		t.Fatalf("upload state %q, %v", got.MQTTUploadState, err)
+	}
 	rid, err := s.CreateRestore(ctx, RestoreJob{DeviceID: dev, BackupID: 1, Actor: "u"})
 	if err != nil {
 		t.Fatal(err)

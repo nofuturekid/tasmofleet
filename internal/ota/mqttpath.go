@@ -25,6 +25,11 @@ type PathQuery struct {
 	// of a push, with HTTPPushNote saying why).
 	HTTPPush     transport.Path
 	HTTPPushNote string
+	// AllowMQTTUpload: the transaction allows the experimental upload over MQTT. The engine passes it only
+	// with the delivery the person asked for (push), and never when the upload is closed.
+	AllowMQTTUpload bool
+	// Identity is what the preview's probe just read; the upload fit is judged on it, not on the stored one.
+	Identity model.Identity
 	// Layout is what is known of the ESP32 upload layout for the fit rule.
 	Layout fwselect.UpLayoutHint
 }
@@ -62,7 +67,12 @@ func (e *Engine) choosePath(ctx context.Context, d model.Device, r Request, p pl
 		return
 	}
 	hp, note := httpPushDecision(p, r.Delivery)
-	paths, err := e.paths.UpdatePath(ctx, d, PathQuery{Delivery: p.delivery, ImageSize: p.target.Size, HTTPPush: hp, HTTPPushNote: note})
+	q := PathQuery{Delivery: p.delivery, ImageSize: p.target.Size, HTTPPush: hp, HTTPPushNote: note, Layout: layoutOf(d), Identity: p.id}
+	if r.AllowMQTTUpload && r.Delivery == model.DeliveryPush && e.mqttUpload {
+		// The upload over HTTP may have fallen back to the download, but over MQTT the fit rule of D19 decides.
+		q.AllowMQTTUpload, q.Delivery = true, r.Delivery
+	}
+	paths, err := e.paths.UpdatePath(ctx, d, q)
 	if err != nil {
 		it.Decision, it.Reason = decisionRefuse, "path: "+err.Error()
 		return
@@ -71,7 +81,7 @@ func (e *Engine) choosePath(ctx context.Context, d model.Device, r Request, p pl
 	switch paths.Update {
 	case transport.None:
 		it.Decision, it.Reason = decisionRefuse, it.PathText
-	case transport.DownloadMQTT:
+	case transport.DownloadMQTT, transport.PushMQTT:
 		it.Transport = model.TransportMQTT
 		if !r.SkipBackup && paths.Backup != transport.MQTT {
 			// The update backs the device up first; a job whose backup has no path would fail only after
@@ -79,15 +89,25 @@ func (e *Engine) choosePath(ctx context.Context, d model.Device, r Request, p pl
 			it.Decision, it.Reason = decisionRefuse, paths.Reason(transport.ActBackup)+"; or turn off \"Back up each device\" for this device"
 			return
 		}
-		if it.Delivery == model.DeliveryPush {
+		if paths.Update == transport.PushMQTT && (!r.AllowMQTTUpload || r.Delivery != model.DeliveryPush || !e.mqttUpload) {
+			// The chooser must not offer it unasked; if it ever does, the engine does not take it.
+			it.Decision, it.Reason = decisionRefuse, "upload over MQTT was not allowed for this update"
+			return
+		}
+		if paths.Update == transport.PushMQTT {
+			// The image goes through the broker (experimental): the engine's own checks on the file and the
+			// plan come on top of the fit rule Choose applied.
+			if err := e.mqttPushRefusal(d.ID, p.id, layoutOf(d), p.plan, p.target); err != nil {
+				it.Decision, it.Reason = decisionRefuse, "upload over MQTT: "+err.Error()
+				return
+			}
+			it.Delivery, it.ViaSafeboot, it.DeliveryNote = model.DeliveryPush, false, ""
+		} else if it.Delivery == model.DeliveryPush {
 			// The upload through the device's web page (or safeboot) needs HTTP; over MQTT the device
 			// downloads. Never switched unseen: the row says so and the job stores pull.
 			it.Delivery, it.ViaSafeboot = model.DeliveryPull, false
 			it.DeliveryNote = joinSentences(it.DeliveryNote, "no upload over HTTP: the device is reached over MQTT, it downloads the file")
 		}
-	case transport.PushMQTT:
-		// The upload over MQTT is the engine of WP-G1; nothing asks for it yet (the request never allows it).
-		it.Decision, it.Reason = decisionRefuse, "upload over MQTT is not available yet"
 	case transport.HTTP, transport.MQTT, transport.DownloadHTTP, transport.PushHTTP, transport.PushSafeboot:
 	}
 }

@@ -672,6 +672,12 @@ func TestUploadType1UnknownOutcomeBlocksTheTopicUntilTheDeviceRestarted(t *testi
 		t.Fatalf("while rebooting: %v", err) // offline: still nothing sent
 	}
 	b.emit(mqttbus.KindLWT, "plug", "LWT", "Online", false)
+	// Why: a Wi-Fi or broker reconnect gives the same Offline/Online pair without a boot, and the
+	// device still holds the complete image; only the boot announcement proves a restart.
+	if err := c.Upload(t.Context(), esp32Plug(), UploadSettings, "x", 4096, bytes.NewReader(data[:4096]), dlPassword, nil); !errors.Is(err, ErrFirmwarePending) || len(b.sent()) != before {
+		t.Fatalf("after a reconnect without a boot: %v, published %d more", err, len(b.sent())-before)
+	}
+	b.emit(mqttbus.KindInfo, "plug", "INFO3", `{"Info3":{"RestartReason":"Software/System restart","BootCount":9}}`, false)
 	u.final = `{"FileUpload":"Done"}`
 	if err := c.Upload(t.Context(), esp32Plug(), UploadSettings, "x", 4096, bytes.NewReader(data[:4096]), dlPassword, nil); err != nil {
 		t.Fatal(err)
@@ -694,6 +700,7 @@ func TestUploadType1RebootDuringTheWaitLeavesNothingPending(t *testing.T) {
 		if strings.Contains(p.payload, `"Md5"`) {
 			b.emit(mqttbus.KindLWT, "plug", "LWT", "Offline", false)
 			b.emit(mqttbus.KindLWT, "plug", "LWT", "Online", false)
+			b.emit(mqttbus.KindInfo, "plug", "INFO3", `{"Info3":{"BootCount":9}}`, false)
 		}
 	}
 	c := newChan(b)
@@ -746,5 +753,59 @@ func TestDoAllReturnsEveryReplyWithinTheWindow(t *testing.T) {
 	}
 	if _, err := newChan(b).DoAll(t.Context(), plug(), "Backlog Power ON; Status 5", time.Second); !errors.Is(err, ErrRefused) {
 		t.Fatalf("a Backlog: %v", err)
+	}
+}
+
+// Why (review #284): the device holds the COMPLETE image once the last chunk arrived, so a lost
+// acknowledgement of that chunk must not be answered with "FileUpload 0" (Update.end(true) would commit
+// the image while the job claims nothing was flashed). The outcome is unknown; a lost ack of an earlier
+// chunk still aborts, because a partial image is rejected.
+func TestUploadType1LostAckOfTheLastChunkIsOutcomeUnknownWithoutAbort(t *testing.T) {
+	u := &upDevice{maxes: []int{861}, dropAck: 3}
+	_, err := runUp(t, u, UploadFirmware, make([]byte, 2000), nil) // 861 + 861 + 278 bytes
+	if !errors.Is(err, ErrOutcomeUnknown) || u.aborts != 1 {
+		t.Fatalf("last ack lost: %v, aborts %d (only the opening one)", err, u.aborts)
+	}
+	u = &upDevice{maxes: []int{861}, dropAck: 2}
+	_, err = runUp(t, u, UploadFirmware, make([]byte, 2000), nil)
+	if err == nil || errors.Is(err, ErrOutcomeUnknown) || u.aborts != 2 {
+		t.Fatalf("mid ack lost: %v, aborts %d (a partial image is aborted)", err, u.aborts)
+	}
+}
+
+// Why: a process that restarted mid-upload does not remember the unconfirmed image; the engine marks
+// the topic again and nothing is published until the device booted.
+func TestMarkFirmwarePendingBlocksUntilTheNextBoot(t *testing.T) {
+	b := &fakeBus{}
+	c := newChan(b)
+	c.MarkFirmwarePending("plug")
+	c.MarkFirmwarePending("plug") // idempotent: it must not move the mark past a boot
+	err := c.Upload(t.Context(), esp32Plug(), UploadSettings, "x", 4096, bytes.NewReader(make([]byte, 4096)), dlPassword, nil)
+	if !errors.Is(err, ErrFirmwarePending) || len(b.sent()) != 0 {
+		t.Fatalf("%v, published %d", err, len(b.sent()))
+	}
+	b.emit(mqttbus.KindInfo, "plug", "INFO3", `{"Info3":{"BootCount":2}}`, false)
+	c.MarkFirmwarePending("plug") // the device booted: a late second mark must not re-block it
+	u := &upDevice{maxes: []int{861}, final: `{"FileUpload":"Done"}`}
+	u.t = t
+	u.attach(b)
+	if err := c.Upload(t.Context(), esp32Plug(), UploadSettings, "x", 4096, bytes.NewReader(make([]byte, 4096)), dlPassword, nil); err != nil {
+		t.Fatalf("after a boot: %v", err)
+	}
+}
+
+// Why (L3): a Type 1 image rejected at the MD5 may still sit in the device's Update object; the topic
+// is blocked like after an unconfirmed upload.
+func TestUploadType1MD5MismatchBlocksTheTopic(t *testing.T) {
+	b := &fakeBus{}
+	u := &upDevice{maxes: []int{861}, final: `{"FileUpload":"MD5 mismatch"}`}
+	u.t = t
+	u.attach(b)
+	c := newChan(b)
+	if err := c.Upload(t.Context(), esp32Plug(), UploadFirmware, "x", 2000, bytes.NewReader(make([]byte, 2000)), dlPassword, nil); !errors.Is(err, ErrTransfer) || errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatal(err)
+	}
+	if err := c.Upload(t.Context(), esp32Plug(), UploadSettings, "x", 4096, bytes.NewReader(make([]byte, 4096)), dlPassword, nil); !errors.Is(err, ErrFirmwarePending) {
+		t.Fatalf("after a MD5 mismatch: %v", err)
 	}
 }

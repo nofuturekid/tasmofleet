@@ -23,6 +23,15 @@ func (a *deviceAPI) UpLayout(ctx context.Context, d model.Device) (tasmota.UpLay
 	return l, nil
 }
 
+// UpPage reads GET /up with its footer and banner (see tasmota.UpPage).
+func (a *deviceAPI) UpPage(ctx context.Context, d model.Device) (tasmota.UpPage, error) {
+	s, ok := a.c.(tasmota.UpPageReader)
+	if !ok {
+		return tasmota.UpPage{}, errors.New("upload page: this device client cannot read it")
+	}
+	return s.ReadUpPage(ctx, tasmota.TargetFor(d))
+}
+
 // SwitchBoot sends the one GET /u4 (see tasmota.BootSwitcher).
 func (a *deviceAPI) SwitchBoot(ctx context.Context, d model.Device, to tasmota.BootTarget) (tasmota.BootReply, error) {
 	s, ok := a.c.(tasmota.BootSwitcher)

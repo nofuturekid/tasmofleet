@@ -97,6 +97,16 @@
       var box = form.querySelector('input[name="backup"]');
       el.hidden = !!box && !box.checked;
     });
+    // the experimental upload over MQTT can only be asked for together with push where possible
+    form.querySelectorAll("[data-mqtt-upload]").forEach(function (el) {
+      var sel = form.querySelector('select[name="delivery"]');
+      var on = !!sel && sel.value === "push";
+      el.hidden = !on;
+      var box = el.querySelector("input[type=checkbox]");
+      if (box && !on) {
+        box.checked = false;
+      }
+    });
     // push where possible uploads to ESP32 only: say which selected devices download instead
     form.querySelectorAll("[data-push-hint]").forEach(function (el) {
       var sel = form.querySelector('select[name="delivery"]');

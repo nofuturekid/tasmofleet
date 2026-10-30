@@ -260,3 +260,27 @@ func TestFactsSummaryByKey(t *testing.T) {
 		t.Fatalf("%q, want %q", got, want)
 	}
 }
+
+// Why: the card says "Fits" only for a device whose dual-OTA layout was proven by a read of /up; with
+// no record, or a safeboot layout, the upload is "Not available" with the reason.
+func TestUploadRowFollowsTheStoredLayout(t *testing.T) {
+	id := model.Identity{Family: model.ChipESP32, Version: "16.0.0", Variant: "tasmota32", FreeKB: 2000}
+	read := time.Unix(1, 0)
+	for _, tc := range []struct {
+		name   string
+		layout string
+		at     time.Time
+		want   string
+		sub    string
+	}{
+		{"proven direct", "direct", read, "Fits", ""},
+		{"never read", "", time.Time{}, "Not available", "not proven dual-OTA"},
+		{"direct without a read time", "direct", time.Time{}, "Not available", "not proven dual-OTA"},
+		{"safeboot", "safeboot", read, "Not available", "safeboot"},
+	} {
+		r := uploadRow(model.Device{Identity: id, UpLayout: tc.layout, UpLayoutAt: tc.at})
+		if r.Value != tc.want || !strings.Contains(r.Sub, tc.sub) {
+			t.Errorf("%s: %q / %q, want %q containing %q", tc.name, r.Value, r.Sub, tc.want, tc.sub)
+		}
+	}
+}

@@ -79,6 +79,11 @@ type Event struct {
 	// NotFlashed (EvCommandFailed in upgrade_issued): the device certainly
 	// flashed nothing, it refused the upload. The job ends at once.
 	NotFlashed bool
+	// OutcomeUnknown (EvCommandFailed in upgrade_issued, upload over MQTT): every byte of the image was
+	// sent but the device never confirmed it. The image may become active at the next restart, so the
+	// job probes and, if the device does not restart, ends with ErrTextUploadUnknown instead of a plain
+	// failure. NotFlashed stays false.
+	OutcomeUnknown bool
 	// Addr (EvTimeout only, filled by the engine for a push into safeboot): how to reach the
 	// device, for the instruction in the failure text.
 	Addr string
@@ -169,6 +174,11 @@ const (
 	ErrTextUnexpected      = "unexpected firmware after upgrade"
 	ErrTextRestoreFailed   = "could not restore OtaUrl"
 	ErrTextSafebootFailed  = "Upload into safeboot failed"
+	// ErrTextUploadInterrupted: the engine restarted while an image went through the broker. A partial
+	// Type 1 transfer cannot be continued; whether the device holds a complete image is not known.
+	ErrTextUploadInterrupted = "interrupted while the image went through the broker; the outcome is not known: the device most likely still runs its old firmware, but it may switch to the new one at its next restart. " + uploadAdvice
+	// ErrTextUploadUnknown: the upload over MQTT was sent completely but never confirmed.
+	ErrTextUploadUnknown   = "outcome unknown: the whole image was sent but the device never confirmed it; it may switch to the new firmware at its next restart. " + uploadAdvice
 	ErrTextPowerFailed     = "could not restore power state"
 	ErrTextPowerUnreadable = "relay state unreadable"
 )
@@ -306,6 +316,11 @@ func resume(j model.Job, now time.Time, cfg Config) (model.Job, []Action) {
 		// Never Upgrade on resume: whether the first Upgrade reached the
 		// device is unknown, so look first.
 		j.DeadlineAt = now.Add(cfg.RebootWindow)
+		if mqttPush(j) && j.MQTTUploadState == model.MQTTUploadClean {
+			// An image upload through the broker was running (or its end was not seen): it is never
+			// resumed. A device that restarted is verified as usual; one that did not ends with this.
+			j.MQTTUploadState = model.MQTTUploadInterrupted
+		}
 		return j, []Action{{Kind: ActProbe}}
 	case model.JobRestoreOtaURL:
 		j.DeadlineAt = now.Add(cfg.CommandTimeout)
@@ -476,6 +491,9 @@ func stepUpgradeIssued(j model.Job, ev Event, now time.Time, cfg Config) (model.
 			return j, notify()
 		}
 		// Unknown whether the upgrade started: probe, never resend.
+		if ev.OutcomeUnknown && mqttPush(j) {
+			j.MQTTUploadState = model.MQTTUploadUnconfirmed
+		}
 		return pushUploaded(j, now, cfg), probeLater(cfg)
 	case EvProbeOffline:
 		j = to(j, model.JobAwaitReboot, now)
@@ -511,6 +529,17 @@ func stepUpgradeIssued(j model.Job, ev Event, now time.Time, cfg Config) (model.
 			// Answering the whole window without ever restarting: still in safeboot.
 			return toSafebootRecover(j, now, cfg, "the device did not restart after the upload", ev.Addr)
 		}
+		if mqttPush(j) && j.MQTTUploadState != model.MQTTUploadClean {
+			// The upload over MQTT was interrupted or never confirmed, and the device did not restart.
+			reason := ErrTextUploadInterrupted
+			if j.MQTTUploadState == model.MQTTUploadUnconfirmed {
+				reason = ErrTextUploadUnknown
+			}
+			if j.CancelRequested {
+				return cancelled(j, now, reason)
+			}
+			return fail(j, now, reason)
+		}
 		return retry(j, now, cfg, ErrTextNoUpgradeStart)
 	case EvGuardRefused:
 		if j.ViaSafeboot {
@@ -523,6 +552,15 @@ func stepUpgradeIssued(j model.Job, ev Event, now time.Time, cfg Config) (model.
 		// not in the transition table: the job stays unchanged
 	}
 	return j, nil
+}
+
+// uploadAdvice is what a person does after an upload whose outcome is not known.
+const uploadAdvice = "Restart it (Restart 1 in its console), check which firmware it runs, and start a new update only if it still runs the old one; don't run a restore or another upload before that."
+
+// mqttPush reports whether the job uploads its image through the broker (FileUpload Type 1): a push
+// delivery whose transport is MQTT. An upload over HTTP has the transport HTTP.
+func mqttPush(j model.Job) bool {
+	return j.Delivery == model.DeliveryPush && j.Transport == model.TransportMQTT
 }
 
 // pushUploaded restarts the upgrade_issued window when a push upload has

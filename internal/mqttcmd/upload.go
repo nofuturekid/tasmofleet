@@ -88,7 +88,7 @@ func (c *Channel) Upload(ctx context.Context, d model.Device, typ int, name stri
 		c.mu.Unlock()
 		return err
 	}
-	boots := c.reboots[d.Topic]
+	boots := c.bootsSeen[d.Topic]
 	c.files[d.Topic] = in
 	clean := c.fileClean[d.Topic] // shared with Download: one FMqtt state on the device
 	c.fileClean[d.Topic] = false  // clean again only after "Done"
@@ -106,9 +106,9 @@ func (c *Channel) Upload(ctx context.Context, d model.Device, typ int, name stri
 		c.waitAbortedOf(ctx, in, suffixUpload)
 	}
 	abort, err := c.runUpload(ctx, d.Topic, start, id, typ, size, r, in, progress)
-	if err != nil && typ == UploadFirmware && errors.Is(err, ErrOutcomeUnknown) {
+	if err != nil && typ == UploadFirmware && (errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, errMD5Mismatch)) {
 		c.mu.Lock()
-		if c.reboots[d.Topic] == boots { // the device has not restarted since the transfer began
+		if c.bootsSeen[d.Topic] == boots { // the device has not booted since the transfer began
 			c.fwPending[d.Topic] = boots
 		}
 		c.mu.Unlock()
@@ -125,12 +125,28 @@ func (c *Channel) Upload(ctx context.Context, d model.Device, typ int, name stri
 	return nil
 }
 
+// errMD5Mismatch: the device rejected a complete Type 1 image at the MD5. Its Update object may still
+// hold the data, so the topic is blocked like after an unconfirmed upload.
+var errMD5Mismatch = errors.New("md5 mismatch")
+
+// MarkFirmwarePending blocks file transfers to the topic until the device has booted again (INFO3):
+// the caller knows a firmware upload to it ended without a confirmation, and this process may not
+// (it restarted). Idempotent.
+func (c *Channel) MarkFirmwarePending(topic string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.fwPending[topic]; !ok {
+		c.fwPending[topic] = c.bootsSeen[topic]
+	}
+}
+
 // firmwarePendingLocked refuses a transfer on a topic whose Type 1 upload has an unknown outcome.
 //
 // Every chunk of the image was acknowledged but nothing confirmed it, so the device holds a
 // complete image in FMqtt (file_id still set, Update still open) that "FileUpload 0" would commit
 // with Update.end(true) (xdrv_02_1_mqtt_file.ino, Tasmota v16.0.0, lines 162-171). Any further
-// file command is refused until the device has restarted (LWT Offline then Online), which drops
+// file command is refused until the device has booted again (its INFO3 announcement, which a Wi-Fi or
+// broker reconnect does not repeat; LWT Offline then Online alone proves nothing), which drops
 // that state. "FileDownload 0" would not call Update.end (its abort path only frees the settings
 // buffer, lines 369-375), but it does not clear file_id either and a download start on a busy
 // FMqtt falls through into the upload's dummy buffer, so it is refused too. After the reboot the
@@ -140,7 +156,7 @@ func (c *Channel) firmwarePendingLocked(topic string) error {
 	if !pending {
 		return nil
 	}
-	if c.reboots[topic] > at {
+	if c.bootsSeen[topic] > at {
 		delete(c.fwPending, topic)
 		return nil
 	}
@@ -339,10 +355,19 @@ func (c *Channel) runUpload(ctx context.Context, topic, start string, id, typ in
 		}
 		sum.Write(buf)
 		payload := `{"Id":` + strconv.Itoa(id) + `,"Data":"` + base64.StdEncoding.EncodeToString(buf) + `"}`
+		// The last chunk of a firmware image completes it on the device. If its acknowledgement is lost the
+		// image may be complete, and "FileUpload 0" would commit it (Update.end(true)): no abort then.
+		last := typ == UploadFirmware && done+int64(n) == size
 		if err := c.sendFileCmd(ctx, topic, cmdUpload, payload); err != nil {
+			if last {
+				return false, fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
+			}
 			return abort, err
 		}
 		if maxSize, err = ack(fmt.Sprintf("the chunk at byte %d", done)); err != nil {
+			if last && !deviceReset(err) {
+				return false, fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
+			}
 			return abort, err
 		}
 		if queuedAnswer(in) { // one chunk, one acknowledgement
@@ -393,7 +418,7 @@ func (c *Channel) runUpload(ctx context.Context, topic, start string, id, typ in
 	case st == "Failed":
 		return abort, transferErr("the device rejected the settings dump after the upload (Failed)")
 	case strings.EqualFold(st, "MD5 mismatch"):
-		return abort, transferErr("the device computed another MD5 than we sent; nothing was applied")
+		return abort, fmt.Errorf("%w: %w", errMD5Mismatch, transferErr("the device computed another MD5 than we sent; nothing was applied"))
 	default:
 		return abort, transferErr("the device ended the transfer (%s)", boundedStatus(st))
 	}

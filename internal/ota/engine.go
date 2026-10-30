@@ -212,7 +212,11 @@ type Engine struct {
 	paths   UpdatePaths
 	// safebootPush opens the push into safeboot (#30); NewEngine takes it from safebootPushEnabled.
 	safebootPush bool
-	log          *slog.Logger
+	// mqttUpload opens the experimental upload over MQTT (D19); NewEngine takes it from mqttUploadEnabled.
+	mqttUpload bool
+	// uploadGate holds what could not be re-armed after a restart (fail closed, see rearmUpload).
+	uploadGate uploadGate
+	log        *slog.Logger
 
 	tune atomic.Pointer[Tuning]
 
@@ -237,7 +241,7 @@ func NewEngine(o Options, jobs store.JobStore, devices store.DeviceStore, api De
 	}
 	return &Engine{
 		opts: o, power: o.Power, audit: o.Audit, jobs: jobs, devices: devices, api: api, fw: fw, backups: b, clk: clk, notify: n,
-		sel: fwselectFuncs{}, paths: o.Paths, safebootPush: safebootPushEnabled, log: slog.Default().With("component", "ota"),
+		sel: fwselectFuncs{}, paths: o.Paths, safebootPush: safebootPushEnabled, mqttUpload: mqttUploadEnabled, log: slog.Default().With("component", "ota"),
 		workers: map[model.JobID]chan Event{}, fixing: map[model.JobID]bool{}, byDev: map[model.DeviceID]model.JobID{}, wake: make(chan struct{}, 1),
 	}
 }
@@ -296,9 +300,13 @@ type Request struct {
 	// Language is the language build the person says the device runs ("en", "de", ...), required when
 	// the engine cannot read it from the device (over MQTT, D10) and the device has language builds.
 	// Ignored for a device whose language was read from its web page.
-	Language   string
-	Policy     model.UpdatePolicy
-	SkipBackup bool
+	Language string
+	// AllowMQTTUpload is the transaction's "Allow upload over MQTT (experimental)" checkbox. It only
+	// counts with DeliveryPush; the job stores it (Job.MQTTUpload) and takes the upload through the broker
+	// only for an ESP32 that HTTP does not reach, whose image provably fits (D19).
+	AllowMQTTUpload bool
+	Policy          model.UpdatePolicy
+	SkipBackup      bool
 	// SkipPowerRestore turns off the default: relays that are ON before the
 	// update are switched back on afterwards.
 	SkipPowerRestore bool
@@ -410,6 +418,7 @@ func guardChoice(j model.Job) fwselect.Choice {
 }
 
 type planResult struct {
+	id       model.Identity // the identity the plan was made for
 	decision fwselect.Decision
 	sel      fwselect.Selection
 	plan     model.Plan
@@ -428,7 +437,7 @@ type planResult struct {
 // artifact the job would send. It is shared by Preview and the plan action
 // so the dry run shows exactly what the job will do.
 func (e *Engine) planFor(ctx context.Context, d model.Device, id model.Identity, c fwselect.Choice, custom string, delivery model.Delivery) (planResult, error) {
-	var p planResult
+	p := planResult{id: id}
 	dec, err := e.sel.Decide(id, c)
 	if err != nil {
 		return p, refused(fmt.Errorf("policy: %w", err))
@@ -763,6 +772,7 @@ func (e *Engine) submit(ctx context.Context, actor string, reqs []Request, retry
 		}
 		it := byItem[r.DeviceID]
 		j.Transport = it.Transport
+		j.MQTTUpload = r.AllowMQTTUpload && r.Delivery == model.DeliveryPush && e.mqttUpload
 		if it.LanguageDeclared {
 			// The choice is kept as the language of the identity the preflight will complete (and never
 			// replace by a guess): a job has no column of its own for it.
@@ -900,7 +910,10 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	e.rearmFinished(ctx)
+	e.rearmResumed(ctx, active)
 	for _, j := range active {
+
 		if j.State != model.JobQueued {
 			// Resumed jobs hold a slot even beyond MaxParallel: the
 			// devices are mid-update and must be followed.
@@ -1193,12 +1206,27 @@ func (e *Engine) exec(ctx context.Context, j model.Job, a Action) Event {
 		}
 		return ev
 	case ActPlan:
-		p, err := e.planFor(cctx, d, j.IdentityBefore, planChoice(j), j.TargetCustom, j.Delivery)
+		delivery := j.Delivery
+		if mqttPush(j) {
+			delivery = model.DeliveryPull // the HTTP upload rules do not apply; the MQTT rules are checked below
+		}
+		p, err := e.planFor(cctx, d, j.IdentityBefore, planChoice(j), j.TargetCustom, delivery)
 		if err != nil {
 			return failEvent(err)
 		}
 		if p.decision == fwselect.DecideSkip {
 			return Event{Kind: EvPlanned, Skip: true}
+		}
+		if mqttPush(j) {
+			// Planned as an upload through the broker: the fit rule is evaluated again on today's data
+			// (never try-and-see), and the job refuses rather than download unseen.
+			if !j.MQTTUpload {
+				return failEvent(refused(errors.New("the transaction did not allow the upload over MQTT; start a new one")))
+			}
+			if err := e.mqttPushRefusal(j.DeviceID, j.IdentityBefore, layoutOf(d), p.plan, p.target); err != nil {
+				return failEvent(refused(fmt.Errorf("%w; the update was planned as an upload over MQTT, start a new one", err)))
+			}
+			p.delivery, p.viaSafeboot = j.Delivery, false
 		}
 		if p.delivery != j.Delivery || p.viaSafeboot != j.ViaSafeboot {
 			// Submitted as a push (through safeboot or not), but the device or plan no longer
@@ -1235,6 +1263,12 @@ func (e *Engine) exec(ctx context.Context, j model.Job, a Action) Event {
 		if j.Delivery == model.DeliveryPush {
 			// No OtaUrl: the image is uploaded in the next step. Check now that
 			// it can be read, so a damaged cache file fails the job cleanly.
+			if mqttPush(j) {
+				if err := e.mqttPushCheck(cctx, j, d, art); err != nil {
+					return failEvent(err)
+				}
+				return ev
+			}
 			if err := e.pushCheck(cctx, art, j.ViaSafeboot); err != nil {
 				return failEvent(err)
 			}
@@ -1248,6 +1282,9 @@ func (e *Engine) exec(ctx context.Context, j model.Job, a Action) Event {
 		art, u, err := e.stageArtifact(cctx, j)
 		if err != nil {
 			return failEvent(err)
+		}
+		if mqttPush(j) {
+			return e.pushMQTT(ctx, j, d, art)
 		}
 		if j.Delivery == model.DeliveryPush {
 			if j.ViaSafeboot {
@@ -1584,7 +1621,7 @@ func (e *Engine) submitRetry(ctx context.Context, actor string, batchID model.Ba
 // it was chosen (or forced by minimal) and approved the first time.
 func retryRequest(j model.Job) Request {
 	r := Request{DeviceID: j.DeviceID, Release: j.TargetRelease, Custom: j.TargetCustom, Delivery: j.Delivery, Policy: j.Policy, SkipBackup: j.SkipBackup,
-		SkipPowerRestore: j.SkipPowerRestore, RestoreRelays: j.RestoreRelays, OriginalOtaURL: j.OriginalOtaURL}
+		SkipPowerRestore: j.SkipPowerRestore, RestoreRelays: j.RestoreRelays, OriginalOtaURL: j.OriginalOtaURL, AllowMQTTUpload: j.MQTTUpload}
 	if j.TargetVariant != "" && j.TargetVariant != j.IdentityBefore.Variant {
 		r.Variant, r.AllowVariantChange = j.TargetVariant, true
 	}

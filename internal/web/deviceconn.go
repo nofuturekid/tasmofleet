@@ -361,7 +361,7 @@ func fwRow(f transport.Facts) pathRow {
 func uploadRow(d model.Device) pathRow {
 	r := pathRow{Key: "Upload over MQTT", Experiment: true, Tone: ui.ToneNeutral}
 	// An image size of 1 byte asks the question "could any image go this way".
-	ok, _, room, why := fwselect.MQTTUploadFits(d.Identity, fwselect.UpLayoutUnknown, 1)
+	ok, _, room, why := fwselect.MQTTUploadFits(d.Identity, fwselect.UpLayoutOf(d.UpLayout, d.UpLayoutAt), 1)
 	if ok {
 		r.Value, r.Tone, r.Sub = "Fits", ui.ToneOK, strconv.Itoa(room)+" KB room for a firmware image."
 		return r

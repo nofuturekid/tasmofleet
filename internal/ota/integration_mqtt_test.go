@@ -6,13 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/devicecmd"
+	"github.com/nofuturekid/tasmofleet/internal/fwselect"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/mqttbus"
 	"github.com/nofuturekid/tasmofleet/internal/mqttcmd"
@@ -51,7 +54,8 @@ func (f *itFacts) FactsFor(_ context.Context, d model.Device) (transport.Facts, 
 		Now: now, HTTP: f.HTTPState(d.ID),
 		MQTT: transport.MQTTFacts{BusConnected: true, Ours: d.MQTT == model.MQTTOurs, Topic: d.Topic, TopicExclusive: true,
 			GroupTopic: "tasmotas", GroupTopicReadAt: now, LastProbeAt: now.Add(-time.Hour), LWTOnline: true},
-		FWReach: fw, FirmwareBaseURL: true, Identity: d.Identity,
+		Password: transport.Password{Mode: d.MQTTPasswordMode, BadAt: d.MQTTPasswordBadAt},
+		FWReach:  fw, FirmwareBaseURL: true, Identity: d.Identity,
 	}, nil
 }
 
@@ -62,7 +66,12 @@ func (p itPaths) UpdatePath(ctx context.Context, d model.Device, q PathQuery) (t
 	if err != nil {
 		return transport.Paths{}, err
 	}
-	f.Request = transport.Request{Delivery: q.Delivery, HTTPPush: q.HTTPPush, HTTPPushNote: q.HTTPPushNote}
+	if q.Identity.Known() {
+		f.Identity = q.Identity
+	}
+	ok, need, room, why := fwselect.MQTTUploadFits(f.Identity, q.Layout, q.ImageSize)
+	f.Request = transport.Request{Delivery: q.Delivery, AllowMQTTUpload: q.AllowMQTTUpload, MQTTUploadFit: transport.MQTTFit{OK: ok, NeedKB: need, RoomKB: room, Reason: why},
+		HTTPPush: q.HTTPPush, HTTPPushNote: q.HTTPPushNote}
 	return transport.Choose(f), nil
 }
 
@@ -72,6 +81,7 @@ type lossy struct {
 	mu      sync.Mutex
 	loseCmd string
 	lost    int
+	uploads atomic.Int32 // file uploads handed to the channel (starts, never counting the messages inside one)
 }
 
 func (l *lossy) Do(ctx context.Context, d model.Device, cmd string) (json.RawMessage, error) {
@@ -83,6 +93,19 @@ func (l *lossy) Do(ctx context.Context, d model.Device, cmd string) (json.RawMes
 		return nil, tasmota.ErrTimeout // the command ran, the answer never came: an unknown outcome
 	}
 	return raw, err
+}
+
+// Upload passes the file upload through (the router asks for it by interface).
+func (l *lossy) Upload(ctx context.Context, d model.Device, typ int, name string, size int64, r io.Reader, password string, progress func(int64)) error {
+	l.uploads.Add(1)
+	return l.MQTTDoer.(interface {
+		Upload(context.Context, model.Device, int, string, int64, io.Reader, string, func(int64)) error
+	}).Upload(ctx, d, typ, name, size, r, password, progress)
+}
+
+// MarkFirmwarePending passes the re-arm through (the router asks for it by interface).
+func (l *lossy) MarkFirmwarePending(topic string) {
+	l.MQTTDoer.(interface{ MarkFirmwarePending(string) }).MarkFirmwarePending(topic)
 }
 
 // Info passes the channel's INFO1 cache through (the router asks for it by interface).
@@ -102,7 +125,7 @@ type itMQTT struct {
 	router *transport.Router
 }
 
-func newItMQTT(t *testing.T) *itMQTT {
+func newItMQTT(t *testing.T, tune ...func(*mqttcmd.Options)) *itMQTT {
 	t.Helper()
 	broker, err := simulator.StartBroker()
 	if err != nil {
@@ -121,13 +144,17 @@ func newItMQTT(t *testing.T) *itMQTT {
 			t.Fatal("bus never connected")
 		}
 	}
-	ch := mqttcmd.New(bus, mqttcmd.Options{Gap: 5 * time.Millisecond})
+	chOpts := mqttcmd.Options{Gap: 5 * time.Millisecond}
+	for _, f := range tune {
+		f(&chOpts)
+	}
+	ch := mqttcmd.New(bus, chOpts)
 	t.Cleanup(ch.Close)
 	m := &itMQTT{itEnv: e, broker: broker, ch: ch, mem: transport.NewMemory(transport.DefaultFailFor, time.Now)}
 	m.facts = &itFacts{mem: m.mem}
 	m.lossy = &lossy{MQTTDoer: ch}
 	client := tasmota.NewHTTPClient(tasmota.Options{AllowedNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}, Timeout: 800 * time.Millisecond})
-	router := transport.NewRouter(transport.Options{HTTP: client, Devices: e.st, Memory: m.mem})
+	router := transport.NewRouter(transport.Options{HTTP: client, Devices: e.st, Memory: m.mem, Marker: e.st})
 	m.router = router
 	router.SetFacts(m.facts)
 	router.SetMQTT(m.lossy)

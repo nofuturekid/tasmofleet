@@ -97,7 +97,8 @@ type Channel struct {
 	pubs      map[string]int                  // topic -> file transfer commands handed to the bus (see Download)
 	fileClean map[string]bool                 // topic -> the last download ended with a matching MD5
 	reboots   map[string]int                  // topic -> LWT Offline->Online pairs seen (bounded by lwt)
-	fwPending map[string]int                  // topic -> reboots when a Type 1 upload ended unconfirmed
+	bootsSeen map[string]int                  // topic -> INFO3 boot announcements seen: published once per real boot, not on a Wi-Fi or broker reconnect
+	fwPending map[string]int                  // topic -> bootsSeen when a Type 1 upload ended unconfirmed
 }
 
 // waiter receives the live replies of the one command in flight on a topic.
@@ -123,7 +124,7 @@ func New(bus mqttbus.Bus, o Options) *Channel {
 	if o.FileTotal == 0 {
 		o.FileTotal = DefaultFileTotal
 	}
-	c := &Channel{bus: bus, o: o, lwt: map[string]string{}, info: map[string]*Info{}, sems: map[string]chan struct{}{}, waiters: map[string]*waiter{}, files: map[string]chan mqttbus.Message{}, fileClean: map[string]bool{}, pubs: map[string]int{}, reboots: map[string]int{}, fwPending: map[string]int{}, done: make(chan struct{})}
+	c := &Channel{bus: bus, o: o, lwt: map[string]string{}, info: map[string]*Info{}, sems: map[string]chan struct{}{}, waiters: map[string]*waiter{}, files: map[string]chan mqttbus.Message{}, fileClean: map[string]bool{}, pubs: map[string]int{}, reboots: map[string]int{}, fwPending: map[string]int{}, bootsSeen: map[string]int{}, done: make(chan struct{})}
 	c.unsub = bus.Subscribe([]mqttbus.Kind{mqttbus.KindLWT, mqttbus.KindInfo, mqttbus.KindResult, mqttbus.KindStatus, mqttbus.KindPower, mqttbus.KindFile}, c.onMessage)
 	return c
 }

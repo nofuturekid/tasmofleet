@@ -623,6 +623,15 @@ func (r *Router) ReadUpLayout(ctx context.Context, t tasmota.Target) (tasmota.Up
 	return s.ReadUpLayout(ctx, t)
 }
 
+// ReadUpPage passes straight to HTTP.
+func (r *Router) ReadUpPage(ctx context.Context, t tasmota.Target) (tasmota.UpPage, error) {
+	s, ok := r.o.HTTP.(tasmota.UpPageReader)
+	if !ok {
+		return tasmota.UpPage{}, fmt.Errorf("%w: the HTTP client cannot read the upgrade page", tasmota.ErrNotImplemented)
+	}
+	return s.ReadUpPage(ctx, t)
+}
+
 // SwitchBoot passes straight to HTTP.
 func (r *Router) SwitchBoot(ctx context.Context, t tasmota.Target, to tasmota.BootTarget) (tasmota.BootReply, error) {
 	s, ok := r.o.HTTP.(tasmota.BootSwitcher)

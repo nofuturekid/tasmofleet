@@ -37,7 +37,8 @@ func (d *simDevice) singleOTA() bool { return d.esp32 && !d.def.DualOTA }
 // upl(this)) into the plain one, which is what safeboot itself and a
 // dual-partition device serve (HTTP_FORM_RST_UPG).
 func plainUploadForm(page []byte) []byte {
-	return []byte(strings.ReplaceAll(string(page), "return upl(this);", "this.form.submit();"))
+	s := strings.ReplaceAll(string(page), "return upl(this);", "this.form.submit();")
+	return []byte(strings.Replace(s, "<body>", "<body><span style='text-align:center;color:var(--c_txtwrn);'><h3>SAFEBOOT</h3></span>", 1))
 }
 
 // serveU4 models HandleSwitchBootPartition (xdrv_01_9_webserver.ino:3845).

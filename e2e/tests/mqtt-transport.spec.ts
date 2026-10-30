@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { join } from "node:path";
 import { test, expect } from "../support/fixtures";
 import { quickPick } from "../support/updates";
 import { expectNoOverflow } from "../support/layout";
@@ -31,6 +32,7 @@ test.beforeAll(async () => {
     "mq-esp32": env.devices["mq-esp32"],
     "mq-esp8266-1m": env.devices["mq-esp8266-1m"],
     "mq-fw-blocked": env.devices["mq-fw-blocked"],
+    "mq-esp32-dual": env.devices["mq-esp32-dual"],
   };
   expect(app.cli(["import", "tasmoadmin", writeTasmoAdminDir(only)])).toContain("created: mq-esp32");
 });
@@ -44,7 +46,7 @@ const admin = { "X-authentik-username": "adam", "X-authentik-groups": "adm" };
 test("console over MQTT on a device HTTP cannot reach", { tag: "@core" }, async ({ page }) => {
   await page.setExtraHTTPHeaders(admin);
   await page.goto(app.url + "/devices");
-  await expect(page.getByRole("row").filter({ hasText: "mq-esp32" }).getByText("Online", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("row").filter({ hasText: /mq-esp32(?!-)/ }).getByText("Online", { exact: true })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("link", { name: "mq-esp32", exact: true }).click();
   await page.getByRole("link", { name: "Console" }).click();
   const box = page.getByRole("textbox", { name: "Command" });
@@ -72,7 +74,7 @@ test("Make compliant over MQTT", { tag: "@core" }, async ({ page }) => {
   test.setTimeout(300_000);
   await page.setExtraHTTPHeaders(admin);
   await page.goto(app.url + "/devices");
-  await expect(page.getByRole("row").filter({ hasText: "mq-esp32" }).getByText("Online", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("row").filter({ hasText: /mq-esp32(?!-)/ }).getByText("Online", { exact: true })).toBeVisible({ timeout: 30_000 });
   // A write over MQTT needs every device's group topic (a message to a shared topic would reach other
   // devices). TasmoFleet reads them by itself shortly after the devices are known, and a change before
   // that is refused with the reason. So: try, and try again until the reads are in.
@@ -105,8 +107,9 @@ test("Make compliant over MQTT", { tag: "@core" }, async ({ page }) => {
 // same engine with the job pinned to MQTT. The backup before flashing runs over MQTT too (#257), so each
 // device gets its MQTT password first (the devenv devices have the same one, the broker takes any).
 // The devices take the DeviceName they report, so the picker is addressed by device id: the import
-// creates them in the order of the object (mq-esp32 = 1, mq-esp8266-1m = 2, mq-fw-blocked = 3).
-const deviceId = { "mq-esp32": 1, "mq-esp8266-1m": 2, "mq-fw-blocked": 3 } as const;
+// creates them in the order of the object (mq-esp32 = 1, mq-esp8266-1m = 2, mq-fw-blocked = 3,
+// mq-esp32-dual = 4).
+const deviceId = { "mq-esp32": 1, "mq-esp8266-1m": 2, "mq-fw-blocked": 3, "mq-esp32-dual": 4 } as const;
 const withPassword = new Set<number>();
 async function ensurePassword(page: import("@playwright/test").Page, id: number) {
   if (withPassword.has(id)) return;
@@ -160,6 +163,7 @@ test("update over MQTT (staged ESP8266) from the preview", { tag: "@core" }, asy
   await page.getByRole("button", { name: "Start update", exact: true }).click();
   await expect(page).toHaveURL(/\/transactions\/\d+$/);
   await expect(page.locator(".upd-row").getByText("Done", { exact: true })).toBeVisible({ timeout: 300_000 });
+  await expect(page.locator(".upd-row"), "the row names the path").toContainText("· over MQTT");
 });
 
 // FULL: a device that cannot reach the firmware server fails the update at once with that reason, and
@@ -305,3 +309,132 @@ for (const width of [375, 1280]) {
     await expectNoOverflow(page, "connection card");
   });
 }
+
+// Upload over MQTT (experimental, 0.20.0, #79, #262): a person opts in per transaction, with the
+// delivery "Push where possible" and a checkbox that exists only then.
+const uploadBox = "Allow upload over MQTT (experimental: not tested on a real device)";
+
+async function reviewUpload(page: import("@playwright/test").Page, name: keyof typeof deviceId) {
+  const row = () => page.locator(".upd-prow");
+  page.setDefaultTimeout(8_000);
+  await expect(async () => {
+    await pickById(page, name);
+    await page.locator("label.upd-relopt", { hasText: "Tasmota 16.1.0" }).click();
+    await page.getByLabel("Back up each device before flashing").uncheck();
+    await page.locator("select[name=delivery]").selectOption("push");
+    await page.getByLabel(uploadBox).check();
+    await page.getByRole("button", { name: "Review update" }).click();
+    await expect(row()).toBeVisible();
+    await expect(row()).not.toContainText("probe failed", { timeout: 1_000 });
+  }).toPass({ timeout: 150_000, intervals: [5_000] }).catch(async (e) => {
+    throw new Error(`${e}\npicker/preview page: ${(await page.locator("main").innerText().catch(() => "?")).slice(0, 1500)}`);
+  });
+  page.setDefaultTimeout(30_000);
+  return row();
+}
+
+// The language build is asked for only where it cannot be read: choose English when the row asks.
+async function chooseLanguageIfAsked(page: Page, row: import("@playwright/test").Locator) {
+  const pick = row.locator("select");
+  if ((await pick.count()) > 0) {
+    await pick.selectOption("EN");
+    await page.getByRole("button", { name: "Recheck" }).click();
+  }
+}
+
+// The layout of a device is the one a read of its /up page over HTTP recorded, and it is only proof for the
+// hardware it was read from: TasmoFleet drops it when the chip, the flash sizes or the free flash change. The
+// device never answers HTTP here, so the record is seeded, together with the identity the update job will
+// store again (chip, flash, sketch flash, free flash) taken from the device's own Status 4 via the console,
+// so the job's first identity write changes nothing and the proof stays.
+async function seedProvenLayout(page: Page, name: keyof typeof deviceId) {
+  const id = deviceId[name];
+  await page.goto(app.url + `/devices/${id}`);
+  await page.getByRole("link", { name: "Console" }).click();
+  const box = page.getByRole("textbox", { name: "Command" });
+  let text = "";
+  await expect(async () => {
+    await box.fill("Status 4");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("StatusMEM").first()).toBeVisible({ timeout: 3_000 });
+    text = await page.locator("main").innerText();
+  }).toPass({ timeout: 90_000, intervals: [3_000] });
+  const num = (key: string) => {
+    const m = new RegExp(`"${key}":\\s*(\\d+)`).exec(text);
+    if (!m) throw new Error(`Status 4 has no ${key}: ${text.slice(0, 400)}`);
+    return Number(m[1]);
+  };
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(join(app.dataDir, "tasmofleet.db"));
+  try {
+    db.exec("PRAGMA busy_timeout=5000");
+    db.prepare("UPDATE devices SET flash_size_kb=?, program_flash_kb=?, free_kb=?, up_layout='direct', up_layout_at=? WHERE id=?")
+      .run(num("FlashSize"), num("ProgramFlashSize"), num("Free"), Date.now(), id);
+  } finally {
+    db.close();
+  }
+}
+
+// @core: the refusal is deterministic and says why. An ESP8266 has no second stage over MQTT (its
+// minimal firmware has no FileUpload), so the upload is never offered.
+test("upload over MQTT is refused for a device where it does not fit, with the reason", { tag: "@core" }, async ({ page }) => {
+  test.setTimeout(420_000);
+  await page.setExtraHTTPHeaders(admin);
+  const row = await reviewUpload(page, "mq-fw-blocked");
+  await row.locator("select").selectOption("EN");
+  await page.getByRole("button", { name: "Recheck" }).click();
+  // The firmware server is not known to be unreachable for this device yet, so the download stays
+  // possible; the upload is refused with its reason and never offered.
+  await expect(page.locator(".upd-prow")).toContainText("no upload over MQTT: an ESP8266 cannot take an upload over MQTT");
+  await expect(page.locator(".upd-prow")).not.toContainText("Push upload through the MQTT broker");
+});
+
+// FULL: the checkbox exists only together with "Push where possible".
+test("checkbox only with Push where possible", async ({ page }) => {
+  await page.setExtraHTTPHeaders(admin);
+  await page.goto(app.url + "/updates/new");
+  const box = page.getByLabel(uploadBox);
+  await expect(box).toBeHidden();
+  await page.locator("select[name=delivery]").selectOption("push");
+  await expect(box).toBeVisible();
+  await box.check();
+  await page.locator("select[name=delivery]").selectOption("");
+  await expect(box).toBeHidden();
+  await page.locator("select[name=delivery]").selectOption("push");
+  await expect(box, "a box hidden by the download delivery is cleared").not.toBeChecked();
+});
+
+// FULL: a dual-OTA ESP32 that HTTP and the firmware server do not reach takes the image through the broker.
+test("upload over MQTT (experimental) updates a dual-OTA device", async ({ page }) => {
+  test.setTimeout(480_000);
+  await page.setExtraHTTPHeaders(admin);
+  await seedProvenLayout(page, "mq-esp32-dual");
+  const row = await reviewUpload(page, "mq-esp32-dual");
+  await chooseLanguageIfAsked(page, row);
+  await expect(page.locator(".upd-prow")).toContainText("Push upload through the MQTT broker");
+  await page.getByRole("button", { name: "Start update", exact: true }).click();
+  await expect(page).toHaveURL(/\/transactions\/\d+$/);
+  await expect(page.locator(".upd-row").getByText("Done", { exact: true })).toBeVisible({ timeout: 300_000 }).catch(async (e) => {
+    throw new Error(`${e}\nlog: ${(await page.locator("#log-lines").innerText().catch(() => "?")).slice(0, 1500)}`);
+  });
+  await expect(page.locator(".upd-row"), "the row names the path").toContainText("· upload over MQTT (experimental)");
+});
+
+// FULL: the same device without a recorded layout is refused with the reason (a safeboot-shaped Status 4
+// looks like room, and an upload there could overwrite the running app).
+test("upload over MQTT needs a proven dual-OTA layout", async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.setExtraHTTPHeaders(admin);
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(join(app.dataDir, "tasmofleet.db"));
+  try {
+    db.exec("PRAGMA busy_timeout=5000");
+    db.prepare("UPDATE devices SET up_layout='', up_layout_at=NULL WHERE id=?").run(deviceId["mq-esp32"]);
+  } finally {
+    db.close();
+  }
+  const row = await reviewUpload(page, "mq-esp32");
+  await chooseLanguageIfAsked(page, row);
+  await expect(page.locator(".upd-prow")).toContainText("not proven dual-OTA");
+  await expect(page.locator(".upd-prow")).not.toContainText("Push upload through the MQTT broker");
+});

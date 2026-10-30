@@ -631,3 +631,39 @@ func TestFileCommandsAreUnknownInESP32Safeboot(t *testing.T) {
 	}
 	c.waitFor(t, `stat/sb/RESULT={"Command":"Unknown"`)
 }
+
+// Why (review #284): "FileUpload 0" runs Update.end(true). An abort after every chunk was sent commits the
+// complete image for the next restart; an abort of a partial one leaves the device on its firmware. The
+// engine relies on this to never abort a complete Type 1 transfer.
+func TestFileUploadAbortOfACompleteType1ImageIsCommittedAtTheNextRestart(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		chunks  int // data messages sent before the abort; -1 = all of them
+		version string
+	}{{"complete", -1, "16.1.0"}, {"partial", 1, ""}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, d, fb := brokerDevice(t, "abort-"+tc.name, ProfileESP32Dual)
+			before := d.Version()
+			img, _ := NewImage(fixtures, "tasmota32.bin", "16.1.0")
+			fb.send("fileupload", fmt.Sprintf(`{"Password":%q,"Id":116,"Type":1,"Size":%d}`, testMQTTPassword, len(img)))
+			next(t, fb.up)
+			maxSize := int(jsonField(t, next(t, fb.up), "MaxSize").(float64))
+			sent := 0
+			for off := 0; off < len(img) && (tc.chunks < 0 || sent < tc.chunks); off += maxSize {
+				fb.send("fileupload", fmt.Sprintf(`{"Id":116,"Data":"%s"}`, base64.StdEncoding.EncodeToString(img[off:min(off+maxSize, len(img))])))
+				next(t, fb.up)
+				sent++
+			}
+			fb.send("fileupload", "0")
+			next(t, fb.up) // Aborted
+			eq(t, "version right after the abort", d.Version(), before)
+			fb.send("restart", "1")
+			settled(t, d, 1)
+			want := tc.version
+			if want == "" {
+				want = before
+			}
+			eq(t, "version after the restart", d.Version(), want)
+		})
+	}
+}

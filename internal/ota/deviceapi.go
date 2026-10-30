@@ -424,3 +424,27 @@ func parseShutterRelay(m map[string]json.RawMessage) (model.RelaySet, bool) {
 	}
 	return out, true
 }
+
+// UploadFirmwareMQTT hands the image to the client's MQTT uploader (the transport router). A client
+// without one, or a device the router does not reach over MQTT, refuses it before anything is published.
+func (a *deviceAPI) UploadFirmwareMQTT(ctx context.Context, d model.Device, filename string, size int64, body io.Reader, progress func(int64)) error {
+	u, ok := a.c.(transport.MQTTFirmwareUploader)
+	if !ok {
+		return errors.New("upload over MQTT: this device client cannot upload through the broker")
+	}
+	return u.UploadFirmwareMQTT(ctx, tasmota.TargetFor(d), filename, size, body, progress)
+}
+
+// MarkUploadPending re-arms the MQTT channel's block for a device whose firmware upload is unconfirmed.
+func (a *deviceAPI) MarkUploadPending(ctx context.Context, d model.Device) error {
+	u, ok := a.c.(transport.MQTTFirmwareUploader)
+	if !ok {
+		return errors.New("upload over MQTT: this device client cannot block transfers")
+	}
+	return u.MarkUploadPending(ctx, tasmota.TargetFor(d))
+}
+
+var (
+	_ MQTTUploader  = (*deviceAPI)(nil)
+	_ UploadRearmer = (*deviceAPI)(nil)
+)

@@ -38,6 +38,12 @@ type Device struct {
 	// MQTTPasswordBadAt is when the device answered "Error 1" to a transfer (zero: never or since
 	// cleared); saving the password clears it.
 	MQTTPasswordBadAt time.Time
+	// UpLayout is the flash layout an earlier HTTP read of the device's /up page showed: "direct" (two
+	// app partitions), "safeboot" (one app partition) or "" (never read). It cannot be read over MQTT,
+	// and the upload of firmware over MQTT is only allowed for a proven "direct" layout.
+	UpLayout string
+	// UpLayoutAt is when UpLayout was read; zero means never. A layout is only proof while it is set.
+	UpLayoutAt time.Time
 
 	// FWReach is whether the device reaches tasmofleet's firmware server. Written by the
 	// transport code only.

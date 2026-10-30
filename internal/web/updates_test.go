@@ -657,3 +657,51 @@ func TestPreviewRefusesALanguageThePageDoesNotOffer(t *testing.T) {
 		t.Fatalf("%d %+v", resp.StatusCode, o.previewReqs)
 	}
 }
+
+// Why (experimental, opt-in per transaction): the checkbox exists on the form but is hidden until
+// "Push where possible" is chosen, it reaches the engine only together with the push delivery, and it
+// survives the preview round trip (hidden field). A stale tick with the download delivery is dropped.
+func TestMQTTUploadCheckboxIsGatedByPushDelivery(t *testing.T) {
+	e, o, _, _ := setupOTA(t)
+	_, body := e.do(t, "GET", "/updates/new", "operator", nil)
+	if !strings.Contains(body, `name="mqtt_upload"`) || !strings.Contains(body, "Allow upload over MQTT (experimental: not tested on a real device)") ||
+		!strings.Contains(body, `data-mqtt-upload hidden`) {
+		t.Fatalf("the form lacks the hidden checkbox:\n%s", body)
+	}
+	o.items[1] = ota.PreviewItem{DeviceID: 1, Decision: "upgrade", Plan: model.PlanDirect, Filename: "tasmota32.bin", Delivery: model.DeliveryPush, Path: transport.PushMQTT}
+	form := url.Values{"id": {"1"}, "release": {"16.1.0"}, "policy": {"only-newer"}, "delivery": {"push"}, "mqtt_upload": {"1"}}
+	_, body = e.do(t, "POST", "/updates/preview", "operator", form)
+	if !o.previewReqs[0].AllowMQTTUpload || !strings.Contains(body, `name="mqtt_upload" value="1"`) || !strings.Contains(body, "Push upload through the MQTT broker (experimental") {
+		t.Fatalf("the choice was lost: %+v\n%s", o.previewReqs[0], body)
+	}
+	form.Set("delivery", "")
+	_, body = e.do(t, "POST", "/updates/preview", "operator", form)
+	if o.previewReqs[0].AllowMQTTUpload || strings.Contains(body, `name="mqtt_upload" value="1"`) {
+		t.Fatalf("a ticked box with the download delivery counted: %+v", o.previewReqs[0])
+	}
+	form.Set("delivery", "push")
+	form.Del("mqtt_upload")
+	e.do(t, "POST", "/updates/preview", "operator", form)
+	if o.previewReqs[0].AllowMQTTUpload {
+		t.Fatal("the upload was allowed without the checkbox")
+	}
+}
+
+// Why: the transaction page names the path per device from what the job stored (Transport, MQTTUpload),
+// so a person sees which devices went through the broker; an HTTP job says nothing extra.
+func TestJobPathText(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		j    model.Job
+		want string
+	}{
+		{"http", model.Job{Delivery: model.DeliveryPush}, ""},
+		{"mqtt download", model.Job{Transport: model.TransportMQTT}, "over MQTT"},
+		{"mqtt push without the checkbox", model.Job{Transport: model.TransportMQTT, Delivery: model.DeliveryPush}, "over MQTT"},
+		{"mqtt upload", model.Job{Transport: model.TransportMQTT, Delivery: model.DeliveryPush, MQTTUpload: true}, "upload over MQTT (experimental)"},
+	} {
+		if got := jobPathText(tc.j); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

@@ -42,6 +42,12 @@ type SafebootAPI interface {
 	SwitchBoot(ctx context.Context, d model.Device, to tasmota.BootTarget) (tasmota.BootReply, error)
 }
 
+// UpPageAPI is implemented by a DeviceAPI that can read the /up page with its footer. It is optional: without
+// it the layout still routes a push, but no proof for the upload over MQTT is recorded.
+type UpPageAPI interface {
+	UpPage(ctx context.Context, d model.Device) (tasmota.UpPage, error)
+}
+
 // FirmwareFiles is implemented by the firmware cache next to Firmware: the
 // bytes of a cached artifact, verified against its SHA-256.
 type FirmwareFiles interface {
@@ -120,7 +126,7 @@ func (e *Engine) safebootRoute(ctx context.Context, d model.Device, id model.Ide
 	if !ok || !id.Family.IsESP32() {
 		return false, ""
 	}
-	layout, err := sb.UpLayout(ctx, d)
+	layout, err := e.readLayout(ctx, d, sb)
 	if err != nil || layout != tasmota.UpLayoutSafeboot {
 		return false, "" // a dual layout cannot be told from an unreadable page: the plain refusal stands (the upload re-checks /up and refuses upl(this), #191)
 	}

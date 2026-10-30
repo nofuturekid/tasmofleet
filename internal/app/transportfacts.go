@@ -56,7 +56,9 @@ type UpdateRequest struct {
 	Delivery        model.Delivery
 	AllowMQTTUpload bool
 	ImageSize       int64 // the image the update would send, for the upload fit
-	UpLayout        fwselect.UpLayoutHint
+	// Identity is the identity the update was just planned on; the stored one may be older. Zero: the stored one.
+	Identity model.Identity
+	UpLayout fwselect.UpLayoutHint
 	// HTTPPush and HTTPPushNote are the OTA engine's decision for a device HTTP reaches (see
 	// transport.Request).
 	HTTPPush     transport.Path
@@ -119,6 +121,9 @@ func (s *TransportFacts) ForUpdate(ctx context.Context, id model.DeviceID, r Upd
 	f, err := s.Facts(ctx, id)
 	if err != nil {
 		return f, err
+	}
+	if r.Identity.Known() {
+		f.Identity = r.Identity
 	}
 	ok, need, room, why := fwselect.MQTTUploadFits(f.Identity, r.UpLayout, r.ImageSize)
 	f.Request = transport.Request{

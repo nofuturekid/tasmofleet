@@ -150,6 +150,33 @@ func (g *guardedAPI) SwitchBoot(ctx context.Context, d model.Device, to tasmota.
 	return sb.SwitchBoot(ctx, d, to)
 }
 
+// UploadFirmwareMQTT passes the upload through the broker through (see UploadFirmware).
+func (g *guardedAPI) UploadFirmwareMQTT(ctx context.Context, d model.Device, name string, size int64, body io.Reader, progress func(int64)) error {
+	up, ok := g.DeviceAPI.(MQTTUploader)
+	if !ok {
+		return errors.New("test: the wrapped DeviceAPI cannot upload over MQTT")
+	}
+	return up.UploadFirmwareMQTT(ctx, d, name, size, body, progress)
+}
+
+// UpPage passes the page reader through (see UploadFirmware).
+func (g *guardedAPI) UpPage(ctx context.Context, d model.Device) (tasmota.UpPage, error) {
+	r, ok := g.DeviceAPI.(UpPageAPI)
+	if !ok {
+		return tasmota.UpPage{}, errors.New("test: the wrapped DeviceAPI cannot read the page")
+	}
+	return r.UpPage(ctx, d)
+}
+
+// MarkUploadPending passes the re-arm through (see UploadFirmware).
+func (g *guardedAPI) MarkUploadPending(ctx context.Context, d model.Device) error {
+	r, ok := g.DeviceAPI.(UploadRearmer)
+	if !ok {
+		return errors.New("test: the wrapped DeviceAPI cannot re-arm")
+	}
+	return r.MarkUploadPending(ctx, d)
+}
+
 type noBackups struct {
 	n    atomic.Int32
 	hook func() // runs inside Backup

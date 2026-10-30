@@ -301,6 +301,7 @@ type txnRow struct {
 	JobID          model.JobID
 	Name, From, To string
 	Upload         bool   // the image is pushed to the device (push where possible)
+	Path           string // how the update reaches the device when not plain HTTP: "over MQTT", "upload over MQTT (experimental)"
 	Build          string // the chip build the user chose (ESP32-S2), "" if none
 	Badge          string
 	Tone           ui.Tone

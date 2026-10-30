@@ -295,6 +295,13 @@ func (d *simDevice) uploadValidateLocked(o *fileOut, rcvID uint32, payload int) 
 		// chunk_size = buffer size - 5 byte header - topic length - 1
 		m.chunk = uint32(mqttMaxPacket) - 5 - m.topicSize - 1
 	case (m.id > 0 && uint32(m.id) != rcvID) || payload == 0:
+		if m.active && m.typ == uplTasmota && m.size > 0 && m.pos >= m.size {
+			// MqttFileUploadAbort runs Update.end(true) (xdrv_02_1_mqtt_file.ino): a COMPLETE image becomes
+			// the next boot image although the MD5 never arrived, a partial one is rejected by the ESP32.
+			if next, ok := d.uploadedImageLocked(m.buf); ok {
+				d.nextImage = next
+			}
+		}
 		m.buf = nil
 		return 4 // upload aborted
 	}

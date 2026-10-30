@@ -208,6 +208,9 @@ type Job struct {
 	// MQTTUpload: the transaction allowed the experimental firmware upload over MQTT. Decided in
 	// the update preview, fixed at creation, kept so a resume goes the same way.
 	MQTTUpload bool
+	// MQTTUploadState says how an upload of firmware through the broker ended up uncertain (kept
+	// across restarts): MQTTUploadClean, MQTTUploadInterrupted or MQTTUploadUnconfirmed.
+	MQTTUploadState MQTTUploadState
 
 	// BatchParallel caps how many jobs of this job's transaction run at the
 	// same time (bulk "One device at a time", "Devices at a time"); 0 leaves
@@ -309,3 +312,13 @@ type JobEvent struct {
 	Event  string
 	Detail string
 }
+
+// MQTTUploadState is the uncertainty of an upload of firmware through the broker (Job.MQTTUploadState).
+type MQTTUploadState string
+
+// Upload states.
+const (
+	MQTTUploadClean       MQTTUploadState = ""            // nothing uncertain
+	MQTTUploadInterrupted MQTTUploadState = "interrupted" // the engine restarted while the upload ran
+	MQTTUploadUnconfirmed MQTTUploadState = "unconfirmed" // every byte was sent, nothing confirmed it
+)

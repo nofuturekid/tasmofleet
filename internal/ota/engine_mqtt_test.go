@@ -345,13 +345,13 @@ func TestMQTTPathAcceptsTheBackupOnlyWhenItHasAPath(t *testing.T) {
 	}
 }
 
-// Why (L2): the upload over MQTT belongs to another package of work; if a chooser ever answers PushMQTT
-// the engine refuses and nothing is sent.
+// Why (L2): the upload over MQTT is opt-in per transaction; if a chooser ever answers PushMQTT for a
+// request that did not allow it (or with the build gate closed) the engine refuses and nothing is sent.
 func TestPushMQTTIsRefusedAndNothingIsSent(t *testing.T) {
 	h, _ := newPathHarness(t, &fakePaths{paths: pathsOf(transport.PushMQTT, "upload over MQTT")})
 	_, err := h.e.Submit(context.Background(), "alice", []Request{{DeviceID: 1, Release: "16.0.0", SkipBackup: true}})
 	var re *RefusedError
-	if !errors.As(err, &re) || !strings.Contains(re.Refused[0].Reason, "not available yet") {
+	if !errors.As(err, &re) || !strings.Contains(re.Refused[0].Reason, "was not allowed") {
 		t.Fatalf("err = %v", err)
 	}
 	if n := h.rec.count("set_ota_url") + h.rec.count("upgrade"); n != 0 {

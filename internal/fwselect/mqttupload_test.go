@@ -3,6 +3,7 @@ package fwselect
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/model"
 )
@@ -15,7 +16,7 @@ func esp32Free(freeKB int) model.Identity {
 // there, and the device would answer "Not enough space" only after TasmoFleet had sent a transfer
 // request; the fit rule must say no up front (D19: never try-and-see).
 func TestMQTTUploadFitsRefusesTheLiveSafebootDevice(t *testing.T) {
-	for _, layout := range []UpLayoutHint{UpLayoutUnknown, UpLayoutDirect} {
+	for _, layout := range []UpLayoutHint{UpLayoutDirect} {
 		ok, need, room, reason := MQTTUploadFits(esp32Free(697), layout, 2200*1024)
 		if ok {
 			t.Fatalf("layout %q: a 2.2 MB image passed on 697 KB free", layout)
@@ -46,13 +47,13 @@ func TestMQTTUploadFitsBoundary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if ok, _, _, reason := MQTTUploadFits(esp32Free(freeKB), UpLayoutUnknown, tt.size); ok != tt.want {
+			if ok, _, _, reason := MQTTUploadFits(esp32Free(freeKB), UpLayoutDirect, tt.size); ok != tt.want {
 				t.Errorf("fits = %v, want %v (%s)", ok, tt.want, reason)
 			}
 		})
 	}
 	// One KB less free flash moves the bound below an image that fitted.
-	if ok, _, _, _ := MQTTUploadFits(esp32Free(freeKB-1), UpLayoutUnknown, 2048*1024); ok {
+	if ok, _, _, _ := MQTTUploadFits(esp32Free(freeKB-1), UpLayoutDirect, 2048*1024); ok {
 		t.Error("an image exactly at the bound passed with 1 KB less free flash")
 	}
 }
@@ -79,16 +80,24 @@ func TestMQTTUploadFitsRefusesTheSafebootLayout(t *testing.T) {
 	if ok || need != 0 || room != 0 || !strings.Contains(reason, "safeboot") {
 		t.Errorf("ok/need/room = %v/%d/%d reason %q, want a refusal naming the layout", ok, need, room, reason)
 	}
-	for _, size := range []int64{500 * 1024, 2500 * 1024} {
-		var first bool
-		for i, layout := range []UpLayoutHint{UpLayoutUnknown, UpLayoutDirect, "garbage"} {
-			ok, _, _, _ := MQTTUploadFits(esp32Free(2240), layout, size)
-			if i == 0 {
-				first = ok
-			} else if ok != first {
-				t.Errorf("size %d: layout %q decides %v, unknown decides %v", size, layout, ok, first)
-			}
+	for _, layout := range []UpLayoutHint{UpLayoutUnknown, "", "garbage"} {
+		if ok, _, _, reason := MQTTUploadFits(esp32Free(2240), layout, 500*1024); ok || !strings.Contains(reason, "not proven dual-OTA") {
+			t.Errorf("layout %q: ok %v reason %q, want the layout-not-proven refusal", layout, ok, reason)
 		}
+	}
+}
+
+// Why (review #297 H1, brick risk): Status 4 Free looks the same on a safeboot-shaped device (factory
+// partition less sketch) and on a dual-OTA one, and a safeboot device that starts a FileUpload Type 1
+// may overwrite its running app. A small image on a safeboot-shaped Status 4 must be refused unless
+// the layout was PROVEN direct.
+func TestMQTTUploadFitsRefusesASafebootShapedDeviceWithAnUnprovenLayout(t *testing.T) {
+	id := esp32Free(1400) // a 1.4 MB factory partition left after a 0.6 MB sketch: plenty "free"
+	if ok, _, _, reason := MQTTUploadFits(id, UpLayoutUnknown, 64*1024); ok || !strings.Contains(reason, "not proven dual-OTA") {
+		t.Fatalf("unknown layout: ok %v reason %q", ok, reason)
+	}
+	if ok, _, _, _ := MQTTUploadFits(id, UpLayoutDirect, 64*1024); !ok {
+		t.Fatal("a proven direct layout with room must pass")
 	}
 }
 
@@ -152,8 +161,25 @@ func TestMQTTUploadFitsAllESP32Families(t *testing.T) {
 	for _, fam := range []model.ChipFamily{model.ChipESP32, model.ChipESP32S2, model.ChipESP32S3, model.ChipESP32C2, model.ChipESP32C3, model.ChipESP32C5, model.ChipESP32C6, model.ChipESP32C61, model.ChipESP32P4} {
 		id := esp32Free(2240)
 		id.Family = fam
-		if ok, _, _, reason := MQTTUploadFits(id, UpLayoutUnknown, 1<<20); !ok {
+		if ok, _, _, reason := MQTTUploadFits(id, UpLayoutDirect, 1<<20); !ok {
 			t.Errorf("%s: %s", fam, reason)
+		}
+	}
+}
+
+// Why: a layout without a read time is no proof; only a recorded read of "direct" or "safeboot" counts.
+func TestUpLayoutOf(t *testing.T) {
+	at := time.Unix(1, 0)
+	for _, tc := range []struct {
+		stored string
+		at     time.Time
+		want   UpLayoutHint
+	}{
+		{"direct", at, UpLayoutDirect}, {"safeboot", at, UpLayoutSafeboot}, {"direct", time.Time{}, UpLayoutUnknown},
+		{"", at, UpLayoutUnknown}, {"weird", at, UpLayoutUnknown},
+	} {
+		if got := UpLayoutOf(tc.stored, tc.at); got != tc.want {
+			t.Errorf("%q %v: %q, want %q", tc.stored, tc.at, got, tc.want)
 		}
 	}
 }

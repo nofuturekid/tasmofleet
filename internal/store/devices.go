@@ -17,7 +17,7 @@ const deviceCols = `id, name, address, port, mac, topic, full_topic, tags, notes
 	fw_language, flash_size_kb, program_flash_kb, free_kb, identity_at, created_at, updated_at, mqtt_host, mqtt_port,
 	net_hostname, net_ip, net_gateway, net_ssid, net_bssid, net_channel, net_wired, net_at, device_name, device_name_kept,
 	net_subnet, net_dns, ota_url, relay_names, group_topic, ota_url_read_at, group_topic_read_at,
-	mqtt_password, mqtt_password_mode, mqtt_password_bad_at, fw_reach, fw_reach_at, fw_reach_detail, identity_lang_known`
+	mqtt_password, mqtt_password_mode, mqtt_password_bad_at, fw_reach, fw_reach_at, fw_reach_detail, identity_lang_known, up_layout, up_layout_at`
 
 // relayNamesJSON is the stored form of relay names (a JSON array like tags); "" for none.
 func relayNamesJSON(names []string) string {
@@ -40,13 +40,13 @@ func (s *SQLite) scanDevice(r scanner) (model.Device, error) {
 	var identAt, created, updated, netAt int64
 	var otaAt, groupAt sql.NullInt64
 	var sealedMQTT, pwMode, reach string
-	var badAt, reachAt sql.NullInt64
+	var badAt, reachAt, layoutAt sql.NullInt64
 	err := r.Scan(&d.ID, &d.Name, &d.Address, &d.Port, &d.MAC, &d.Topic, &d.FullTopic, &tags, &d.Notes, &d.HTTPUser, &sealed,
 		&excluded, &mqtt, &family, &d.Identity.Hardware, &single, &d.Identity.Version, &d.Identity.Image, &d.Identity.Variant,
 		&d.Identity.Language, &d.Identity.FlashSizeKB, &d.Identity.ProgramFlashSizeKB, &d.Identity.FreeKB, &identAt, &created, &updated, &d.MQTTHost, &d.MQTTPort,
 		&d.Net.Hostname, &d.Net.IP, &d.Net.Gateway, &d.Net.SSID, &d.Net.BSSID, &d.Net.Channel, &wired, &netAt, &d.DeviceName, &d.KeptDeviceName,
 		&d.Net.Subnet, &d.Net.DNS, &d.OTAURL, &relayNames, &d.GroupTopic, &otaAt, &groupAt,
-		&sealedMQTT, &pwMode, &badAt, &reach, &reachAt, &d.FWReach.Detail, &langKnown)
+		&sealedMQTT, &pwMode, &badAt, &reach, &reachAt, &d.FWReach.Detail, &langKnown, &d.UpLayout, &layoutAt)
 	if err != nil {
 		return model.Device{}, err
 	}
@@ -79,6 +79,7 @@ func (s *SQLite) scanDevice(r scanner) (model.Device, error) {
 			return model.Device{}, fmt.Errorf("store: device %d MQTT password: %w", d.ID, err)
 		}
 	}
+	d.UpLayoutAt = fromMS(layoutAt.Int64)
 	d.MQTTPasswordMode = model.MQTTPasswordMode(pwMode)
 	d.MQTTPasswordBadAt = fromMS(badAt.Int64)
 	d.FWReach.State, d.FWReach.At = model.FWReachState(reach), fromMS(reachAt.Int64)
@@ -298,8 +299,12 @@ func (s *SQLite) UpdateDevice(ctx context.Context, d model.Device) error {
 }
 
 func (s *SQLite) UpdateIdentity(ctx context.Context, id model.DeviceID, i model.Identity) error {
-	return affected(s.db.ExecContext(ctx, `UPDATE devices SET chip_family=?, hardware=?, single_core=?, fw_version=?, fw_image=?,
+	return affected(s.db.ExecContext(ctx, `UPDATE devices SET
+		up_layout = CASE WHEN chip_family<>? OR flash_size_kb<>? OR program_flash_kb<>? OR free_kb<>? THEN '' ELSE up_layout END,
+		up_layout_at = CASE WHEN chip_family<>? OR flash_size_kb<>? OR program_flash_kb<>? OR free_kb<>? THEN NULL ELSE up_layout_at END,
+		chip_family=?, hardware=?, single_core=?, fw_version=?, fw_image=?,
 		fw_variant=?, fw_language=?, flash_size_kb=?, program_flash_kb=?, free_kb=?, identity_at=?, identity_lang_known=?, updated_at=? WHERE id=?`,
+		string(i.Family), i.FlashSizeKB, i.ProgramFlashSizeKB, i.FreeKB, string(i.Family), i.FlashSizeKB, i.ProgramFlashSizeKB, i.FreeKB,
 		string(i.Family), i.Hardware, b2i(i.SingleCore), i.Version, i.Image, i.Variant, i.Language,
 		i.FlashSizeKB, i.ProgramFlashSizeKB, i.FreeKB, toMS(i.DetectedAt), b2i(i.LanguageKnown), toMS(s.now()), id))
 }
@@ -376,7 +381,10 @@ func (s *SQLite) UpdateProbe(ctx context.Context, id model.DeviceID, g ProbeGuar
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after commit; on failure the original error is returned
-	res, err := tx.ExecContext(ctx, `UPDATE devices SET chip_family=?, hardware=?, single_core=?, fw_version=?, fw_image=?,
+	res, err := tx.ExecContext(ctx, `UPDATE devices SET
+		up_layout = CASE WHEN chip_family<>? OR flash_size_kb<>? OR program_flash_kb<>? OR free_kb<>? THEN '' ELSE up_layout END,
+		up_layout_at = CASE WHEN chip_family<>? OR flash_size_kb<>? OR program_flash_kb<>? OR free_kb<>? THEN NULL ELSE up_layout_at END,
+		chip_family=?, hardware=?, single_core=?, fw_version=?, fw_image=?,
 		fw_variant=?, fw_language=?, flash_size_kb=?, program_flash_kb=?, free_kb=?, identity_at=?, identity_lang_known=?,
 		mqtt_capability = CASE WHEN ?=0 THEN mqtt_capability WHEN mqtt_capability='ours' AND ?='other' THEN 'ours' ELSE ? END,
 		mqtt_host = CASE WHEN ?=0 THEN mqtt_host ELSE ? END,
@@ -402,6 +410,7 @@ func (s *SQLite) UpdateProbe(ctx context.Context, id model.DeviceID, g ProbeGuar
 			ELSE topic END,
 		device_topic = CASE WHEN ?='' THEN device_topic ELSE ? END,
 		updated_at=? WHERE id=? AND address=? AND port=? AND mac=?`,
+		string(i.Family), i.FlashSizeKB, i.ProgramFlashSizeKB, i.FreeKB, string(i.Family), i.FlashSizeKB, i.ProgramFlashSizeKB, i.FreeKB,
 		string(i.Family), i.Hardware, b2i(i.SingleCore), i.Version, i.Image, i.Variant, i.Language,
 		i.FlashSizeKB, i.ProgramFlashSizeKB, i.FreeKB, toMS(i.DetectedAt), b2i(i.LanguageKnown),
 		b2i(r.SetMQTT), string(r.MQTT), string(r.MQTT),
@@ -500,9 +509,12 @@ func (s *SQLite) DismissDeviceName(ctx context.Context, id model.DeviceID, devic
 // topic unchanged). A probe that stored an identity meanwhile therefore always wins:
 // ErrConflict, nothing written. It never sets identity_at, so the first HTTP probe still runs.
 func (s *SQLite) UpdateIdentityFromMQTT(ctx context.Context, id model.DeviceID, g ProbeGuard, topic string, i model.Identity) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE devices SET chip_family=?, hardware=?, single_core=?, fw_version=?, fw_image=?,
+	res, err := s.db.ExecContext(ctx, `UPDATE devices SET
+		up_layout = CASE WHEN chip_family<>? THEN '' ELSE up_layout END,
+		up_layout_at = CASE WHEN chip_family<>? THEN NULL ELSE up_layout_at END,
+		chip_family=?, hardware=?, single_core=?, fw_version=?, fw_image=?,
 		fw_variant=?, updated_at=? WHERE id=? AND address=? AND port=? AND mac=? AND topic=? AND identity_at=0`,
-		string(i.Family), i.Hardware, b2i(i.SingleCore), i.Version, i.Image, i.Variant,
+		string(i.Family), string(i.Family), string(i.Family), i.Hardware, b2i(i.SingleCore), i.Version, i.Image, i.Variant,
 		toMS(s.now()), id, g.Address, g.Port, strings.ToLower(g.MAC), topic)
 	if err != nil {
 		return mapErr(err)
@@ -616,4 +628,26 @@ func (s *SQLite) SetFWReach(ctx context.Context, id model.DeviceID, r model.FWRe
 	}
 	return affected(s.db.ExecContext(ctx, `UPDATE devices SET fw_reach=?, fw_reach_at=?, fw_reach_detail=?, updated_at=? WHERE id=?`,
 		string(r.State), nullMS(r.At), r.Detail, toMS(s.now()), id))
+}
+
+// SetUpLayout records the flash layout an HTTP read of the device's /up page showed ("direct" or
+// "safeboot"). Nothing else changes, and the identity stamps stay as they are.
+func (s *SQLite) SetUpLayout(ctx context.Context, id model.DeviceID, layout string) error {
+	if layout != "" && layout != "direct" && layout != "safeboot" { // "": a read that proved nothing drops the record
+		return fmt.Errorf("store: unknown upload layout %q", layout)
+	}
+	var at any = toMS(s.now())
+	if layout == "" {
+		at = nil
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE devices SET up_layout=?, up_layout_at=? WHERE id=?`, layout, at, id)
+	if err != nil {
+		return mapErr(err)
+	}
+	if k, err := res.RowsAffected(); err != nil {
+		return err
+	} else if k == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

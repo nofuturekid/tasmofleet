@@ -75,8 +75,11 @@ type updateForm struct {
 	// image, default) or "push" (push where possible: tasmofleet uploads it
 	// to each ESP32 that can take it, the others download).
 	Delivery string
-	Error    string
-	Notice   string
+	// MQTTUpload is the checkbox "Allow upload over MQTT (experimental: not tested on a real device)"; it is
+	// offered, and counts, only with the delivery push.
+	MQTTUpload bool
+	Error      string
+	Notice     string
 
 	Base      string
 	RelOpts   []ui.Option // the release cards: the newest two upstream releases and the uploads
@@ -362,6 +365,7 @@ func (f *updateForm) formChoices(r *http.Request) {
 		f.Policy = v
 	}
 	f.Variant, f.PowerAfter, f.Delivery = r.PostFormValue("variant"), r.PostFormValue("power_after"), r.PostFormValue("delivery")
+	f.MQTTUpload = f.Delivery == string(model.DeliveryPush) && r.PostFormValue("mqtt_upload") == "1"
 	f.SkipBackup = skipBackup(r)
 }
 
@@ -423,7 +427,7 @@ func (h *handler) requests(r *http.Request, ids []model.DeviceID) ([]ota.Request
 			return nil, fmt.Errorf("device %d: %w", id, err)
 		}
 		q := ota.Request{DeviceID: id, Release: release, Custom: custom, Delivery: delivery, Variant: variant, AllowVariantChange: variant != "",
-			Policy: policy, SkipBackup: skipBackup(r),
+			Policy: policy, SkipBackup: skipBackup(r), AllowMQTTUpload: delivery == model.DeliveryPush && r.PostFormValue("mqtt_upload") == "1",
 			SkipPowerRestore: skipPower, RestoreRelays: restoreRelays,
 			// The chip build of a device that has two (ESP32-S2) is chosen per device in the preview; the engine
 			// refuses a build that does not belong to the device.
@@ -514,6 +518,8 @@ func (r previewRow) DeliveryText() string {
 	switch {
 	case !r.Go || !r.Push:
 		return ""
+	case r.Item.Delivery == model.DeliveryPush && r.Item.Path == transport.PushMQTT:
+		return "Push upload through the MQTT broker (experimental: not tested on a real device)."
 	case r.Item.Delivery == model.DeliveryPush && r.Item.ViaSafeboot:
 		return "Push upload through safeboot (the device restarts into its safeboot partition first)."
 	case r.Item.Delivery == model.DeliveryPush:
@@ -702,6 +708,7 @@ func (h *handler) updatePreview(w http.ResponseWriter, r *http.Request) {
 		SkipBackup: skipBackup(r), PowerAfter: r.PostFormValue("power_after"),
 		Delivery: r.PostFormValue("delivery"),
 	}}
+	p.Form.MQTTUpload = p.Form.Delivery == string(model.DeliveryPush) && r.PostFormValue("mqtt_upload") == "1"
 	p.ReleaseText = "Tasmota " + reqs[0].Release
 	if reqs[0].Custom != "" {
 		p.ReleaseText = h.customText(r.Context(), reqs[0].Custom, reqs[0].Release)
@@ -1014,6 +1021,7 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 		row.Badge, row.Tone = jobBadge(j.Job)
 		if j.Job.IsUpdate() {
 			row.Upload = j.Job.Delivery == model.DeliveryPush
+			row.Path = jobPathText(j.Job)
 			row.Build = j.Job.TargetBuild
 			row.From, row.To = j.Job.IdentityBefore.Version, j.Job.TargetRelease
 			if row.From == "" {
@@ -1450,4 +1458,15 @@ func (h *handler) batchRetry(w http.ResponseWriter, r *http.Request) {
 		}
 		h.fail(w, r, err)
 	}
+}
+
+// jobPathText says how a job reaches its device, from what the job stored: nothing for HTTP.
+func jobPathText(j model.Job) string {
+	switch {
+	case j.Transport != model.TransportMQTT:
+		return ""
+	case j.Delivery == model.DeliveryPush && j.MQTTUpload:
+		return "upload over MQTT (experimental)"
+	}
+	return "over MQTT"
 }

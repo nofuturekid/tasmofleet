@@ -88,7 +88,7 @@ func (s *SQLite) SwapHardware(ctx context.Context, id model.DeviceID, sw Hardwar
 	i := sw.Identity
 	if err := affected(tx.ExecContext(ctx, `UPDATE devices SET mac=?, address=?, port=?, chip_family=?, hardware=?, single_core=?,
 		fw_version=?, fw_image=?, fw_variant=?, fw_language=?, flash_size_kb=?, program_flash_kb=?, free_kb=?, identity_at=?, identity_lang_known=?,
-		fw_reach='', fw_reach_at=NULL, fw_reach_detail='', updated_at=? WHERE id=?`,
+		fw_reach='', fw_reach_at=NULL, fw_reach_detail='', up_layout='', up_layout_at=NULL, updated_at=? WHERE id=?`,
 		next[0], sw.Address, sw.Port, string(i.Family), i.Hardware, b2i(i.SingleCore), i.Version, i.Image, i.Variant, i.Language,
 		i.FlashSizeKB, i.ProgramFlashSizeKB, i.FreeKB, toMS(i.DetectedAt), b2i(i.LanguageKnown), toMS(s.now()), id)); err != nil {
 		return nil, err

@@ -58,7 +58,7 @@ type updatePaths struct{ facts *TransportFacts }
 
 func (u updatePaths) UpdatePath(ctx context.Context, d model.Device, q ota.PathQuery) (transport.Paths, error) {
 	f, err := u.facts.ForUpdate(ctx, d.ID, UpdateRequest{
-		Delivery: q.Delivery, ImageSize: q.ImageSize, UpLayout: q.Layout, HTTPPush: q.HTTPPush, HTTPPushNote: q.HTTPPushNote,
+		Delivery: q.Delivery, ImageSize: q.ImageSize, UpLayout: q.Layout, AllowMQTTUpload: q.AllowMQTTUpload, Identity: q.Identity, HTTPPush: q.HTTPPush, HTTPPushNote: q.HTTPPushNote,
 	})
 	if err != nil {
 		return transport.Paths{}, err
