@@ -89,9 +89,18 @@ type Options struct {
 	// OnDropped, if set, is called when a proposal is not stored because the
 	// per-kind limit is reached (metric tasmofleet_discovery_proposals_dropped_total).
 	OnDropped func(kind string)
+	// Asker sends the Status 5 questions of MQTT-first discovery (mqttcmd.Channel): one command at a
+	// time per topic, a gap between publishes on the whole bus, the same refusals as every other
+	// command. Without it discovery listens but asks nothing.
+	Asker StatusAsker
 	// OnAccepted, if set, is called with the ID of every device created by an accept. The
 	// proposal carries no identity, so the caller starts the first probe here. It must not block.
 	OnAccepted func(id model.DeviceID)
+}
+
+// StatusAsker is the command channel as discovery uses it.
+type StatusAsker interface {
+	Do(ctx context.Context, d model.Device, cmd string) (json.RawMessage, error)
 }
 
 // Manager implements Service and consumes MQTT discovery messages.

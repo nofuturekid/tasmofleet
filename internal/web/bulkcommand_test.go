@@ -249,3 +249,23 @@ func TestBulkRunPassesOptions(t *testing.T) {
 		}
 	}
 }
+
+// Why (D13): a bulk command runs as jobs that carry no person's consent, so a change that can cut off a
+// device reached over MQTT only is refused in the preview, before anything is queued; the same command
+// goes through when no selected device is MQTT-only.
+func TestBulkCommandRefusesACutOffChangeForMQTTOnlyDevices(t *testing.T) {
+	fb := &fakeBatch{}
+	only := true
+	e := setupWith(t, func(d *Deps) {
+		d.DeviceCmd, d.CommandBatch = &fakeCmd{}, fb
+		d.MQTTOnly = func(context.Context, ...model.DeviceID) bool { return only }
+	})
+	_, body := e.do(t, "POST", "/devices/bulk/command", "admin", bulkForm("id", "1", "command", "Topic other"))
+	if !strings.Contains(body, "can cut a device off") || strings.Contains(body, `name="token"`) || len(fb.reqs) != 0 {
+		t.Fatalf("preview: %.300s", body)
+	}
+	only = false
+	if _, body = e.do(t, "POST", "/devices/bulk/command", "admin", bulkForm("id", "1", "command", "Topic other")); !strings.Contains(body, `name="token"`) {
+		t.Fatalf("a device reached over HTTP: %.300s", body)
+	}
+}

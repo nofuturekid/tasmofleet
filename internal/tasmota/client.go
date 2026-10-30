@@ -59,6 +59,26 @@ type deviceError struct {
 	msg  string
 }
 
+// notSentKind marks a kind whose error proves that no request byte left tasmofleet: the TCP
+// connection was never made. It reads and unwraps like the kind it wraps.
+type notSentKind struct{ error }
+
+func (k notSentKind) Unwrap() error { return k.error }
+
+// NotSent reports whether err proves that the request never reached the device: the connection
+// could not be made (refused, no route), the address is outside the device networks, the device
+// answered 401 before it ran anything, or it refuses HTTP API commands (SetOption128, the handler
+// sends nothing and runs nothing). A timeout, a dropped connection after the request was written
+// or an unparsable answer prove nothing: the command may have run. The transport router fails
+// over to MQTT on these errors only.
+func NotSent(err error) bool {
+	if errors.Is(err, ErrForbiddenAddr) || errors.Is(err, ErrAuth) || errors.Is(err, ErrHTTPAPIRefused) {
+		return true
+	}
+	var k notSentKind
+	return errors.As(err, &k)
+}
+
 func (e *deviceError) Error() string { return e.kind.Error() + ": " + e.msg }
 func (e *deviceError) Unwrap() error { return e.kind }
 
@@ -352,10 +372,14 @@ func (c *httpClient) mapErr(parent context.Context, t Target, err error) error {
 	}
 	msg := "connection to " + t.display() + " failed"
 	var oe *net.OpError
+	kind := ErrUnreachable
 	if errors.As(err, &oe) {
 		msg = oe.Op + " " + t.display() + ": " + oe.Err.Error()
+		if oe.Op == "dial" {
+			kind = notSentKind{ErrUnreachable}
+		}
 	}
-	return &deviceError{ErrUnreachable, t.redact(msg)}
+	return &deviceError{kind, t.redact(msg)}
 }
 
 func isNetTimeout(err error) bool {

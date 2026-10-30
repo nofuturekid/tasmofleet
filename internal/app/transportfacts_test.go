@@ -250,3 +250,49 @@ func TestFactsOthersGroupUnreadAndPrefix(t *testing.T) {
 		t.Error("prefix cmd: stem cmd/a is a level prefix of cmd/a/b/cmd")
 	}
 }
+
+// Why (security scan, sibling-gate parity): another device's GroupTopic is trusted under the same rule
+// as the device's own: stamped and not older than that device's last probe. A stale foreign value
+// (a probe since had no GroupTopic) must count as unread, or a write could go to a topic that device
+// shares.
+func TestOthersGroupUnreadUsesTheOwnFreshnessRule(t *testing.T) {
+	t0 := factsNow
+	me := model.Device{ID: 1, Topic: "a", GroupTopic: "tasmotas", GroupTopicReadAt: t0}
+	for _, tc := range []struct {
+		name  string
+		other model.Device
+		want  int
+	}{
+		{"fresh", model.Device{ID: 2, Topic: "b", GroupTopic: "tasmotas", GroupTopicReadAt: t0}, 0},
+		{"never stamped", model.Device{ID: 2, Topic: "b", GroupTopic: "tasmotas"}, 1},
+		{"empty", model.Device{ID: 2, Topic: "b", GroupTopicReadAt: t0}, 1},
+		{"older than its last Status 1", model.Device{ID: 2, Topic: "b", GroupTopic: "tasmotas", GroupTopicReadAt: t0.Add(-time.Hour), OTAURLReadAt: t0}, 1},
+		{"older than its identity detection", model.Device{ID: 2, Topic: "b", GroupTopic: "tasmotas", GroupTopicReadAt: t0.Add(-time.Hour), Identity: model.Identity{DetectedAt: t0}}, 1},
+		{"no topic: not in play", model.Device{ID: 2, GroupTopicReadAt: t0.Add(-time.Hour), OTAURLReadAt: t0}, 0},
+	} {
+		f, err := newFacts([]model.Device{me, tc.other}, nil, nil).Facts(t.Context(), 1)
+		if err != nil || f.MQTT.OthersGroupUnread != tc.want {
+			t.Errorf("%s: unread = %d, want %d (%v)", tc.name, f.MQTT.OthersGroupUnread, tc.want, err)
+		}
+	}
+}
+
+// Why: a device whose last will says Offline cannot receive a command (ours are never retained), so one
+// dead device must not block MQTT writes for the fleet. An unknown will still counts, and the dead
+// device's topic still collides in TopicExclusive.
+func TestOthersGroupUnreadSkipsBrokerConfirmedOfflineDevices(t *testing.T) {
+	me := model.Device{ID: 1, Topic: "a", GroupTopic: "tasmotas", GroupTopicReadAt: factsNow}
+	other := model.Device{ID: 2, Topic: "b", GroupTopic: "a"} // unread (never stamped) and its group is a's topic
+	for _, tc := range []struct {
+		lwt  string
+		want int
+	}{{"Offline", 0}, {"", 1}, {"Online", 1}} {
+		f, err := newFacts([]model.Device{me, other}, fakeFactsHealth{2: {LWT: tc.lwt}}, nil).Facts(t.Context(), 1)
+		if err != nil || f.MQTT.OthersGroupUnread != tc.want {
+			t.Errorf("LWT %q: unread = %d, want %d (%v)", tc.lwt, f.MQTT.OthersGroupUnread, tc.want, err)
+		}
+		if f.MQTT.TopicExclusive {
+			t.Errorf("LWT %q: the offline device's GroupTopic is a's topic; exclusivity must stay false", tc.lwt)
+		}
+	}
+}

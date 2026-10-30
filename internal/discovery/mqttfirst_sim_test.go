@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/mqttbus"
+	"github.com/nofuturekid/tasmofleet/internal/mqttcmd"
 	"github.com/nofuturekid/tasmofleet/internal/simulator"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
 )
@@ -46,6 +47,9 @@ func TestSimulatedFleetWithoutDiscoveryConfigIsProposed(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, bus.Connected)
+	ch := mqttcmd.New(bus, mqttcmd.Options{}) // the questions go through the one command channel
+	t.Cleanup(ch.Close)
+	e.mgr.o.Asker = ch
 	unsub := e.mgr.Attach(bus)
 	t.Cleanup(unsub)
 	e.run(t)
@@ -129,6 +133,9 @@ func TestDevicesOutsideNetworksAreProposedWhenNetworksGrow(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, bus.Connected)
+	ch := mqttcmd.New(bus, mqttcmd.Options{}) // the questions go through the one command channel
+	t.Cleanup(ch.Close)
+	e.mgr.o.Asker = ch
 	unsub := e.mgr.Attach(bus)
 	t.Cleanup(unsub)
 	e.run(t)

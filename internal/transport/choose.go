@@ -302,3 +302,8 @@ func othersUnreadText(n int) string {
 	}
 	return fmt.Sprintf("%d other devices' group topics have not been read yet; refresh their identity", n)
 }
+
+// MQTTBlocker is mqttBlocker for the router: why the device is not usable over MQTT right now ("" when
+// it is). strict is the rule of writes and transfers. The router uses it for calls whose path a job
+// pinned, where Choose (which answers HTTP while HTTP works) is not the question.
+func MQTTBlocker(f Facts, strict bool) string { return mqttBlocker(f, strict) }

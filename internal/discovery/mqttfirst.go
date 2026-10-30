@@ -14,6 +14,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/inventory"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/mqttbus"
+	"github.com/nofuturekid/tasmofleet/internal/mqttcmd"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
 )
 
@@ -386,6 +387,20 @@ func usableIP(s string) netip.Addr {
 	return a.Unmap()
 }
 
+// askWait bounds how long one question may hold the loop.
+const askWait = 3 * time.Second
+
+// notSent says the channel refused the question or could not publish it. Any answer (also
+// {"Command":"Unknown"} from a minimal image that does not know Status 5) or a silence after the
+// publish means the question went out and is not asked again before askEvery.
+func notSent(err error) bool {
+	if errors.Is(err, tasmota.ErrTimeout) {
+		return false
+	}
+	return errors.Is(err, mqttcmd.ErrRefused) || errors.Is(err, tasmota.ErrUnreachable) ||
+		errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
 // askDue sends at most one Status 5 to the oldest unresolved online topic,
 // keeping askGap on the bus and askEvery per topic (D12). Never Status 0.
 func (m *Manager) askDue(ctx context.Context) {
@@ -421,8 +436,20 @@ func (m *Manager) askDue(ctx context.Context) {
 	m.tmu.Unlock()
 
 	why := "on the broker without a tasmota/discovery config; Status 5 reports its MAC"
-	err := bus.Command(ctx, topic, "STATUS", "5")
-	if err != nil {
+	if m.o.Asker == nil {
+		m.tmu.Lock()
+		if s := m.topics[topic]; s == pick {
+			s.asked = time.Time{}
+		}
+		m.tmu.Unlock()
+		return
+	}
+	// The channel waits for the reply (the manager sees the same STATUS5 on its own subscription);
+	// the wait is capped so a silent topic does not hold up discovery's loop for the full reply wait.
+	actx, cancel := context.WithTimeout(ctx, askWait)
+	_, err := m.o.Asker.Do(actx, model.Device{Topic: topic}, "Status 5")
+	cancel()
+	if notSent(err) {
 		m.tmu.Lock()
 		if s := m.topics[topic]; s == pick {
 			s.asked = time.Time{} // not sent: try again at the next gap

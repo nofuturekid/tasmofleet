@@ -3,6 +3,8 @@ package discovery
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
 	"net/netip"
 	"os"
 	"strconv"
@@ -97,16 +99,27 @@ type mqttEnv struct {
 	unsub func()
 }
 
+// busAsker stands in for the command channel: it publishes the question on the fake bus.
+type busAsker struct{ b *fakeBus }
+
+func (a busAsker) Do(ctx context.Context, d model.Device, cmd string) (json.RawMessage, error) {
+	if cmd != "Status 5" {
+		return nil, errors.New("discovery asked for " + cmd)
+	}
+	return nil, a.b.Command(ctx, d.Topic, "STATUS", "5")
+}
+
 func newMQTTEnv(t *testing.T, mut func(*Options)) *mqttEnv {
 	t.Helper()
 	clk := &manualClock{t: time.Date(2026, 10, 26, 10, 0, 0, 0, time.UTC)}
+	b := &fakeBus{}
 	e := newEnv(t, "172.31.0.0/16", func(o *Options) {
 		o.Clock = clk
+		o.Asker = busAsker{b}
 		if mut != nil {
 			mut(o)
 		}
 	})
-	b := &fakeBus{}
 	me := &mqttEnv{env: e, bus: b, clk: clk}
 	me.unsub = e.mgr.Attach(b)
 	return me
@@ -839,4 +852,50 @@ func TestDetachAndEvictionDropKeptClaims(t *testing.T) {
 			t.Fatalf("proposals = %+v", p)
 		}
 	})
+}
+
+// Why (review #276 M4): Status 5 is a command like any other; it goes through the channel (one in
+// flight per topic, a gap between publishes), and without a channel discovery asks nothing instead
+// of publishing on its own.
+func TestStatus5GoesThroughTheAskerOnly(t *testing.T) {
+	e := newMQTTEnv(t, func(o *Options) { o.Asker = nil })
+	e.feed(pick(fixtureMessages(t), "garage-door", "")[:4]...)
+	e.clk.add(askGrace)
+	e.mgr.askDue(bg)
+	if got := e.bus.sent(); len(got) != 0 {
+		t.Fatalf("published without a channel: %v", got)
+	}
+}
+
+// Why: a minimal image answers {"Command":"Unknown"} to Status 5. That is an answer: the question went
+// out and must not be repeated every gap (the channel reports it as an error, which once looked like "not
+// sent" and made discovery ask a minimal device every 1.5 s forever).
+func TestStatus5AnsweredUnknownIsNotAskedAgainAtOnce(t *testing.T) {
+	e := newMQTTEnv(t, func(o *Options) { o.Asker = unknownAsker{} })
+	e.feed(pick(fixtureMessages(t), "garage-door", "")[:4]...)
+	e.clk.add(askGrace)
+	n := 0
+	e.mgr.o.Asker = countingAsker{inner: unknownAsker{}, n: &n}
+	e.mgr.askDue(bg)
+	e.clk.add(askGap)
+	e.mgr.askDue(bg)
+	if n != 1 {
+		t.Fatalf("asked %d times, want once until askEvery has passed", n)
+	}
+}
+
+type unknownAsker struct{}
+
+func (unknownAsker) Do(context.Context, model.Device, string) (json.RawMessage, error) {
+	return nil, tasmota.ErrUnknownCommand
+}
+
+type countingAsker struct {
+	inner StatusAsker
+	n     *int
+}
+
+func (c countingAsker) Do(ctx context.Context, d model.Device, cmd string) (json.RawMessage, error) {
+	*c.n++
+	return c.inner.Do(ctx, d, cmd)
 }

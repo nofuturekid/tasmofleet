@@ -96,7 +96,6 @@ func TestClassify(t *testing.T) {
 		{"WifiConfig 2", ClassAdmin, false, true, "puts the device into the Wi-Fi manager"},
 		{"Upgrade 1", ClassAdmin, false, true, "firmware outside the OTA engine"},
 		{"OtaUrl http://x/y.bin", ClassAdmin, false, true, "firmware URL"},
-		{"Upload 1", ClassAdmin, false, true, "alias of Upgrade in Tasmota"},
 		{"Restart 2", ClassAdmin, false, true, "Restart 2 halts the device until power is cycled"},
 		{"Restart 99", ClassAdmin, false, true, "only Restart 1 is routine"},
 		{"Restart", ClassAdmin, false, true, "bare Restart prints help; ask rather than guess"},
@@ -516,8 +515,62 @@ func TestCanonicalIsWhatIsJudged(t *testing.T) {
 	}
 }
 
+// Why: FileDownload, FileUpload and Upload carry the device's MQTT password and drive a transfer
+// that tasmofleet's own code runs; a person typing them in the console or a bulk command would
+// either leak the password into a reply or corrupt a transfer. No role may send them, and the
+// arguments (the password) never reach a log.
+func TestFileTransferCommandsAreNeverSent(t *testing.T) {
+	for _, cmd := range []string{`FileDownload {"Password":"hunter2","Type":2}`, "filedownload 0", `FileUpload {"Password":"hunter2"}`, "FILEUPLOAD", "Upload 1", "Upload"} {
+		v, err := Classify(cmd)
+		if err != nil || v.Class != ClassForbidden || !v.Redact {
+			t.Errorf("Classify(%q) = %+v, %v", cmd, v, err)
+		}
+		for _, role := range []model.Role{model.RoleOperator, model.RoleAdmin} {
+			if _, err := Authorize(cmd, role); !errors.Is(err, ErrForbidden) {
+				t.Errorf("Authorize(%q, %v) = %v, want ErrForbidden", cmd, role, err)
+			}
+		}
+		if got := Redacted(cmd); strings.Contains(got, "hunter2") {
+			t.Errorf("Redacted(%q) = %q", cmd, got)
+		}
+	}
+	if _, err := Authorize("Backlog Power ON; FileDownload 0", model.RoleAdmin); err == nil {
+		// a Backlog is judged part by part, but the parts keep their own class: the Backlog is only
+		// as harmless as its worst part; a file command in it must not slip through
+		t.Error("a file command inside a Backlog was accepted")
+	}
+}
+
+// Why: a device that only answers over MQTT cannot be reached again if its topic, host, login or
+// client name changes, or MQTT is switched off; over HTTP the same change is recoverable. The
+// console asks once and says so. Queries and unrelated commands stay as they were.
+func TestMQTTOnlyNamesTheCutOffConsequence(t *testing.T) {
+	cut := []string{"Topic other", "FullTopic %prefix%/x/%topic%/", "GroupTopic g", "MqttHost 10.0.0.1", "MqttPort 8883",
+		"MqttUser u", "MqttPassword p", "MqttClient c", "SetOption3 0", "SO3 off", "Backlog Power ON; Topic other",
+		"Prefix1 x", "Prefix3 x", "MqttFingerprint aa", "TLSKey1 abc", "SetOption103 1", "SetOption132 1"}
+	for _, cmd := range cut {
+		_, v, err := Prepare(cmd, model.RoleAdmin, PrepareOpts{MQTTOnly: true})
+		if err != nil || !strings.Contains(v.Confirm, "reached over MQTT only") {
+			t.Errorf("%q: confirm = %q, %v", cmd, v.Confirm, err)
+		}
+		_, v, _ = Prepare(cmd, model.RoleAdmin, PrepareOpts{})
+		if strings.Contains(v.Confirm, "reached over MQTT only") {
+			t.Errorf("%q: a device reached over HTTP must not get the MQTT-only text: %q", cmd, v.Confirm)
+		}
+	}
+	for _, cmd := range []string{"Topic", "FullTopic", "MqttHost", "Prefix1", "SetOption103", "SetOption3 1", "SetOption3", "SetOption4 0", "TelePeriod 60", "Power1 TOGGLE", "Status 2"} {
+		if _, v, _ := Prepare(cmd, model.RoleAdmin, PrepareOpts{MQTTOnly: true}); strings.Contains(v.Confirm, "reached over MQTT only") {
+			t.Errorf("%q does not cut the device off, got %q", cmd, v.Confirm)
+		}
+	}
+	// the secret and the cut-off consequence both stay
+	if _, v, _ := Prepare("MqttPassword p", model.RoleAdmin, PrepareOpts{MQTTOnly: true}); !strings.Contains(v.Confirm, "lock tasmofleet out") || !v.Redact {
+		t.Errorf("the credential consequence was lost: %+v", v)
+	}
+}
+
 func TestPrepare(t *testing.T) {
-	send, v, err := Prepare("  Power1   TOGGLE ", model.RoleOperator)
+	send, v, err := Prepare("  Power1   TOGGLE ", model.RoleOperator, PrepareOpts{})
 	if err != nil || send != "Power1 TOGGLE" || v.Class != ClassOperator {
 		t.Fatalf("%q %+v %v", send, v, err)
 	}
@@ -530,7 +583,7 @@ func TestPrepare(t *testing.T) {
 		{"Reset 1", model.RoleOperator, ErrRole},
 		{"Power ON;Reset 1", model.RoleAdmin, ErrInvalid},
 	} {
-		send, _, err := Prepare(tc.cmd, tc.role)
+		send, _, err := Prepare(tc.cmd, tc.role, PrepareOpts{})
 		if !errors.Is(err, tc.want) || send != "" {
 			t.Errorf("Prepare(%q) = %q, %v", tc.cmd, send, err)
 		}
@@ -621,6 +674,17 @@ func TestOperatorMaySwitchEveryRelay(t *testing.T) {
 	for _, cmd := range []string{"Power", "Power1", "Power8"} {
 		if _, err := Authorize(cmd, model.RoleOperator); err != nil {
 			t.Errorf("operator may not query %q: %v", cmd, err)
+		}
+	}
+}
+
+// Why: the router refuses a write that can cut an MQTT-only device off unless a person confirmed it;
+// it asks CutOffName, so the name it reports and the Backlog handling must be exact.
+func TestCutOffName(t *testing.T) {
+	for cmd, want := range map[string]string{"Topic x": "Topic", "Backlog Power ON; MqttHost h": "MqttHost", "Backlog backlogTopic x": "Topic",
+		"SetOption3 0": "SetOption3", "Prefix2 x": "Prefix2", "Power1 ON": "", "Topic": "", "Backlog Power ON": "", "Status 2": "", "\x00": ""} {
+		if got := CutOffName(cmd); got != want {
+			t.Errorf("CutOffName(%q) = %q, want %q", cmd, got, want)
 		}
 	}
 }

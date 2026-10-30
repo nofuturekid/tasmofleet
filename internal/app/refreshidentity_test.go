@@ -290,7 +290,7 @@ func mqttOnlySetup(t *testing.T, cap model.MQTTCapability) (*Prober, *store.SQLi
 		t.Fatal(err)
 	}
 	p.Client = unreachable{}
-	f := &fakeAsker{replies: map[int]string{5: status5Net, 2: status2Payload}}
+	f := &fakeAsker{replies: map[int]string{5: status5Net, 2: status2Payload, 1: `{"StatusPRM":{"GroupTopic":"tasmotas"}}`}}
 	p.MQTT = f
 	p.Audit = &idAudit{}
 	return p, st, id, f
@@ -304,10 +304,14 @@ func TestRefreshOverMQTTWhenHTTPCannotReachTheDevice(t *testing.T) {
 	if err := p.Refresh(context.Background(), id, "admin"); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.asked) != 3 || f.asked[0] != 5 || f.asked[1] != 2 || f.asked[2] != statusObject {
-		t.Fatalf("asked %v, want Status 5, Status 2, then the plain Status (DeviceName)", f.asked)
+	if len(f.asked) != 4 || f.asked[0] != 5 || f.asked[1] != 2 || f.asked[2] != 1 || f.asked[3] != statusObject {
+		t.Fatalf("asked %v, want Status 5, Status 2, Status 1 (GroupTopic), then the plain Status (DeviceName)", f.asked)
 	}
 	got, _ := st.GetDevice(context.Background(), id)
+	// Why (#279): a transfer over MQTT needs a fresh GroupTopic, and HTTP cannot give it for this device.
+	if got.GroupTopic != "tasmotas" || got.GroupTopicReadAt.IsZero() {
+		t.Errorf("GroupTopic %q read at %v: the MQTT refresh did not store it", got.GroupTopic, got.GroupTopicReadAt)
+	}
 	if got.Identity.Version != "16.0.0" || got.Identity.Hardware != "ESP8266EX" || got.Net.Hostname != "plug-1" {
 		t.Fatalf("not refreshed over MQTT: %+v %+v", got.Identity, got.Net)
 	}
@@ -655,8 +659,8 @@ func TestRefreshOverMQTTWaitsOnceWhenTheDeviceIsBusy(t *testing.T) {
 	if err := p.Refresh(context.Background(), id, "admin"); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.asked) != 4 || f.asked[2] != 2 {
-		t.Fatalf("asked %v, want 5, 2, 2, plain Status", f.asked)
+	if len(f.asked) != 5 || f.asked[2] != 2 {
+		t.Fatalf("asked %v, want 5, 2, 2, 1, plain Status", f.asked)
 	}
 	if got, _ := st.GetDevice(context.Background(), id); got.Identity.Version != "16.0.0" {
 		t.Fatalf("version %q", got.Identity.Version)

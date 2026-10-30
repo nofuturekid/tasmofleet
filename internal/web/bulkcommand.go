@@ -69,6 +69,14 @@ func (h *handler) bulkCommandPage(w http.ResponseWriter, r *http.Request) {
 		h.showBulkScope(w, r, sv)
 		return
 	}
+	if _, cut := h.confirmation(r.Context(), cmd, v, ready...); cut {
+		// The consent of a confirmation is for one device and one person's eyes on it; a transaction of
+		// jobs carries none, so the router would refuse the send anyway. Say so before anything is queued.
+		sv.CommandError = "This command can cut a device off that TasmoFleet reaches over MQTT only. Use the console of each device, which asks to confirm."
+		sv.Command = safeInput(cmd)
+		h.showBulkScope(w, r, sv)
+		return
+	}
 	consequence, restart := v.Confirm, false
 	if consequence == "" && strings.EqualFold(v.Name, "restart") {
 		// Restart 1 is harmless enough for operators, but the devices still drop offline: say so, like the Restart button of the bulk bar does

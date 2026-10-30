@@ -498,6 +498,40 @@ func TestClient_ConnectionRefusedIsUnreachable(t *testing.T) {
 	}
 }
 
+// Why: the router may start the same command over MQTT only when it is certain the HTTP request
+// never left. A refused connection is that proof; a dropped connection after the request was
+// written (the server closes without answering) is not: the command may have run.
+func TestNotSent(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	tg := target(t, srv, 1, "", "")
+	srv.Close()
+	_, err := newClient(Options{}).Command(context.Background(), tg, "Power1 TOGGLE")
+	if !errors.Is(err, ErrUnreachable) || !NotSent(err) {
+		t.Errorf("refused connection: err = %v, NotSent = %v", err, NotSent(err))
+	}
+
+	cut := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, _, _ := w.(http.Hijacker).Hijack()
+		_ = c.Close() // the request arrived; nothing comes back
+	}))
+	defer cut.Close()
+	_, err = newClient(Options{}).Command(context.Background(), target(t, cut, 1, "", ""), "Power1 TOGGLE")
+	if err == nil || NotSent(err) {
+		t.Errorf("dropped after the request: err = %v, NotSent = %v (must be unknown)", err, NotSent(err))
+	}
+
+	for _, e := range []error{ErrForbiddenAddr, ErrAuth, ErrHTTPAPIRefused} {
+		if !NotSent(&deviceError{e, "x"}) {
+			t.Errorf("%v is certain: nothing ran", e)
+		}
+	}
+	for _, e := range []error{ErrTimeout, ErrBadResponse, ErrUnreachable, ErrUnknownCommand} {
+		if NotSent(&deviceError{e, "x"}) {
+			t.Errorf("%v proves nothing", e)
+		}
+	}
+}
+
 // Redirects would let a device (or a MITM) steer the server to an arbitrary
 // URL, bypassing the target abstraction.
 func TestClient_DoesNotFollowRedirects(t *testing.T) {

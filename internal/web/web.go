@@ -113,12 +113,15 @@ type KV struct{ Key, Value string }
 
 // Deps bundles the services the UI needs. Filled by package app.
 type Deps struct {
-	Guard         Guard
-	Inventory     inventory.Service
-	Health        health.Tracker
-	Backups       backup.Service
-	Prober        Prober
-	DeviceNames   DeviceNames      // optional: "Keep" on the device-name notice (#125)
+	Guard       Guard
+	Inventory   inventory.Service
+	Health      health.Tracker
+	Backups     backup.Service
+	Prober      Prober
+	DeviceNames DeviceNames // optional: "Keep" on the device-name notice (#125)
+	// MQTTOnly, if set, says tasmofleet reaches the device over MQTT only (HTTP fails). A console or
+	// bulk command that can cut such a device off then names that consequence on its confirmation.
+	MQTTOnly      func(ctx context.Context, ids ...model.DeviceID) bool
 	FWReach       FWReachForgetter // optional: "Forget" on what the device reaches (D11)
 	MQTTPasswords MQTTPasswords    // optional: the MQTT password section of the device edit form (#257)
 	History       HealthHistory

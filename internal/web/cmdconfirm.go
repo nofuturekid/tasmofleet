@@ -21,6 +21,9 @@ type pendingCmd struct {
 	binding string // login session (or header subject) that asked
 	cmd     string // canonical text
 	ids     []model.DeviceID
+	// cutOff: the preview named that the device is reached over MQTT only and the command can cut it
+	// off; only then does the confirmation carry transport.WithCutOffConsent.
+	cutOff  bool
 	expires time.Time
 }
 
@@ -54,6 +57,18 @@ func (p *pendingCmds) put(now time.Time, binding, cmd string, ids []model.Device
 	}
 	token := rand.Text()
 	p.m[token] = pendingCmd{binding: binding, cmd: cmd, ids: ids, expires: now.Add(pendingCmdTTL)}
+	return token
+}
+
+// putCutOff is put for a command whose preview carried the MQTT-only consequence.
+func (p *pendingCmds) putCutOff(now time.Time, binding, cmd string, ids []model.DeviceID) string {
+	token := p.put(now, binding, cmd, ids)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if v, ok := p.m[token]; ok {
+		v.cutOff = true
+		p.m[token] = v
+	}
 	return token
 }
 

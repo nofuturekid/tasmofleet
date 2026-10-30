@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nofuturekid/tasmofleet/internal/cmdpolicy"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/policy"
@@ -229,7 +230,14 @@ func (h *handler) fixRows(ctx context.Context, rep PolicyReport, sel fixSel) []f
 		}
 		row := fixRow{Device: d, Options: options[d.ID], Pairs: included[d.ID]}
 		p := plans[d.ID]
+		onlyMQTT := h.d.MQTTOnly != nil && h.d.MQTTOnly(ctx, d.ID)
 		for _, c := range p.Commands {
+			if onlyMQTT && cmdpolicy.CutsMQTTOff(c.Text) {
+				// Make compliant never confirms a change that can cut off a device reached over MQTT only
+				// (the router would refuse it); the plan says so instead of promising it.
+				p.Skipped = append(p.Skipped, policy.FixSkip{Command: c.Command, Reason: "reached over MQTT only (use the console)"})
+				continue
+			}
 			cmd := fixCmd{Label: settings.Label(c.Command), Text: c.Text, Have: c.Have, Want: c.Want, Advisory: hint[d.ID][strings.ToLower(c.Command)]}
 			if src, ok := rep.Provenance[d.ID][strings.ToLower(c.Command)]; ok {
 				cmd.Note = sourceNote(src, now)

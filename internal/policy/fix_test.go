@@ -12,6 +12,7 @@ import (
 
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 type fakeCmd struct {
@@ -260,5 +261,56 @@ func TestApplyKeepsRestartingCommandsTogetherInTheLastBacklog(t *testing.T) {
 	}
 	if !reflect.DeepEqual(c.sent, want) {
 		t.Fatalf("sent %q, want %q", c.sent, want)
+	}
+}
+
+// Why (D13): Make compliant never carries a person's consent, so on a device reached over MQTT only the
+// router refuses the lines that can cut it off (a new Topic or MqttHost). The rest is applied and saved
+// first, the refused lines go last in a chunk of their own, and the result names what was left out so the
+// job can verify only what was sent.
+func TestApplyLeavesOutWhatCouldCutAnMQTTOnlyDeviceOff(t *testing.T) {
+	c := &fakeCmd{err: func(cmd string) error {
+		if strings.Contains(cmd, "Topic") || strings.Contains(cmd, "MqttHost") {
+			return transport.ErrCutOff
+		}
+		return nil
+	}}
+	r := &fakeRead{vals: map[string]string{"SaveData": "0"}}
+	err := newFixer(c, r).Apply(context.Background(), model.Device{ID: 1}, []string{"Topic other", "PowerOnState 0", "MqttHost 10.0.0.9"})
+	var sk *SkippedError
+	if !errors.As(err, &sk) || sk.Applied != 1 || !reflect.DeepEqual(sk.SkippedLines(), []string{"Topic other", "MqttHost 10.0.0.9"}) {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "applied 1; skipped Topic, MqttHost: reached over MQTT only (use the console)") {
+		t.Errorf("text: %v", err)
+	}
+	// Topic and MqttHost would have restarted (and so saved) the device; they were left out, so it is saved by hand.
+	want := []string{"Backlog Topic other; PowerOnState 0; MqttHost 10.0.0.9", "Backlog PowerOnState 0", "SaveData 0"}
+	if !reflect.DeepEqual(c.sent, want) {
+		t.Fatalf("sent %q, want %q: the chunk of always, then what the refusal left of it, then the save", c.sent, want)
+	}
+	// nothing but cut-off lines: nothing is saved and the result says nothing was applied
+	c2 := &fakeCmd{err: func(string) error { return transport.ErrCutOff }}
+	err = newFixer(c2, r).Apply(context.Background(), model.Device{ID: 1}, []string{"Topic other"})
+	if !errors.As(err, &sk) || sk.AppliedAny() || count(c2.sent, "SaveData") != 0 {
+		t.Fatalf("err = %v, sent %q", err, c2.sent)
+	}
+	// over HTTP the same lines go out exactly as they always did: the chunks of chunks(), nothing reordered
+	c3 := &fakeCmd{}
+	lines := []string{"Topic other", "PowerOnState 0", "MqttHost 10.0.0.9"}
+	if err := newFixer(c3, r).Apply(context.Background(), model.Device{ID: 1}, lines); err != nil {
+		t.Fatal(err)
+	}
+	parsed, _ := parseLines(lines)
+	var wantHTTP []string
+	for _, ch := range chunks(parsed) {
+		texts := make([]string, len(ch))
+		for i, l := range ch {
+			texts[i] = l.text
+		}
+		wantHTTP = append(wantHTTP, "Backlog "+strings.Join(texts, "; "))
+	}
+	if !reflect.DeepEqual(c3.sent, wantHTTP) || len(wantHTTP) != 1 {
+		t.Fatalf("an HTTP device got %q, want %q", c3.sent, wantHTTP)
 	}
 }

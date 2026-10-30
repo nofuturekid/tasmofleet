@@ -20,6 +20,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/simulator"
 	"github.com/nofuturekid/tasmofleet/internal/store"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 type recorder struct {
@@ -616,4 +617,60 @@ func TestPowerOverMQTTReplyThatContradictsTheRequestIsUnconfirmed(t *testing.T) 
 	if state, err := e.svc.Power(context.Background(), "x", 7, 1, "TOGGLE"); err != nil || state != "OFF" {
 		t.Fatalf("TOGGLE: %q, %v", state, err)
 	}
+}
+
+// stubs for a router that must send over MQTT.
+type refusingHTTP struct{ tasmota.Client }
+
+func (refusingHTTP) Command(context.Context, tasmota.Target, string) (json.RawMessage, error) {
+	return nil, tasmota.ErrForbiddenAddr
+}
+
+type stubFacts struct{ mem *transport.Memory }
+
+func (f stubFacts) HTTPState(id model.DeviceID) transport.HTTPState {
+	if k, since, ok := f.mem.HTTPFailure(id); ok {
+		return transport.HTTPState{State: transport.HTTPFailing, Kind: k, Since: since}
+	}
+	return transport.HTTPState{}
+}
+func (f stubFacts) FactsFor(_ context.Context, d model.Device) (transport.Facts, error) {
+	now := time.Now()
+	return transport.Facts{Now: now, HTTP: f.HTTPState(d.ID), MQTT: transport.MQTTFacts{BusConnected: true, Ours: true, Topic: d.Topic,
+		TopicExclusive: true, LWTOnline: true, GroupTopic: "tasmotas", GroupTopicReadAt: now, LastProbeAt: now.Add(-time.Hour)}}, nil
+}
+
+type stubMQTT struct{ reply string }
+
+func (s stubMQTT) Do(context.Context, model.Device, string) (json.RawMessage, error) {
+	return json.RawMessage(s.reply), nil
+}
+func (s stubMQTT) DoLoose(ctx context.Context, d model.Device, c string) (json.RawMessage, error) {
+	return s.Do(ctx, d, c)
+}
+func (stubMQTT) Connected() bool { return true }
+
+// Why (D5/D18): the audit says which transport carried a console command, a secret-setting reply
+// never reaches the caller unmasked.
+func TestRunOverMQTTIsAuditedAndScrubbed(t *testing.T) {
+	dev := model.Device{ID: 7, Address: "192.0.2.7", Topic: "plug", MQTT: model.MQTTOurs}
+	mem := transport.NewMemory(time.Minute, time.Now)
+	r := transport.NewRouter(transport.Options{HTTP: refusingHTTP{}, Devices: routerDevices{devices{7: dev}}, Facts: stubFacts{mem}, Memory: mem})
+	r.SetMQTT(stubMQTT{reply: `{"WebPassword":"hunter2"}`})
+	rec := &recorder{}
+	svc := New(Options{Devices: devices{7: dev}, Client: r, Audit: rec})
+	raw, err := svc.Run(t.Context(), model.Principal{Subject: "admin", Role: model.RoleAdmin}, 7, "WebPassword hunter2")
+	if err != nil || strings.Contains(string(raw), "hunter2") {
+		t.Fatalf("raw=%s err=%v", raw, err)
+	}
+	ev := rec.all()
+	if len(ev) != 1 || !strings.Contains(ev[0].Detail, `"via":"mqtt"`) || strings.Contains(ev[0].Detail, "hunter2") {
+		t.Fatalf("audit = %+v", ev)
+	}
+}
+
+type routerDevices struct{ devices }
+
+func (d routerDevices) GetDevice(ctx context.Context, id model.DeviceID) (model.Device, error) {
+	return d.Get(ctx, id)
 }

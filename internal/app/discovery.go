@@ -23,9 +23,13 @@ func (a *runtime) setupDiscovery() error {
 	scanClient := tasmota.NewHTTPClient(tasmota.Options{
 		Networks: a.svc.Networks, Timeout: scanTimeout, MaxConcurrent: scanConcurrency, Logger: a.log,
 	})
+	var asker discovery.StatusAsker
+	if a.mqttCmd != nil {
+		asker = a.mqttCmd // not a nil *Channel in an interface
+	}
 	m, err := discovery.New(discovery.Options{
-		Inventory: a.svc.Inventory, Store: a.svc.Store, Audit: a.svc.Audit, Client: scanClient,
-		Verifier: macVerifier{client: a.svc.Client}, NetworkSet: a.svc.Networks,
+		Asker: asker, Inventory: a.svc.Inventory, Store: a.svc.Store, Audit: a.svc.Audit, Client: scanClient,
+		Verifier: macVerifier{client: a.svc.HTTP}, NetworkSet: a.svc.Networks,
 		Concurrency: scanConcurrency, ProbeTimeout: scanTimeout, Logger: a.log,
 		OnDropped:  func(kind string) { a.svc.Std.DiscoveryDropped.With(kind).Inc() },
 		OnAccepted: a.identifyLater,

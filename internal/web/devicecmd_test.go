@@ -16,6 +16,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/events"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 // fakeCmd stands in for devicecmd.Service. Run applies the real cmdpolicy so
@@ -28,6 +29,7 @@ type fakeCmd struct {
 	powerErr error
 	reply    string
 	runErr   error
+	consent  []bool // per Run: the call carried the cut-off consent
 }
 
 func (f *fakeCmd) Power(_ context.Context, actor string, id model.DeviceID, relay int, action string) (string, error) {
@@ -40,13 +42,14 @@ func (f *fakeCmd) Power(_ context.Context, actor string, id model.DeviceID, rela
 	return f.state, nil
 }
 
-func (f *fakeCmd) Run(_ context.Context, p model.Principal, id model.DeviceID, cmd string) (json.RawMessage, error) {
+func (f *fakeCmd) Run(ctx context.Context, p model.Principal, id model.DeviceID, cmd string) (json.RawMessage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, err := cmdpolicy.Authorize(cmd, p.Role); err != nil {
 		return nil, err
 	}
 	f.runs = append(f.runs, p.Subject+"|"+id64(id)+"|"+cmd)
+	f.consent = append(f.consent, transport.HasCutOffConsent(ctx))
 	if f.runErr != nil {
 		return nil, f.runErr
 	}
@@ -256,6 +259,49 @@ func TestConsoleRoutineAdminCommandNeedsNoConfirmation(t *testing.T) {
 	}
 	if got := f.ran(); len(got) != 1 || got[0] != "test:admin|1|TelePeriod 120" {
 		t.Fatalf("ran %v", got)
+	}
+}
+
+// Why (D13, #256): a device that only MQTT reaches cannot be reached again once its topic or broker
+// is changed wrongly; the console asks once and says so, and only that confirmation carries the consent the
+// router needs to publish it. A device reached over HTTP keeps the no-dialog path, and a command that does
+// not touch MQTT is never held back.
+func TestConsoleMQTTOnlyDeviceAsksBeforeACutOffChange(t *testing.T) {
+	f := &fakeCmd{reply: `{"Topic":"x"}`}
+	e := setupWith(t, func(d *Deps) {
+		d.DeviceCmd = f
+		d.MQTTOnly = func(context.Context, ...model.DeviceID) bool { return true }
+	})
+	resp, body := e.do(t, "POST", "/devices/1/console", "admin", consoleForm("Topic other"))
+	if resp.StatusCode != 200 || !strings.Contains(body, "reached over MQTT only") || len(f.ran()) != 0 {
+		t.Fatalf("status %d, ran %v: %s", resp.StatusCode, f.ran(), body)
+	}
+	resp, body = e.do(t, "POST", "/devices/1/console", "admin", url.Values{"token": {confirmToken(t, body)}})
+	if resp.StatusCode != 200 || len(f.ran()) != 1 || !f.consent[0] {
+		t.Fatalf("confirmed send: status %d, ran %v, consent %v: %s", resp.StatusCode, f.ran(), f.consent, body)
+	}
+	if _, body = e.do(t, "POST", "/devices/1/console", "admin", consoleForm("TelePeriod 120")); strings.Contains(body, "reached over MQTT only") {
+		t.Errorf("TelePeriod cannot cut the device off: %s", body)
+	}
+	if len(f.consent) != 2 || f.consent[1] {
+		t.Errorf("a command that needs no confirmation of this kind carried the consent: %v", f.consent)
+	}
+	// a credential command asks anyway (its own consequence); the cut-off consent is not given unless the
+	// MQTT-only consequence was shown
+	g := &fakeCmd{reply: `{}`}
+	e2 := setupWith(t, func(d *Deps) {
+		d.DeviceCmd = g
+		d.MQTTOnly = func(context.Context, ...model.DeviceID) bool { return false }
+	})
+	_, body = e2.do(t, "POST", "/devices/1/console", "admin", consoleForm("MqttPassword secret"))
+	e2.do(t, "POST", "/devices/1/console", "admin", url.Values{"token": {confirmToken(t, body)}})
+	if len(g.consent) != 1 || g.consent[0] {
+		t.Errorf("consent without the MQTT-only consequence: %v", g.consent)
+	}
+	h := &fakeCmd{reply: `{"Topic":"x"}`}
+	e3 := cmdEnv(t, h)
+	if _, body := e3.do(t, "POST", "/devices/1/console", "admin", consoleForm("Topic other")); strings.Contains(body, "Confirm sending") || len(h.ran()) != 1 {
+		t.Errorf("a device reached over HTTP is sent the change at once: ran %v", h.ran())
 	}
 }
 

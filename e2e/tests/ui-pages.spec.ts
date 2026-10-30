@@ -237,13 +237,15 @@ for (const m of modes) {
     await expect(page.locator("#txn-state")).toHaveText("Completed", { timeout: 60_000 });
     await expect.poll(() => page.locator("#log-lines").evaluate((e) => Math.max(...[...e.querySelectorAll(".upd-log-t")].map((l) => (l.textContent ?? "").length))), { timeout: 30_000 }).toBeGreaterThan(150);
     await look("bulk-run-transaction");
-    // a run that failed (the device with a web password rejects the command)
+    // a run that failed: the device with a web password rejects the command (a refused login proves nothing ran,
+    // so the router would try the broker, where Status 2 would succeed). Json, a command that runs other commands, is
+    // refused over MQTT, so the run fails on both paths.
     await page.goto(app.url + "/devices");
     await deviceBox(page, "locked-plug").check();
     await sendCommand(page).click();
-    await page.getByRole("textbox", { name: "Command" }).fill("Status 2");
+    await page.getByRole("textbox", { name: "Command" }).fill('Json {"Name":"x"}');
     await page.getByRole("button", { name: "Send to 1 device" }).click();
-    await expect(page.getByRole("heading", { name: "Send Status 2 to 1 device?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Send Json *** to 1 device?" })).toBeVisible();
     await page.getByRole("button", { name: "Send to 1 device" }).click();
     await expect(page.getByText("Finished · 1 failed", { exact: true })).toBeVisible({ timeout: 60_000 });
     await look("bulk-run-failed");

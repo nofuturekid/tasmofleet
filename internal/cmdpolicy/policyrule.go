@@ -139,7 +139,7 @@ func hasAny(s string, parts []string) bool {
 // The error text is a sentence that is safe to show. The caller has checked
 // PolicyReadable(name).
 func PolicySetText(name, want string) (string, error) {
-	send, v, err := Prepare(name+" "+want, model.RoleAdmin)
+	send, v, err := Prepare(name+" "+want, model.RoleAdmin, PrepareOpts{})
 	switch {
 	case errors.Is(err, ErrInvalid):
 		return "", errors.New("the expected value is not a plain value for this command")

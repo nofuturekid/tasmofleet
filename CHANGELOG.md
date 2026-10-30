@@ -8,15 +8,24 @@ always upgrade automatically.
 
 ### Added
 
+- Devices TasmoFleet cannot reach over HTTP are managed over MQTT when they use our broker: console, Send command, settings reads and writes, policy reads and Make compliant. HTTP stays first; MQTT takes over when HTTP is known to fail, or inside one call only when the request provably never left (connection refused, outside DEVICE_NETWORKS, SetOption128, 401). A timeout or a dropped connection is never followed by a second send on the other transport. The audit details of these writes say `via` http or mqtt. A background read of every device's GroupTopic (`Status 1`, one per two seconds) and the MQTT identity refresh keep the group-topic check of MQTT writes satisfied (Part of #256)
+
 - Device list: optional columns OTA URL and Group topic (hidden until chosen in Columns, sortable, long values cut off with the whole value on hover), each with the time it was read. The group topic comes from the same read-only `Status 1` as the OTA URL and from the boot announcement `tele/<topic>/INFO1`, so no new device read. Values read before this release show no time until the next probe. Migration 0035 (#239)
 - Internal tooling: Tasmota command catalogue (`internal/tasmotacmd`), generated from the pinned Tasmota v16.0.0 source by `make catalogue`: which RESULT key answers which command, with commands whose key cannot be derived statically listed as loose (#268)
 
 ### Security
 
 - The device MQTT password is stored encrypted like the web password, never rendered, logged or audited, and is sent only to that device's topic (Part of #257)
+- MQTT command channel: closing it while a command waits for its answer now reports an unknown outcome (the command was published), not "nothing was sent"; a closed channel never publishes
+
 - Command policy: the confirmation for Status 0 (and Reset and other guarded commands) could be bypassed by a Backlog part spelled with a leading `Backlog` (`Backlog BacklogStatus 0`), which Tasmota strips before running it; every part is now judged after the same stripping
 
 ### Breaking
+
+- Make compliant does not change Topic, FullTopic, MqttHost and the like on a device TasmoFleet reaches over MQTT only; the job reports them as skipped (use the console, which asks to confirm). Bulk commands that could cut such a device off are refused in the preview (Part of #256)
+- Console and bulk commands refuse `FileDownload`, `FileUpload` and `Upload` for every role (their payload carries the device's MQTT password). `cmdpolicy.Prepare` takes `PrepareOpts`
+- Audit details of console commands, settings writes and Make compliant gain `"via"` (Part of #256)
+- Over MQTT the console refuses commands that run other commands (`Json`, `Publish`, `Publish2`, `Rule` with a rule text, `RuleTimer`, `WebSend`, `WebQuery`, `Br`, `Script`): they could send `Status 0`. Over HTTP they work as before. A device reached over MQTT only asks for a confirmation before a change of Topic, FullTopic, GroupTopic, MqttHost, MqttPort, MqttUser, MqttPassword, MqttClient or `SetOption3 0`
 
 - An update of a device whose language build was never read from its web page (Tasmota shows it only there) is refused until a language is chosen; `fwselect.Select` returns `ErrLanguageUnknown` unless the choice names one ("EN" is allowed), and so does Guard. It applies only where a language build exists (not to ESP32-C3/S3/..., solo1 or the non-plain variants with an official image). Devices whose language an HTTP probe read are unaffected, including those stored before this release (migration 0037); only devices known from MQTT alone need the choice (Part of #259)
 

@@ -174,6 +174,10 @@ func TestApplySendsOneCommandPerField(t *testing.T) {
 	if len(aud.events) != 2 || aud.events[0].Actor != "alice" || aud.events[0].Action != "settings.set" || aud.events[0].Target != "device:7" {
 		t.Fatalf("audit %+v", aud.events)
 	}
+	// Why (D5): every device write says which transport carried it; a plain HTTP client is "http".
+	if !strings.Contains(aud.events[0].Detail, `"via":"http"`) {
+		t.Errorf("audit detail has no via: %s", aud.events[0].Detail)
+	}
 }
 
 // Why: a crafted POST must not reach the device with a key outside the

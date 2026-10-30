@@ -22,21 +22,28 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/store"
 	"github.com/nofuturekid/tasmofleet/internal/sysconfig"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web"
 )
 
 // Services are the pieces shared by the server and the CLI: storage, audit,
 // the device client, inventory and the prober.
 type Services struct {
-	Cfg       config.Config // effective: environment, then stored settings
-	Sys       *sysconfig.Service
-	Log       *slog.Logger
-	Store     *store.SQLite
-	Audit     *audit.StoreRecorder
-	Hub       *events.Hub
-	Metrics   *metrics.Registry
-	Std       *metrics.Standard
+	Cfg     config.Config // effective: environment, then stored settings
+	Sys     *sysconfig.Service
+	Log     *slog.Logger
+	Store   *store.SQLite
+	Audit   *audit.StoreRecorder
+	Hub     *events.Hub
+	Metrics *metrics.Registry
+	Std     *metrics.Standard
+	// Client is the transport router (transport.Router): commands, settings, backups and OTA go
+	// through it and reach a device over HTTP or MQTT. HTTP is the raw client with the router's
+	// failure memory attached: what measures or verifies HTTP (the health poll, the prober, the MAC
+	// verifier, the discovery scan) uses it, because they must not be answered over MQTT.
 	Client    tasmota.Client
+	HTTP      tasmota.Client
+	Router    *transport.Router
 	Inventory *inventory.Manager
 	Prober    *Prober
 	Networks  *tasmota.NetworkSet // DEVICE_NETWORKS in force; follows the settings page live
@@ -155,7 +162,10 @@ func openServices(cfg config.Config, log *slog.Logger, version string, importLeg
 			log.Info("device networks changed", "networks", len(e.New.DeviceNetworks))
 		}
 	})
-	client := tasmota.NewHTTPClient(tasmota.Options{Networks: nets, Logger: log})
+	router := transport.NewRouter(transport.Options{
+		HTTP: tasmota.NewHTTPClient(tasmota.Options{Networks: nets, Logger: log}), Devices: st, Log: log,
+	})
+	client := router.HTTPOnly()
 	inv, err := inventory.New(inventory.Options{
 		Store: st, Audit: rec, Events: hub, NetworkSet: nets,
 		Verifier: macVerifier{client: client},
@@ -172,7 +182,7 @@ func openServices(cfg config.Config, log *slog.Logger, version string, importLeg
 		}
 	})
 	return &Services{
-		Broker: broker, Cfg: cfg, Sys: sys, Networks: nets, Log: log, Store: st, Audit: rec, Hub: hub, Metrics: reg, Std: std, Client: client, Inventory: inv,
+		Broker: broker, Cfg: cfg, Sys: sys, Networks: nets, Log: log, Store: st, Audit: rec, Hub: hub, Metrics: reg, Std: std, Client: router, HTTP: client, Router: router, Inventory: inv,
 		Prober: &Prober{Client: client, Devices: st, Broker: broker, Hub: hub, Audit: rec},
 	}, nil
 }

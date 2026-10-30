@@ -22,6 +22,8 @@ type fakeApplier struct {
 	inFlight  int
 	maxFlight int
 	hold      chan struct{} // when set, Apply blocks until it is closed
+	// verifiedLines are the lines of the latest Verify
+	verifiedLines []string
 }
 
 func newApplier() *fakeApplier {
@@ -44,10 +46,11 @@ func (a *fakeApplier) Apply(_ context.Context, d model.Device, lines []string) e
 	return err
 }
 
-func (a *fakeApplier) Verify(_ context.Context, d model.Device, _ []string) error {
+func (a *fakeApplier) Verify(_ context.Context, d model.Device, lines []string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.verified[d.ID]++
+	a.verifiedLines = lines
 	return a.verifyErr[d.ID]
 }
 
@@ -96,7 +99,8 @@ func TestPolicyJobAppliesVerifiesAndAudits(t *testing.T) {
 	aud.mu.Lock()
 	defer aud.mu.Unlock()
 	if len(aud.evs) != 2 || aud.evs[0].Action != "policy.fix.start" || aud.evs[1].Action != "policy.fix" || aud.evs[1].Actor != "alice" ||
-		aud.evs[1].Target != "device:1" || aud.evs[1].Result != "ok" || !strings.Contains(aud.evs[1].Detail, "PowerOnState 0") {
+		aud.evs[1].Target != "device:1" || aud.evs[1].Result != "ok" || !strings.Contains(aud.evs[1].Detail, "PowerOnState 0") ||
+		!strings.Contains(aud.evs[1].Detail, `"via":"http"`) { // D5: which transport carried the writes
 		t.Fatalf("audit %+v", aud.evs)
 	}
 }
@@ -300,4 +304,75 @@ func TestPolicyJobAuditUsesTheRedactedCommands(t *testing.T) {
 	if last.Action != "policy.fix" || !strings.Contains(last.Detail, `"Sleep 20"`) || !strings.Contains(last.Detail, `"Pulsetime1 ***"`) || strings.Contains(last.Detail, "hunter2") {
 		t.Fatalf("audit %+v", last)
 	}
+}
+
+type skipErr struct {
+	applied int
+	lines   []string
+}
+
+func (e *skipErr) Error() string          { return "applied; skipped " + strings.Join(e.lines, ", ") }
+func (e *skipErr) SkippedLines() []string { return e.lines }
+func (e *skipErr) AppliedAny() bool       { return e.applied > 0 }
+
+// Why (D13): Make compliant leaves out the lines that could cut off a device reached over MQTT only. The
+// job still succeeds for the rest, verifies only what was sent (the skipped line would "deviate" forever),
+// and the audit and the event say what was left out. When nothing at all was applied it is a failure.
+func TestPolicyJobVerifiesOnlyWhatWasSentAndSaysWhatWasSkipped(t *testing.T) {
+	h, ap, aud := policyHarness(t, 2, 2)
+	ap.applyErr[1] = &skipErr{applied: 1, lines: []string{"Topic other"}}
+	ap.applyErr[2] = &skipErr{applied: 0, lines: []string{"Topic other"}}
+	id, _, err := h.e.SubmitPolicy(context.Background(), "alice", []PolicyRequest{
+		{DeviceID: 1, Commands: []string{"PowerOnState 0", "Topic other"}}, {DeviceID: 2, Commands: []string{"Topic other"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.run(t, h.e)
+	jobs, _ := h.st.ListJobs(context.Background(), store.JobFilter{BatchID: id})
+	got := map[model.DeviceID]model.JobState{}
+	for _, j := range jobs {
+		got[j.DeviceID] = j.State
+	}
+	if got[1] != model.JobSucceeded || got[2] != model.JobFailed {
+		t.Fatalf("states %v", got)
+	}
+	if strings.Join(ap.verifiedLines, "|") != "PowerOnState 0" {
+		t.Errorf("verified %v, want only the line that was sent", ap.verifiedLines)
+	}
+	aud.mu.Lock()
+	defer aud.mu.Unlock()
+	found := false
+	for _, e := range aud.evs {
+		if e.Action == "policy.fix" && e.Target == "device:1" && strings.Contains(e.Detail, "skipped Topic other") && !strings.Contains(e.Detail, `"Topic other"]`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("audit %+v", aud.evs)
+	}
+}
+
+// Why: a restart while a job verifies must not verify the lines Apply left out on purpose (they would
+// "deviate" for ever) and must not lose the note. The store keeps the planned commands, so the engine
+// finds both in the verify event that was written before the restart.
+func TestPolicyJobResumedInVerifyKeepsTheSkippedLinesAndTheNote(t *testing.T) {
+	h, ap, aud := policyHarness(t, 1, 1)
+	id := h.st.put(model.Job{DeviceID: 1, Kind: model.KindPolicy, Commands: "PowerOnState 0\nTopic other", State: model.JobVerify, CreatedBy: "alice"})
+	h.st.events = append(h.st.events, model.JobEvent{JobID: id, From: model.JobApplying, To: model.JobVerify, Event: "verify",
+		Detail: skipDetail("applied 1; skipped Topic: reached over MQTT only (use the console)", []string{"Topic other"})})
+	h.run(t, h.e)
+	if h.job(t, id).State != model.JobSucceeded {
+		t.Fatalf("state %s", h.job(t, id).State)
+	}
+	if strings.Join(ap.verifiedLines, "|") != "PowerOnState 0" {
+		t.Errorf("verified %v after the restart", ap.verifiedLines)
+	}
+	aud.mu.Lock()
+	defer aud.mu.Unlock()
+	for _, e := range aud.evs {
+		if e.Action == "policy.fix" && strings.Contains(e.Detail, "skipped Topic") {
+			return
+		}
+	}
+	t.Errorf("the note was lost: %+v", aud.evs)
 }

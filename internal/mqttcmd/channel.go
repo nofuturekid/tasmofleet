@@ -109,8 +109,15 @@ func (c *Channel) Close() {
 	})
 }
 
+// closed is the error of a command that was not published.
 func (c *Channel) closed() error {
 	return fmt.Errorf("%w: the MQTT command channel is closed", tasmota.ErrUnreachable)
+}
+
+// closedAfterSend is the error of a command that was published and whose answer the shutdown cut
+// off: the device may have run it, so it is an unknown outcome (ErrTimeout), never "not sent".
+func (c *Channel) closedAfterSend(name string) error {
+	return fmt.Errorf("mqtt: %s was sent and the command channel closed before it was answered (outcome unknown): %w", name, tasmota.ErrTimeout)
 }
 
 // Connected reports whether the bus is connected and subscribed.
@@ -139,6 +146,11 @@ func (c *Channel) do(ctx context.Context, d model.Device, cmd string, loose bool
 	}
 	if !c.bus.Connected() {
 		return nil, fmt.Errorf("%w: %w", tasmota.ErrUnreachable, mqttbus.ErrNotConnected)
+	}
+	select {
+	case <-c.done: // closed: a ready semaphore must not win the race below
+		return nil, c.closed()
+	default:
 	}
 	sem := c.sem(d.Topic)
 	select {
@@ -241,7 +253,7 @@ func (c *Channel) collect(ctx context.Context, w *waiter, req *request, loose bo
 		case <-ctx.Done():
 			return nil, fmt.Errorf("mqtt: %s was sent and not answered before the caller gave up (outcome unknown): %w: %w", req.name, tasmota.ErrTimeout, ctx.Err())
 		case <-c.done:
-			return nil, c.closed()
+			return nil, c.closedAfterSend(req.name)
 		}
 	}
 }
@@ -306,6 +318,8 @@ func (c *Channel) waitTurn(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-c.done:
+		return c.closed() // not published yet
 	}
 }
 

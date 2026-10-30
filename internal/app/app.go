@@ -110,6 +110,7 @@ type runtime struct {
 	deviceCmd  devicecmd.Service
 	bus        mqttbus.Bus
 	mqttCmd    *mqttcmd.Channel // the one place that sends commands over MQTT (#256)
+	facts      *TransportFacts  // the router's view of a device (transport.Facts)
 	sw         *mqttbus.Switch
 	mqttKnown  *knownIndex
 	tracker    *health.Service
@@ -153,11 +154,12 @@ func (a *runtime) run(ctx context.Context) error {
 	}
 	a.goBG("mqtt-cmd", func() error { <-bg.Done(); a.mqttCmd.Close(); return nil }) // wakes commands in flight
 	a.tracker = health.New(health.Deps{
-		Store: svc.Store, Client: svc.Client, Bus: a.bus, Hub: svc.Hub, OnMQTTSeen: a.onMQTTSeen,
+		Store: svc.Store, Client: svc.HTTP, Bus: a.bus, Hub: svc.Hub, OnMQTTSeen: a.onMQTTSeen, // HTTP only: it measures HTTP
 	}, health.Options{
 		StaleAfter: staleAfter(cfg.TelePeriod), PollInterval: cfg.PollInterval,
 	})
 	a.goBG("health", func() error { return a.tracker.Run(bg) })
+	a.setupTransport()
 	// Network facts are read in the background, never as part of first contact or a refresh.
 	nf := newNetFactsReader(a.svc.Inventory.List,
 		func(id model.DeviceID) bool { return a.tracker.Get(id).State == model.HealthOnline },
@@ -303,7 +305,7 @@ func (a *runtime) connectMQTT(ctx context.Context, cfg config.Config) {
 	cctx, cancel := context.WithCancel(ctx)
 	bus, err := mqttbus.Connect(cctx, mqttbus.Options{
 		BrokerURL: cfg.MQTTURL, Username: cfg.MQTTUser, Password: cfg.MQTTPassword, FullTopic: cfg.MQTTFullTopic,
-		Known:     a.mqttKnown.Known,
+		Prefixes: mqttPrefixes, Known: a.mqttKnown.Known,
 		OnDropped: func(reason string) { a.svc.Std.MQTTDropped.With(reason).Inc() },
 		AllowAddr: runtimeBrokerAddrAllowed,
 	})
@@ -643,6 +645,7 @@ func (a *runtime) webDeps(guard web.Guard, rows []web.KV) web.Deps {
 		Config: rows, Pages: a.pages, FirmwareSource: a.fwSource, FirmwareFeed: a.fwFeed,
 	}
 	deps.MQTTBroker = a.svc.Broker
+	deps.MQTTOnly = a.onlyOverMQTT
 	deps.DefaultDevicePassword = func() string { return a.svc.Sys.Snapshot().DeviceDefaultPassword }
 	if a.tracker != nil {
 		deps.StaleAfter = a.tracker.StaleAfter

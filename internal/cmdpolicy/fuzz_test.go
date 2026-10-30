@@ -57,7 +57,7 @@ func FuzzPolicy(f *testing.F) {
 			if role == model.RoleOperator && vv.Class != ClassRead && vv.Class != ClassOperator {
 				t.Fatalf("operator may send %v command %q", vv.Class, cmd)
 			}
-			send, _, err := Prepare(cmd, role)
+			send, _, err := Prepare(cmd, role, PrepareOpts{})
 			if err != nil {
 				t.Fatalf("Authorize ok but Prepare failed for %q: %v", cmd, err)
 			}

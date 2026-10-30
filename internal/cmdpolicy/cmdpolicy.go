@@ -20,7 +20,7 @@ const (
 	ClassRead      Class = iota + 1 // queries; operator
 	ClassOperator                   // harmless actions (Power, Restart 1); operator
 	ClassAdmin                      // everything else; admin only
-	ClassForbidden                  // malformed lines only; never sent
+	ClassForbidden                  // malformed lines and file transfer commands; never sent
 )
 
 func (c Class) String() string {
@@ -106,6 +106,8 @@ const (
 	whyModule   = "Changing the module or template changes the pin mapping; the device may restart or stop working until it is corrected."
 	whyCredCmd  = "Changing a login or the Wi-Fi name can lock tasmofleet out or take the device off the network; tasmofleet does not store the new value."
 	whyRestart  = "Restart other than 1 halts the device or erases settings; it may stay down until power is cycled."
+	whyMQTTOnly = "this device is reached over MQTT only; this change can cut TasmoFleet off from it"
+	whyFile     = "TasmoFleet's own code handles file transfers; the command carries the device's MQTT password."
 	whyStatus0  = "Status 0 makes the device build one very large reply; ESP8266 devices can run out of memory. tasmofleet's own code never sends it."
 )
 
@@ -260,6 +262,12 @@ func classify(p parsed) (Verdict, string) {
 		return v, ""
 	case "power":
 		return classifyPower(p, v), ""
+	case "filedownload", "fileupload", "upload":
+		// Never typed by a person, whatever the role: the payload carries the device's MQTT password
+		// and the transfer is a protocol of its own (internal/mqttcmd). Redact: the arguments may
+		// hold that password.
+		v.Class, v.Reason, v.Redact = ClassForbidden, whyFile, true
+		return v, ""
 	case "backlog":
 		return classifyBacklog(p, v)
 	}
@@ -279,7 +287,7 @@ func confirmFor(p parsed) string {
 		return whyReset
 	case "wificonfig":
 		return whyWifiCfg
-	case "upgrade", "upload", "otaurl":
+	case "upgrade", "otaurl":
 		if p.args != "" {
 			return whyFirmware
 		}
@@ -326,6 +334,10 @@ func classifyBacklog(p parsed, v Verdict) (Verdict, string) {
 		sv, bad := classify(sub)
 		if bad != "" {
 			return v, bad
+		}
+		if sv.Class == ClassForbidden { // a part that is never sent makes the whole Backlog never sent
+			v.Class, v.Reason, v.Redact = ClassForbidden, sv.Reason, true
+			return v, ""
 		}
 		if sv.Confirm != "" && !seen[sv.Confirm] {
 			seen[sv.Confirm] = true
@@ -515,11 +527,82 @@ func (p parsed) canonical() string {
 	return p.name + " " + p.args
 }
 
+// PrepareOpts carries what the policy needs to know about the device.
+type PrepareOpts struct {
+	// MQTTOnly: tasmofleet reaches the device over MQTT only (HTTP fails). A change of its MQTT
+	// identity or connection can then cut it off, which an HTTP-reachable device would survive.
+	MQTTOnly bool
+}
+
+// cutsMQTTOff reports whether p changes how the device talks MQTT: its topics, prefixes, host, port,
+// login, client name, TLS fingerprint or client key (Prefix<n>, MqttFingerprint, TLSKey<n>, SetOption103 TLS, SetOption132
+// fingerprint check), or switches MQTT off (SetOption3 0). Queries (no argument) do not.
+func cutsMQTTOff(p parsed) bool {
+	if p.args == "" {
+		return false
+	}
+	switch p.base {
+	case "topic", "fulltopic", "grouptopic", "mqtthost", "mqttport", "mqttuser", "mqttpassword", "mqttclient",
+		"prefix", "mqttfingerprint", "tlskey":
+		return true
+	case "setoption":
+		switch {
+		case !p.has:
+			return false
+		case p.idx == 3:
+			return unclearOrOff(p.args)
+		case p.idx == 103 || p.idx == 132:
+			return true
+		}
+	}
+	return false
+}
+
+// CutOffName returns the name of the first command in cmd (a Backlog is judged part by part) that can
+// cut a device off that tasmofleet reaches over MQTT only, "" when none can.
+func CutOffName(cmd string) string {
+	p, bad := parse(cmd)
+	if bad != "" {
+		return ""
+	}
+	if p.base != "backlog" {
+		if cutsMQTTOff(p) {
+			return p.name
+		}
+		return ""
+	}
+	for _, part := range strings.Split(p.args, ";") {
+		if sub, bad := parse(stripBacklogPrefix(part)); bad == "" && cutsMQTTOff(sub) {
+			return sub.name
+		}
+	}
+	return ""
+}
+
+// CutsMQTTOff reports whether cmd can cut an MQTT-only device off (see CutOffName).
+func CutsMQTTOff(cmd string) bool { return CutOffName(cmd) != "" }
+
+// WithMQTTOnly adds the consequence of cutting an MQTT-only device off to the verdict of cmd. It never
+// lowers the class and never removes a confirmation.
+func WithMQTTOnly(cmd string, v Verdict) Verdict {
+	if !CutsMQTTOff(cmd) || v.Class == ClassForbidden || strings.Contains(v.Confirm, whyMQTTOnly) {
+		return v
+	}
+	if v.Confirm != "" {
+		v.Confirm += " "
+	}
+	v.Confirm += whyMQTTOnly
+	return v
+}
+
 // Prepare authorizes cmd for role and returns the canonical text to send. It
 // is the single entry point for code that sends free-form commands.
-func Prepare(cmd string, role model.Role) (send string, v Verdict, err error) {
+func Prepare(cmd string, role model.Role, opts PrepareOpts) (send string, v Verdict, err error) {
 	if v, err = Authorize(cmd, role); err != nil {
 		return "", v, err
+	}
+	if opts.MQTTOnly {
+		v = WithMQTTOnly(cmd, v)
 	}
 	send, err = Canonical(cmd)
 	if err != nil {

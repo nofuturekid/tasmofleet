@@ -20,6 +20,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/mqttcmd"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 // Errors. Callers match with errors.Is; cmdpolicy's errors (ErrInvalid,
@@ -183,7 +184,7 @@ func (s *service) powerMQTT(ctx context.Context, d model.Device, relay int, acti
 func (s *service) Run(ctx context.Context, p model.Principal, id model.DeviceID, cmd string) (json.RawMessage, error) {
 	// The role check lives here, not in the callers. What is classified is
 	// exactly what is sent: Prepare returns the canonical text.
-	send, v, err := cmdpolicy.Prepare(cmd, p.Role)
+	send, v, err := cmdpolicy.Prepare(cmd, p.Role, cmdpolicy.PrepareOpts{})
 	// Redacted shows arguments only for known-harmless commands: a refused
 	// command may hold a secret, directly or wrapped in another command.
 	if err != nil {
@@ -196,8 +197,10 @@ func (s *service) Run(ctx context.Context, p model.Principal, id model.DeviceID,
 		s.record(ctx, p.Subject, "command.send", id, map[string]any{"command": logged, "class": v.Class.String()}, err)
 		return nil, err
 	}
-	raw, err := s.o.Client.Command(ctx, tasmota.TargetFor(d), send)
-	s.record(ctx, p.Subject, "command.send", id, map[string]any{"command": logged, "class": v.Class.String()}, err)
+	// The console is typed by a person: a reply with other keys than the command's (Template) is the answer.
+	cctx, trace := transport.WithTrace(transport.WithConsole(ctx))
+	raw, err := s.o.Client.Command(cctx, tasmota.TargetFor(d), send)
+	s.record(ctx, p.Subject, "command.send", id, map[string]any{"command": logged, "class": v.Class.String(), "via": trace.Via()}, err)
 	if err != nil {
 		return nil, err
 	}

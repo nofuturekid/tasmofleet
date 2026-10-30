@@ -222,7 +222,7 @@ func TestUploadClampsAnOversizedMaxSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, n := range u.chunks {
-		if n > rawBudget(1174, 255) { // 864 for a three digit Id
+		if n > rawBudget(1174, 1) { // 867 for a one digit Id, 864 for three: the Id is random in 1..999, so the widest chunk is checked against the packet size below
 			t.Fatalf("chunk of %d bytes: %v", n, u.chunks)
 		}
 	}

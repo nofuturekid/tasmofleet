@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/cmdpolicy"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -155,12 +157,23 @@ func consoleError(err error) (int, string) {
 		return http.StatusForbidden, "This command is not sent from TasmoFleet."
 	case errors.Is(err, cmdpolicy.ErrRole):
 		return http.StatusForbidden, "This command needs the admin role."
+	case errors.Is(err, transport.ErrCutOff):
+		return http.StatusConflict, err.Error() // names the command, never its arguments
 	}
 	status, msg := deviceErrorText(err)
 	if msg == "" {
 		return http.StatusInternalServerError, "The command failed."
 	}
 	return status, msg
+}
+
+// confirmation adds to v the consequence of cutting off a device that is reached over MQTT only, and
+// says whether it did: that is what a confirmation may consent to (transport.WithCutOffConsent).
+func (h *handler) confirmation(ctx context.Context, cmd string, v cmdpolicy.Verdict, ids ...model.DeviceID) (cmdpolicy.Verdict, bool) {
+	if h.d.MQTTOnly == nil || !cmdpolicy.CutsMQTTOff(cmd) || !h.d.MQTTOnly(ctx, ids...) {
+		return v, false
+	}
+	return cmdpolicy.WithMQTTOnly(cmd, v), true
 }
 
 func (h *handler) consoleSend(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +184,7 @@ func (h *handler) consoleSend(w http.ResponseWriter, r *http.Request) {
 	limitBody(w, r)
 	cmd := r.PostFormValue("command")
 	p, _ := auth.FromContext(r.Context())
+	ctx := r.Context()
 	data := consoleData{Shown: cmdpolicy.Redacted(cmd)}
 	// Text goes back into the page (input value) only when the policy would
 	// also log it: arguments of most commands may be secrets.
@@ -190,16 +204,24 @@ func (h *handler) consoleSend(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cmd, data.Shown, data.Input = pc.cmd, cmdpolicy.Redacted(pc.cmd), ""
-	} else if v, err := cmdpolicy.Classify(cmd); err == nil && v.Confirm != "" && p.Role >= model.RoleAdmin {
+		if pc.cutOff {
+			ctx = transport.WithCutOffConsent(ctx) // the person was told, and confirmed
+		}
+	} else if v0, err := cmdpolicy.Classify(cmd); err == nil && p.Role >= model.RoleAdmin {
+		v, cut := h.confirmation(ctx, cmd, v0, d.ID)
 		canon, err := cmdpolicy.Canonical(cmd)
-		if err == nil {
+		if err == nil && v.Confirm != "" {
 			data.Confirm, data.Consequence = true, v.Confirm
-			data.Token = h.cmds.put(h.d.Clock.Now(), h.bindingOf(r), canon, []model.DeviceID{d.ID})
+			if cut {
+				data.Token = h.cmds.putCutOff(h.d.Clock.Now(), h.bindingOf(r), canon, []model.DeviceID{d.ID})
+			} else {
+				data.Token = h.cmds.put(h.d.Clock.Now(), h.bindingOf(r), canon, []model.DeviceID{d.ID})
+			}
 			h.renderConsole(w, r, http.StatusOK, d, data)
 			return
 		}
 	}
-	raw, err := h.d.DeviceCmd.Run(r.Context(), p, d.ID, cmd)
+	raw, err := h.d.DeviceCmd.Run(ctx, p, d.ID, cmd)
 	status := http.StatusOK
 	if err != nil {
 		status, data.Error = consoleError(err)

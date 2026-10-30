@@ -27,6 +27,7 @@ type identityStore interface {
 	UpdateNet(ctx context.Context, id model.DeviceID, g store.ProbeGuard, n model.NetFacts) error
 	UpdateProbeName(ctx context.Context, id model.DeviceID, g store.ProbeGuard, deviceName, nameFrom string) error
 	UpdateIdentityFromMQTT(ctx context.Context, id model.DeviceID, g store.ProbeGuard, topic string, i model.Identity) error
+	UpdateGroupTopicFromMQTT(ctx context.Context, id model.DeviceID, g store.ProbeGuard, topic, groupTopic string) error
 }
 
 // mqttAsker asks a device on our broker one Status N over MQTT and returns its answer
@@ -795,10 +796,29 @@ func (p *Prober) refreshMQTT(ctx context.Context, d model.Device, actor string) 
 	if err := p.Devices.UpdateNet(ctx, d.ID, g, p.withStoredWifi(d.Net, n)); err != nil {
 		return err
 	}
+	p.refreshGroupTopicMQTT(ctx, d, g, actor)
 	p.refreshNameMQTT(ctx, d, g, pr)
 	slog.InfoContext(ctx, "identity refreshed over MQTT", "device", d.ID, "topic", d.Topic, "http_identity_kept", !d.Identity.DetectedAt.IsZero())
 	p.announce(d.ID)
 	return nil
+}
+
+// refreshGroupTopicMQTT reads Status 1 and stores its GroupTopic and the time it was read. A transfer over MQTT
+// needs a fresh GroupTopic (transport.Choose), and a device HTTP cannot reach never gets one from a probe.
+// Best effort like the name: a device that does not answer leaves the refresh as it is.
+func (p *Prober) refreshGroupTopicMQTT(ctx context.Context, d model.Device, g store.ProbeGuard, actor string) {
+	raw, err := p.MQTT.askStatus(ctx, d, 1, actor)
+	if err != nil {
+		slog.DebugContext(ctx, "refresh over MQTT: GroupTopic not read", "device", d.ID, "err", err)
+		return
+	}
+	gt, ok := parseGroupTopic(raw)
+	if !ok {
+		return
+	}
+	if err := p.Devices.UpdateGroupTopicFromMQTT(ctx, d.ID, g, d.Topic, gt); err != nil && !errors.Is(err, store.ErrConflict) {
+		slog.WarnContext(ctx, "refresh over MQTT: store the GroupTopic", "device", d.ID, "err", err)
+	}
 }
 
 // refreshNameMQTT reads the DeviceName with the plain Status (the Status object, never Status 0) and

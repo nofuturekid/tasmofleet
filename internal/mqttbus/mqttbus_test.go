@@ -217,11 +217,16 @@ func TestPublishRightAfterConnectIsDelivered(t *testing.T) {
 	waitFor(t, "message", func() bool { return len(c.snapshot()) == 1 })
 }
 
+// A command is never published retained: a retained command would be replayed to a device that was
+// offline when it was sent and run when it comes back. transport.TransportFacts relies on this when
+// it lets a broker-confirmed Offline device out of the group-topic check.
 func TestCommandPublishesToCmndTopic(t *testing.T) {
 	b := newTestBroker(t)
 	got := make(chan string, 1)
+	retained := make(chan bool, 1)
 	if err := b.srv.Subscribe("cmnd/dev1/#", 1, func(_ *mqtt.Client, _ packets.Subscription, pk packets.Packet) {
 		got <- pk.TopicName + "=" + string(pk.Payload)
+		retained <- pk.FixedHeader.Retain
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -233,6 +238,9 @@ func TestCommandPublishesToCmndTopic(t *testing.T) {
 	case s := <-got:
 		if s != "cmnd/dev1/Power=TOGGLE" {
 			t.Fatalf("got %q", s)
+		}
+		if <-retained {
+			t.Fatal("the command was published retained")
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("command not received")

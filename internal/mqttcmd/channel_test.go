@@ -674,10 +674,72 @@ func TestCloseWakesACommandInFlight(t *testing.T) {
 	c.Close()
 	select {
 	case err := <-errc:
-		if !errors.Is(err, tasmota.ErrUnreachable) {
-			t.Fatalf("err = %v", err)
+		// Why: the command was published; the device may have run it. "Nothing was sent" would
+		// let a caller resend a Power TOGGLE or Restart.
+		if !errors.Is(err, tasmota.ErrTimeout) || errors.Is(err, tasmota.ErrUnreachable) {
+			t.Fatalf("err = %v, want the unknown outcome (ErrTimeout)", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not wake the command")
+	}
+}
+
+// Why: the same for a Backlog being collected when the process shuts down.
+func TestCloseDuringABacklogIsAnUnknownOutcome(t *testing.T) {
+	b := &fakeBus{}
+	o := fast()
+	o.ReplyWait = time.Minute
+	c := New(b, o)
+	errc := make(chan error, 1)
+	go func() { _, err := c.Do(t.Context(), plug(), "Backlog Power ON; Power2 ON"); errc <- err }()
+	waitFor(t, "the publish", func() bool { return len(b.sent()) == 1 })
+	c.Close()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, tasmota.ErrTimeout) || errors.Is(err, tasmota.ErrUnreachable) {
+			t.Fatalf("err = %v, want the unknown outcome (ErrTimeout)", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not wake the Backlog")
+	}
+}
+
+// Why: after Close a free semaphore must not win the select against the closed channel; the
+// command is refused with nothing published.
+func TestDoAfterCloseNeverPublishes(t *testing.T) {
+	b := &fakeBus{}
+	c := newChan(b)
+	c.Close()
+	for i := 0; i < 50; i++ {
+		if _, err := c.Do(t.Context(), plug(), "Hostname"); !errors.Is(err, tasmota.ErrUnreachable) {
+			t.Fatalf("err = %v", err)
+		}
+	}
+	if s := b.sent(); len(s) != 0 {
+		t.Fatalf("published after Close: %v", s)
+	}
+}
+
+// Why: Json {"Status":0} is CmndJson -> Backlog0 -> Status 0, Publish sends it to the device's own
+// command topic, a Rule runs it, WebSend/WebQuery/Br/Script can reach it too. Status 0 is never
+// sent, so none of these may be published, alone or in a Backlog, in any spelling.
+func TestCommandsThatRunOtherCommandsAreRefused(t *testing.T) {
+	for _, cmd := range []string{
+		`Json {"Status":0}`, `json {"Backlog":"Status 0"}`, `Publish cmnd/plug/Status 0`, `Publish2 cmnd/plug/Status 0`,
+		`Rule1 ON System#Boot DO Status 0 ENDON`, `Rule ON System#Boot DO Status 0 ENDON`, `RuleTimer1 5`,
+		`WebSend [192.0.2.1] Status 0`, `WebQuery http://192.0.2.1/cm?cmnd=Status%200 GET`, `Br print(1)`, `Script >D`, `UfsRun x.be`,
+		`Backlog Power ON; Json {"Status":0}`, `Backlog Publish cmnd/plug/Status 0`,
+	} {
+		b := &fakeBus{}
+		c := newChan(b)
+		if _, err := c.Do(t.Context(), plug(), cmd); !errors.Is(err, ErrRefused) {
+			t.Errorf("%q: err = %v, want ErrRefused", cmd, err)
+		}
+		if _, err := c.DoLoose(t.Context(), plug(), cmd); !errors.Is(err, ErrRefused) {
+			t.Errorf("%q (loose): err = %v, want ErrRefused", cmd, err)
+		}
+		if s := b.sent(); len(s) != 0 {
+			t.Errorf("%q published %v", cmd, s)
+		}
 	}
 }

@@ -442,3 +442,27 @@ func TestPolicyFixPickForAPairNotInTheReportIsIgnored(t *testing.T) {
 		t.Fatalf("nothing may be submitted: %+v", fix.reqs)
 	}
 }
+
+// Why (D13): Make compliant never confirms a change that can cut off a device reached over MQTT only,
+// so the preview does not promise it: the command leaves the plan and shows as skipped with the reason,
+// while a device reached over HTTP keeps it.
+func TestPolicyFixPreviewSkipsCutOffLinesOfMQTTOnlyDevices(t *testing.T) {
+	topic := policy.Rule{ID: "r2", Command: "Topic", Want: "other"}
+	rep := fixReport()
+	rep.Rules[1] = topic
+	rep.Findings[1] = policy.Finding{DeviceID: 1, Rule: topic, Have: "kitchen"}
+	rep.Provenance[1]["topic"] = rep.Provenance[1]["setoption0"]
+	only := true
+	e := setupWith(t, func(d *Deps) {
+		d.Policy, d.PolicyFix = &fakePolicy{rep: rep}, &fakeFix{}
+		d.MQTTOnly = func(context.Context, ...model.DeviceID) bool { return only }
+	})
+	body := previewFor(t, e, url.Values{"device": {"1"}})
+	if strings.Contains(body, cmdHTML("Topic other")) || !strings.Contains(body, "reached over MQTT only (use the console)") || !strings.Contains(body, cmdHTML("PowerOnState 0")) {
+		t.Fatalf("the plan:\n%s", body)
+	}
+	only = false
+	if body = previewFor(t, e, url.Values{"device": {"1"}}); !strings.Contains(body, cmdHTML("Topic other")) {
+		t.Fatalf("over HTTP the command stays:\n%s", body)
+	}
+}

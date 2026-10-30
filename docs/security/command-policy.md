@@ -17,7 +17,9 @@ claims stay below, struck through in words, so a reviewer sees what changed and 
   part is judged on its own like a command sent alone.
 - Classes: **read** and **operator** (operator role), **admin** (admin role only). The
   zero class and `forbidden` are never sendable; `forbidden` exists only for malformed
-  lines. There is **no allowlist** and no command an admin cannot send.
+  lines. There is **no allowlist**; the only commands no role sends are `FileDownload`, `FileUpload`
+  and `Upload` (their payload carries the device's MQTT password; tasmofleet's own file-transfer code sends
+  them), alone or in a `Backlog`.
 - **Confirmation instead of refusal.** A destructive or lock-out command is still sent
   for an admin, but `Verdict.Confirm` names the consequence and the UI asks exactly
   once before it sends. Routine commands never get a second screen. The commands are
@@ -104,3 +106,14 @@ device writes it (`ON` and `OFF` read as `1` and `0`).
 - `FuzzPolicy` runs as a seed-corpus test in `make test`. Run it for a minute after
   any change to `cmdpolicy.go`: `go test ./internal/cmdpolicy -run xxx -fuzz FuzzPolicy -fuzztime 60s`.
 - Mutation gate: `tools/mutation-gate.sh ./internal/cmdpolicy 90` (also in `make mutation`).
+
+## Known gap: executors over HTTP
+
+Commands that run other commands (`Json`, `Publish`, `Publish2`, `Rule` with a rule text, `WebSend`, `WebQuery`,
+`Br`, `Script`, `UfsRun`) need no confirmation of their own for an admin over HTTP, so `Json {"Status":0}` or a
+`Rule` that does `Status 0` reaches a device that way. The classification is by command name; making the policy
+unwrap them is out of scope. Over MQTT the channel refuses all of them (docs/security/mqtt-transport.md, T1).
+
+`TLSKey<n>` (the mutual-TLS client key of the MQTT connection) is a plain command in the list of settings that can
+cut off a device reached over MQTT only (`cmdpolicy.CutOffName`): over MQTT it needs the console's confirmation,
+and Make compliant skips it there.
