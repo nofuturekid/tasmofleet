@@ -45,6 +45,11 @@ import (
 //go:embed static
 var Assets embed.FS
 
+// Default values
+const (
+	defaultBackupCooldown = 60 * time.Second
+)
+
 // OTA is the subset of *ota.Engine the UI uses.
 type OTA interface {
 	Preview(ctx context.Context, reqs []ota.Request) ([]ota.PreviewItem, error)
@@ -167,7 +172,7 @@ type Deps struct {
 	MaxStreams        int
 
 	// BackupCooldown is the minimum time between two manual backups of one
-	// device (default 1 minute), so repeated clicks cannot evict restore points.
+	// device (default 20 seconds), so repeated clicks cannot evict restore points.
 	BackupCooldown time.Duration
 
 	Version        string
@@ -217,7 +222,7 @@ func Handler(d Deps) (http.Handler, error) {
 		d.MaxStreams = 200
 	}
 	if d.BackupCooldown == 0 {
-		d.BackupCooldown = time.Minute
+		d.BackupCooldown = defaultBackupCooldown
 	}
 	h := &handler{d: d, pr: pr, started: d.Clock.Now(), log: slog.Default(), lastBackup: map[model.DeviceID]time.Time{}, sseUsers: map[string]int{}}
 	if d.Pages != nil {
