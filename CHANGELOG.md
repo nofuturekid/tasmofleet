@@ -13,6 +13,7 @@ always upgrade automatically.
 
 ### Changed
 
+- Docs: checked against the code; corrected the metrics setting name, the scan range limit, the operator role description, the build-from-source command, the Authentik refresh-token note and a certificate-fingerprint claim that the server does not fulfil
 - Policy: Save rule ends the editor too: the overview names the saved rule and marks its row
 - Policy overview: shorter compliance bar, so rule names and scopes do not wrap
 

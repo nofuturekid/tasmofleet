@@ -9,8 +9,8 @@ the same value in a file.
 Never inline it in `prometheus.yml`.
 
 The running version is the label `version` of `tasmofleet_build_info{version,decoder}` (`decoder` is
-`true` when decode-config is usable); the example Grafana dashboard shows it. It is also the first
-log line, `tasmofleet starting version=... go=... decoder=...`.
+`true` when decode-config is usable); the example Grafana dashboard shows it. It is also in the
+start-up log line `tasmofleet starting version=... go=... decoder=...`.
 
 ```yaml
 scrape_configs:

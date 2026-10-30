@@ -78,8 +78,9 @@ compliant" for the policy, a console or bulk command, a power toggle, a restart,
 settings edit. Each of these is recorded in the audit log.
 
 There is no read-only mode or view-only role yet: both roles can change devices. Admins can do
-everything; operators can run updates, backups, power toggles and the allowlisted commands, but
-cannot edit the inventory, settings or users.
+everything; operators can run updates, backups, power toggles, restarts and the allowlisted
+commands, but cannot edit the inventory, restore backups, manage firmware, edit or fix policy,
+edit settings or manage users.
 
 | Dashboard                                                                                | Device list                                                                   |
 | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -185,14 +186,14 @@ the [issues](https://github.com/nofuturekid/tasmofleet/issues).
 ## Development
 
 ```sh
-make check   # templ, fmt, vet, staticcheck, golangci-lint, unit tests, govulncheck, build
-make ci      # everything CI runs, incl. race, integration, mutation and e2e tests
+make check   # templ, fmt, vet, staticcheck, golangci-lint, unit and integration tests, govulncheck, build
+make ci      # everything CI runs: check plus race, mutation and e2e tests
 make demo    # the static demo (dist/demo); make demo-media renews docs/media
 ```
 
 Building the image yourself: a plain `docker build` has no git history, so it reports
 `<last release>+dev`. Pass the version to get the release and the commit:
-`docker compose build --build-arg VERSION=$(git describe --tags)` (for example
+`docker build --build-arg VERSION=$(git describe --tags) -t tasmofleet .` (for example
 `v0.15.2-3-gabc1234`). `make image` does this.
 
 Requires Go 1.27. The e2e tests need Node.js (`make e2e-deps`, then

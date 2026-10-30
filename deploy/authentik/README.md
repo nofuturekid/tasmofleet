@@ -24,6 +24,10 @@ A user in none of the groups gets a 403 page and no session.
 | Issuer              | per provider: `https://auth.example.com/application/o/tasmofleet/`     |
 | Grant types         | `authorization_code` and `refresh_token`                                 |
 
+tasmofleet also requests `offline_access` to get a refresh token. If the provider does not
+issue one, sessions are capped to the re-check interval (`OIDC_RECHECK`, 15 minutes) and the
+start log says so; select the `offline_access` scope mapping on the provider.
+
 Providers created through the API need `grant_types` set explicitly to
 `authorization_code` and `refresh_token`; the UI does this for you.
 

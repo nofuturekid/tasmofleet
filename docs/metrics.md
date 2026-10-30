@@ -15,14 +15,14 @@ OTA, firmware, MQTT, HTTP, audit, build info).
 
 ## Per-device gauges
 
-Exported only while the setting **Device labels in metrics** (`METRICS_DEVICE_LABELS`, System
-settings) is on. With it off, none of these series exist. They follow the setting live (within
+Exported only while the setting **Device names in metric labels** (`METRICS_DEVICE_LABELS`, System
+settings, Metrics) is on. With it off, none of these series exist. They follow the setting live (within
 30 seconds, the refresh interval of the gauges).
 
 Common labels: `device` is the inventory name (escaped by the exposition format: `\\`, `\"`,
 `\n`), `id` is the inventory id and stays stable when a device is renamed. No address,
 hostname or MAC is ever a label. At most one series per device, and per channel or relay.
-Label values never come from payload text: relay and channel are the validated numbers 1 to 8 (energy also empty for a single meter); everything else a device or broker publisher sends is dropped, so a device adds at most 53 series. Only inventory devices are exported. A device that leaves the inventory disappears at the next refresh.
+Label values never come from payload text: relay and channel are the validated numbers 1 to 8 (energy also empty for a single meter); everything else a device or broker publisher sends is dropped, so the number of series per device is bounded (relay numbers 1 to 8, energy channels none or 1 to 8). Only inventory devices are exported. A device that leaves the inventory disappears at the next refresh.
 
 | Metric                                          | Extra label | Meaning                                                                       |
 | ----------------------------------------------- | ----------- | ----------------------------------------------------------------------------- |
@@ -44,7 +44,7 @@ Notes:
   `tele/<topic>/SENSOR`; plugs without a meter have none. Devices polled over HTTP only
   (no MQTT) have no energy series, because the poll sends `Status 11`, which carries none.
 - A silent meter would report its last power forever, so the energy and power series are dropped
-  while the device is not online. `relay_on` and `last_seen` stay (they are last-known values).
+  while the device is not online. `relay_on`, `last_seen`, `uptime` and the Wi-Fi gauges stay (they are last-known values).
 - **Unknown is omitted**, not exported as 0: a device nobody has heard from since the start
   would otherwise look like an outage. Alert on `absent`/staleness separately if needed.
 - A scrape never talks to a device. Values come from the health cache, which MQTT telemetry

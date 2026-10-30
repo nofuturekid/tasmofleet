@@ -29,7 +29,7 @@ protection on the login page is the login rate limiting
    `__Host-` prefixed) only when the request itself is HTTPS (TLS listener, or
    `X-Forwarded-Proto: https` from a `TRUSTED_PROXIES` address). Single sign-on
    needs the public URL. With the zero-configuration self-signed certificate the
-   browser warns once; `tasmofleet` logs the certificate fingerprint at start.
+   browser warns once.
 
 ## 1. Sign in
 
@@ -38,7 +38,7 @@ protection on the login page is the login rate limiting
    not jump to the IdP while local sign-in is on, so the form is always reachable.
 2. Enter the local admin and its password. After a forced password change you are
    on the device list.
-3. **Sign out** when done. The session also ends after 2 h idle or 12 h in total.
+3. **Sign out** when done. The session also ends after 2 h idle or 12 h in total (the defaults of `SESSION_IDLE` and `SESSION_MAX`).
 
 ## 2. No local admin exists, or the password is lost
 
