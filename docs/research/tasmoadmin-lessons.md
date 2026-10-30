@@ -1,5 +1,7 @@
 # Lessons from TasmoAdmin (known bugs and design flaws)
 
+*Historical research from before the build. KEEP/DROP ratings, "Avoid" lines and "should" statements are design input, not a description of what TasmoFleet does today.*
+
 Paths relative to `ta-full/tasmoadmin/`. "A" items were hit in production on this fork (commit refs from `git log`); "B" items were found while reading the code (not reproduced unless stated).
 Each item ends with **Avoid:** how tasmofleet should do it differently.
 

@@ -1,5 +1,7 @@
 # TasmoAdmin feature inventory (fork branch `local`)
 
+*Historical research from before the build. KEEP/DROP ratings, "Avoid" lines and "should" statements are design input, not a description of what TasmoFleet does today.*
+
 Source: `ta-full/tasmoadmin/` (PHP 8.2, Guzzle, jQuery/Bootstrap frontend, nginx+php-fpm in Docker).
 Paths below are relative to `ta-full/tasmoadmin/`. Ratings are for tasmofleet, a fleet manager focused on
 OTA updates, config backup, health, and bulk commands.

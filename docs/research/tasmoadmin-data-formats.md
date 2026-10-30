@@ -1,5 +1,7 @@
 # TasmoAdmin on-disk formats (for an importer)
 
+*Historical research from before the build. KEEP/DROP ratings, "Avoid" lines and "should" statements are design input, not a description of what TasmoFleet does today.*
+
 Data directory = env `TASMO_DATADIR` or `<app>/data/` (Docker image: `/data/tasmoadmin` bind-mounted). Defined in `includes/bootstrap.php`.
 Other env dirs: `TASMO_TMPDIR` (default `<app>/tmp/`), `TASMO_SESSIONDIR` (default `<data>/sessions/`), `TASMO_HEALTHDIR` (default `<app>/health/`; image default `/health`).
 

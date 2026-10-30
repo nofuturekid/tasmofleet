@@ -15,6 +15,7 @@ always upgrade automatically.
 
 - Policy: Save rule ends the editor too: the overview names the saved rule and marks its row
 - Policy overview: shorter compliance bar, so rule names and scopes do not wrap
+- Docs: checked against the code; corrected the design system (folds, breakpoints, power switch, error page, device list dialogs), the fixtures README (file layout, simulator timeline) and the safeboot push notes
 
 ## 0.19.2 (2026-10-30)
 

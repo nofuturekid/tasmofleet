@@ -2,7 +2,7 @@
 
 Captured 2026-10-18 ~18:17-18:25 CEST from the live fleet (Tasmota 16.0.0, all normal firmware), strictly read-only
 (query commands only, <=2 devices in parallel, 0.4 s between requests, `nice`). Minimal-firmware behaviour is derived from
-source, not captured: see **MINIMAL-AND-OTA.md** (same directory).
+source, not captured: see `docs/research/tasmota-minimal-and-ota.md`.
 
 ## 1. Devices captured
 
@@ -21,11 +21,10 @@ checked (offline), only 20-21 retained discovery messages exist (`mqtt/discovery
 ## 2. File layout
 
 ```
-README.md                    this file
-MINIMAL-AND-OTA.md           minimal firmware / OTA flow / version strings / TasmoAdmin (source-derived)
+README.md                    this file (the minimal firmware / OTA research is docs/research/tasmota-minimal-and-ota.md)
 fleet-inventory.json         inventory of all discovered devices (sanitized MACs)
 firmware-versions.json       StatusFWR.Version shapes with their source (capture, Tasmota source line, field report) and the expected identity
-<topic>/                     one dir per captured device
+devices/<topic>/             one dir per captured device
    status-0.json ... status-11.json   `Status 0` and `Status N` individually (Status 12 skipped)
    upgrade.json   `Upgrade` without param          otaurl.json   `OtaUrl` without param
    state.json module.json modules.json template.json hostname.json topic.json power.json teleperiod.json
@@ -39,6 +38,10 @@ mqtt/capture.txt             ~6.7 min of `tele/#`, `stat/#`, `tasmota/discovery/
 mqtt/discovery-retained.jsonl  retained discovery configs seen at connect
 mqtt/samples/<type>.txt      first sample per topic per message type
 mqtt/synthetic-no-discovery.txt  SYNTHETIC (fake values): devices without tasmota/discovery (LWT, INFO1..3, STATE, STATUS5 incl. Ethernet)
+profiles/<name>/             SYNTHETIC: `profile.json` = a real capture (`base`) plus text replacements, read by internal/simulator (most have a README)
+firmware-headers/            first 32 bytes of the v16.0.0 release images (chip ids; see its README)
+firmware-upstream/           real ota.tasmota.com listings and a reduced GitHub releases reply for internal/firmware (see its README)
+tasmoadmin/                  SYNTHETIC TasmoAdmin sample data (devices.csv, MyConfig.json) for the import
 ```
 Raw files contain exactly what the device sent (JSON on one line, no trailing newline), after sanitising (section 7).
 
@@ -72,7 +75,7 @@ Raw files contain exactly what the device sent (JSON on one line, no trailing ne
 | `tele/<t>/LWT` | `Online` / `Offline` | **retained** (will + online message use retain; `mosquitto_sub -F %r` shows 1 only for the copy delivered at subscribe time, live copies show 0) | on connect / unclean drop (OBS: one Offline->Online blip for livingroom-readinglamp at 18:19:08, MqttCount incremented) |
 | `tele/<t>/STATE` | the `StatusSTS` body (see state.json); lights add Dimmer/Color/..; ESP32 adds `Berry` | no | every TelePeriod = 300 s (jittered per device by boot time; each device seen 1-2x in 6.7 min) |
 | `tele/<t>/SENSOR` | `{"Time":..,"ENERGY":{TotalStartTime,Total,Yesterday,Today,[Period],Power,ApparentPower,ReactivePower,Factor,Voltage,Current}}` ; ESP32 `{"Time","DS18B20":{Id,Temperature},"ESP32":{Temperature},"TempUnit":"C"}` | no | every TelePeriod, right after STATE; devices without sensors send none |
-| `tele/<t>/INFO1,2,3` | boot-time only | (not retained) | **not seen** (no device rebooted); format in MINIMAL-AND-OTA.md section 1/SRC |
+| `tele/<t>/INFO1,2,3` | boot-time only | (not retained) | **not seen** (no device rebooted); format in docs/research/tasmota-minimal-and-ota.md section 1/SRC |
 | `stat/<t>/RESULT` | reply JSON of any command (also Unknown) | no | per command |
 | `stat/<t>/STATUS`, `STATUS1..11` | `Status N` replies | no | per `Status N` |
 | `stat/<t>/UPGRADE` | `{"Upgrade":"Successful. Restarting"}` / `{"Upgrade":"Failed ..."}` | no | after OTA download (SRC; not observable read-only) |
@@ -103,10 +106,10 @@ Broker: mqtt.example.internal:1883, user `tasmota` (password redacted). MqttClie
                                                                                       (stays until a further Upgrade 1 flashes full image)
  MINIMAL --Upgrade 1 (OtaUrl RAM value)--> PENDING --> DOWNLOADING --> RESTART_WAIT --> REBOOTING --> NORMAL
 ```
-* Durations (configurable, defaults for ESP8266): PENDING 3 s; DOWNLOADING 5-20 s (model by size, `gz` unzip); post-download 2 s + 5 s; REBOOTING 5-12 s.
-  Observed end-to-end `Upgrade 1` -> HTTP answers again: ~20-40 s. Provide a fast mode (e.g. x0.05) for tests.
+* Durations (nominal, as internal/simulator/ota.go plays them): PENDING 3 s; DOWNLOADING 10 s (fixed, not modelled by image size; a failed attempt retries after 1.5 s, 10 attempts on ESP8266, 5 on ESP32); post-download 2 s + 5 s; REBOOTING 8 s (ESP32 7 s; `DeviceSpec.RebootGap` overrides it).
+  Observed on real devices: REBOOTING 5-12 s, end-to-end `Upgrade 1` -> HTTP answers again ~20-40 s. `Extra.TimeScale` (`tasmofleet-devenv -time-scale`, default 0.1) multiplies every nominal duration.
 * Which image is flashed is decided purely by the OtaUrl at download time: file name contains `minimal` -> state MINIMAL (Version `16.0.0(release-minimal)`),
-  `tasmota32` -> `...(release-tasmota32)`, else `...(release-tasmota)`. Version number: take from the served firmware file (or a config map url->version); a URL whose server
+  `tasmota32` -> `...(release-tasmota32)`, else `...(release-tasmota)`. Version number: taken from the version marker of the served image (`Extra.FlashVersion` when it has none); a URL whose server
   returns 404/refused -> failure path (`Failed File Not Found (404)` etc, device keeps running, stays NORMAL, `ota_retry_counter` loops ~1-2 s apart; while retrying the HTTP server is unresponsive).
 * Auto-fallback: if the full image is declared "too large" (config flag on ESP8266 1 MB devices) the device flashes minimal and sets `ota_loader=1`; after boot in MINIMAL it auto-starts
   (6 s) a download from the **stored** OtaUrl (the original one). With TasmoAdmin-style flow (minimal URL set first) `ota_loader` is 0 and the device sits in MINIMAL until told again.
@@ -144,7 +147,7 @@ Parameter matrix for `Upgrade`: `""`/`0`/`2`/`01`/`ON`/equal-or-older version/ga
 ## 6. Version string cheat sheet
 `16.0.0(release-tasmota)` ESP8266 full | `16.0.0(release-minimal)` ESP8266 minimal (SRC) | `16.0.0(release-tasmota32)` ESP32 full | dev builds `16.0.0(<sha7>-tasmota)` .
 Hardware: `ESP8266EX`, `ESP8285N08`, `ESP32-D0WDQ6 v1.0` (OBS; others `ESP32-S3 (revX)`, `ESP32-C3 ...`). `Server:` header shows `Tasmota/16.0.0 (<Hardware>)`.
-discovery `sw`: bare `16.0.0`. Details in MINIMAL-AND-OTA.md.
+discovery `sw`: bare `16.0.0`. Details in docs/research/tasmota-minimal-and-ota.md.
 
 ## 7. Sanitising
 * MQTT password never appears in the captures (checked: password string absent from all files). `MqttUser` (`tasmota`) kept. No web passwords exist on the fleet.

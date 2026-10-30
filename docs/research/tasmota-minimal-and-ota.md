@@ -165,7 +165,7 @@ During the whole blocked/rebooting window `/cm` gets no answer (connect timeout 
 2. Plan: if `minimalOtaUrl` configured (ESP8266): steps = [minimal, final]; ESP8266 `automatic` source with current < 9.1.3 is blocked ("legacy path required").
 3. Each step: `OtaUrl <url>` (separate command via server-side `actions` proxy, not Backlog) -> `Upgrade 1` -> sleep 10 s -> loop up to 15 times: `Status 0`
    (each failing fetch is retried 15 x 10 s) until version changed (no targetVersion) or equals targetVersion (`shouldTreatStatusAsSuccessful`).
-4. Known problem (>= v14.4.0): after the minimal step `Status 0` returns `{"Command":"Unknown","Input":"STATUS 0"}` -> JS throws -> step 2 never runs (see memory note tasmoadmin.md; fork has a probe via `Upgrade`: `{"Upgrade":"1 or >16.0.0 to upgrade"}` + version from the web footer).
+4. Known problem (>= v14.4.0): after the minimal step `Status 0` returns `{"Command":"Unknown","Input":"STATUS 0"}` -> JS throws -> step 2 never runs (a TasmoAdmin fork has a probe via `Upgrade`: `{"Upgrade":"1 or >16.0.0 to upgrade"}` + version from the web footer).
 A robust manager should: poll `Upgrade` (no param) as liveness/version probe in minimal (returns the bare version number in the message); read the
 footer (`GET /` -> `Tasmota 16.0.0 (release-minimal) by Theo Arends`) to learn image name; treat `{"Command":"Unknown"}` for `Status` as "device is on minimal".
 
@@ -195,8 +195,8 @@ What this means for the OTA power restore:
   Dimmer, Color or CT in Status 11 (its channel is the last POWERn). Relays
   keep their state across an update on this fleet, so a relay that is OFF
   after the boot was most likely switched off by someone; restoring it would
-  override them. Plain relays are restored only on request (per batch, "also
-  switch plain relays back on", off by default). The preview names the relays
+  override them. Plain relays are restored only on request (per batch, "Power
+  after update" = "Restore lights and relays"; the default is "Restore lights"). The preview names the relays
   that are left alone.
 - The reading after the final boot has to be taken after the device settled
   (a light reports ON for a moment): the engine reads until two consecutive
@@ -263,10 +263,11 @@ SRC (`tasmota/tasmota_xdrv_driver/xdrv_01_9_webserver.ino` unless noted):
 * The download path (`OtaUrl` + `Upgrade 1`) on this layout already restarts into safeboot, which
   downloads and flashes `app0`; it needs no extra step from tasmofleet.
 
-Consequence: a push to this layout needs a restart into safeboot first (a new, separate device action
-with its own failure mode: a device left in safeboot), so tasmofleet does not do it. "Push where possible"
-uses the download for any device whose Status 4 `Free` is too small for the image, and a refusal by the
-device ends the job at once. The safeboot push is #30; its design is below.
+Consequence: a push to this layout needs a restart into safeboot first (a separate device action with its
+own failure mode: a device left in safeboot). tasmofleet does it as the push into safeboot (#30, design
+below) when `GET /up` shows `upl(this)`. "Push where possible" uses the download for any other device whose
+Status 4 `Free` is too small for the image (and for an ESP32 whose `/up` cannot be read), and a refusal by
+the device ends the job at once.
 
 ### Telling the layouts apart from `GET /up` (research for #30, SRC v16.0.0, no device)
 
@@ -298,9 +299,10 @@ Verified by reading the v16.0.0 tag (`1c21739`), `xdrv_01_9_webserver.ino` and
 
 Design of the safeboot push (tasmofleet, #30): `GET /up` shows `upl(this)` -> job state `safeboot_switch`:
 Guard, one `GET /u4?u4=fct&api=`, probe until the device answers as safeboot; Guard again, one upload to
-`/u2` there, then the normal `await_reboot`/`verify`. A job that ends with the device in safeboot sends one
-`GET /u4?u4=ota&api=` and probes; if that does not bring the old version back the job fails with the
-address so the user can finish by hand.
+`/u2` there, then the normal `await_reboot`/`verify`. A job that ends with the device in (or possibly in)
+safeboot goes to `safeboot_recover`: it probes first and sends one `GET /u4?u4=ota&api=` only when a probe
+answers from safeboot (`recovery_step` is stored before the request goes out), then probes again; if that
+does not bring the old version back the job fails with the address so the user can finish by hand.
 
 #### Real-device test of the safeboot push (office-monitor-thomas, ESP32, 16.0.0, 2026-10-29)
 

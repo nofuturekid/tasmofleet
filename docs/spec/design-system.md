@@ -3,8 +3,8 @@
 Status: binding since the design v2 port. The look is the
 **Claude Design v2 prototype** ("v2"): rounded 7/10/12 px surfaces, hairline borders, Geist and Geist
 Mono, one blue accent (`oklch` hue 250), light and dark as equal themes. The prototype
-(`design/v2/`) is the binding source and is compared pixel by pixel (plan section 5); the v1
-Modernist system (`design/ds-bundle/`, `PORT.md`) is historical. Wording follows the prototype
+(`design/v2/`) is the binding source and is compared pixel by pixel (`make visual`, see
+`design/v2/README.md`); the v1 Modernist system (`design/ds-bundle/`) is historical. Wording follows the prototype
 (plan D14) except for the rows of the wording table below.
 
 This document is the style guide in the repository: tokens, type, spacing, every component with its
@@ -23,7 +23,7 @@ sample data only (D17). If a component is not on the style guide, it is not part
 | Style guide screenshots | `docs/design/styleguide/`, written by `make styleguide-docs` |
 | Pages without a prototype screen | templ pages built from the components (plan 3.3), e.g. the notice page (`messagepage.templ`) and the retry page; the live device cells are `cells.templ` |
 | Tables, Columns chooser, bulk bar | `tableprefs.go`, `tables.js`, `select.js`, the bulk bar partials (WP F5) |
-| Prototype source | `design/v2/` (`template.html`, the bundle, `prototype-tokens.css`) |
+| Prototype source | `design/v2/` (`template.html`, `prototype-tokens.css`; the self-contained bundle is kept outside the repository) |
 | Fonts | `internal/web/static/geist-latin*.woff2`, `geist-mono-latin*.woff2` (OFL, see `NOTICE`), same origin; versioned with `?v=<hash>` and preloaded |
 
 ## Tokens
@@ -153,7 +153,7 @@ Also: [desktop, dark](../design/styleguide/banners-desktop-dark.png) · [phone, 
 
 ### Toasts
 
-Bottom right, newest last. Success and information fade after 4.5 s; warnings and failures stay until dismissed and carry ×. Sources: the server flash after a redirect (an inline banner without JavaScript), the htmx event `toast` (`HX-Trigger`) and any button with `data-toast` (and `data-toast-tone`). An optional action sits before ×.
+Bottom right, newest last. Success and information fade after 4.5 s; warnings and failures stay until dismissed and carry ×. Sources: the server flash after a redirect (an inline banner without JavaScript), the htmx event `toast` (`HX-Trigger`) and any button with `data-toast` (and `data-toast-tone`). The in-flow `ui.ToastStatic` (style guide) can show an action before ×; live toasts have none.
 
 Component: `toast.js`, `ui.ToastStatic` (in the flow, style guide only).
 
@@ -175,7 +175,7 @@ Also: [desktop, dark](../design/styleguide/live-desktop-dark.png) · [phone, lig
 
 Default (surface, strong border, `500 13px`), primary (accent, `600 13px`, padding 14), danger (outlined text in danger-fg), danger-solid (the confirming button of a destructive dialog), ghost, link (text only, 32 px target) and the icon button (⋯). Height `--ctl` (34 px, 40 px on phones), small 32 px. A Btn with `Href` is a link (it only navigates or opens the dialog named by `Dialog`); without it a `type=button` that never submits by accident. One action, one component; the confirming button repeats the trigger's verb and tone.
 
-Component: `ui.Button(Btn{Label, Kind, Href, Type, Small, Icon, Disabled, Dialog})`.
+Component: `ui.Button(Btn{Label, Kind, Href, Type, Name, Value, Small, Icon, Aria, Disabled, Dialog})`. `Name` and `Value` make a submit button that sends a value (the console's quick commands); `Aria` is the accessible name of an icon button.
 
 ![Buttons, desktop, light](../design/styleguide/buttons-desktop-light.png)
 
@@ -203,7 +203,7 @@ Also: [desktop, dark](../design/styleguide/cards-desktop-dark.png) · [phone, li
 
 ### Form fields
 
-Label above (`500 12.5px`, text-2), the control (34 px, radius 7, strong border), then the help line (`400 12px`, text-3) or, when the server rejected the value, the error (`400 12px`, danger-fg) instead of the help. A rejected input carries `aria-invalid` and `aria-describedby` pointing at its message; validation stays on the server. Mono fields for addresses and ports. Forms lay out in a grid of 260 px columns (`gap 14px 18px`), up to 820 px wide.
+Label above (`500 12.5px`, text-2), the control (34 px, radius 7, strong border), then the help line (`400 12px`, text-3) or, when the server rejected the value, the error (`400 12px`, danger-fg) instead of the help. A rejected input carries `aria-invalid` and `aria-describedby` pointing at its message; validation stays on the server. Mono fields for addresses and ports. Forms lay out in a grid of 260 px columns (`gap 14px 18px`); the style guide sample is at most 820 px wide, the add-user form 760 px.
 
 Component: `ui.Field(FieldData{...})`, `ui.SelectField`, `ui.ErrorSummary`.
 
@@ -213,7 +213,7 @@ Also: [desktop, dark](../design/styleguide/forms-desktop-dark.png) · [phone, li
 
 ### Choices and switches
 
-Radio cards (auth method, backup keep or drop) are `label > input[type=radio]` with a title and a line; the checked card takes the accent tint. Segmented controls (Advisory / Required, Operator / Admin, Side by side / Unified) are radio inputs in one frame, so they work without JavaScript; the theme switch in the shell is the same look. Checkboxes are 16 px in the accent colour. A setting switch is a checkbox with `role=switch` (38 x 22, knob `--shadow-knob`); the power switch of a row is 34 x 20 inside a 44 px target and disabled while the device is offline.
+Radio cards (auth method, backup keep or drop) are `label > input[type=radio]` with a title and a line; the checked card takes the accent tint. Segmented controls (Advisory / Required, Operator / Admin, Side by side / Unified) are radio inputs in one frame, so they work without JavaScript; the theme switch in the shell is the same look. Checkboxes are 16 px in the accent colour. A setting switch is a checkbox with `role=switch` (38 x 22, knob `--shadow-knob`); the power switch of a row is 34 x 20 inside a 48 x 44 px target and disabled while the device is offline.
 
 Component: `ui.RadioCards`, `ui.Segmented`, `ui.Check`, `ui.Toggle`, `ui.PowerSwitch`.
 
@@ -225,7 +225,7 @@ Also: [desktop, dark](../design/styleguide/controls-desktop-dark.png) · [phone,
 
 A tile is a link to the filtered list: dot and label (`500 12.5px`), the value (`--fs-stat`, tabular figures) and a hint. Tiles sit in a grid of 150 px columns. The health bar shows online, offline and unknown as three segments; their widths come from the server as SVG attributes (no inline style under the CSP).
 
-Component: `ui.StatTile(StatTileData{...})`, `ui.HealthBar(ok, off, unk)`.
+Component: `ui.StatTile(StatTileData{...})`, `ui.HealthBar(ok, off, unk)`; `ui.ComplianceBar(match, deviate, unknown)` draws a policy rule's compliance the same way.
 
 ![Stat tiles and fleet health, desktop, light](../design/styleguide/tiles-desktop-light.png)
 
@@ -283,7 +283,7 @@ Also: [desktop, dark](../design/styleguide/states-desktop-dark.png) · [phone, l
 
 ### Error page
 
-The status code (mono), a title (`600 26px`), what happened, the path that failed and two ways on. Used for 404, 403 and "device offline" (ported in P9).
+The status code (mono), a title (`600 26px`), what happened, the path that failed and two ways on. Used for 404, 403 ("Not allowed") and a feature that is switched off.
 
 Component: `ui.ErrorPage(code, title, body, path, primary, secondary)`.
 
@@ -344,14 +344,13 @@ Also: [desktop, dark](../design/styleguide/notes-desktop-dark.png) · [phone, li
 - **Fixed bars stay inside the viewport.** The bulk bar never clips its last button at 375 px;
   layout guard (a) checks every fixed or sticky element.
 - **Phone breakpoint is 45rem (720 px)**: phone layout up to `max-width: 44.99rem`, desktop from
-  `min-width: 45rem`, the prototype's switch (`S.w < 720`). Two older breakpoints remain until WP F5
-  moves the tables: 60rem (bulk bar folds into one Actions menu) and 72rem (Columns chooser, like
-  `tables.js`).
-- **Folds.** `details.m-fold` (phone fold) holds what people usually come for: closed on phones,
-  plain content without its summary from 45rem up (device Backups, State changes, Transactions,
-  Cached files, policy Rules). `details.fold` (and `m-fold.fold-closed`) holds something secondary
-  and is closed at every width unless it has `open` (device list Filters, Older releases, Prefetch,
-  Custom images).
+  `min-width: 45rem`, the prototype's switch (`S.w < 720`); the Columns chooser and `tables.js` use
+  the same 45rem. Other breakpoints remain: 60rem (the bulk bar folds into one Actions menu) and
+  72rem (the audit table layout, the two-column settings grid).
+- **Folds.** `details.fold` holds something secondary and is closed at every width unless it has
+  `open` (About's effective configuration, account and user editing, a rule's Unjudged devices, the
+  system container settings). No page uses `details.m-fold` any more (the phone-only fold of the
+  first design port); its CSS is left over.
 - **Form errors sit at the input.** A handler that rejects a value sets the input's name
   (`ErrField`) next to a human sentence (`Error`). `ui.Field` (and a page's own inputs) mark that
   input (`aria-invalid`, `aria-describedby` to the sentence right after it), the focus goes there,
@@ -409,13 +408,13 @@ The structure deviations S1-S7 are listed with their reasons in the plan (sectio
 2. S2: the Columns chooser pins left or right (F5, P2).
 3. S3: the policy live check can be paused (N3, N21).
 4. S4: About keeps the effective configuration and the source line below its two cards.
-5. S5: the phone drawer ends with the account, the Light / Dark / Auto switch and Sign out.
+5. S5: the phone drawer ends with the account, What's new, the Light / Dark / Auto switch and Sign out.
 6. S6: the live indicator and the connection banners only on pages that hold the event stream.
 7. S7: the navigation is the same for every role; pages enforce their permission. The style guide
    continues below the prototype's screen with the component gallery (the screen itself is the
    prototype's to the pixel, the gallery starts where the prototype's page ends).
-8. The device list's Restart and Delete use the shared `dlg-row` dialog; the Delete and Restart
-   triggers are links (`a`), not `formmethod="get"` buttons, because of the CSRF rule.
+8. The device list's Restart uses the shared `dlg-row` dialog; its trigger is a link (`a`), not a
+   `formmethod="get"` button, because of the CSRF rule. Delete is a link to the confirmation page.
 9. `font-variant-numeric: tabular-nums` is set where the prototype sets it (stat values, progress
    percentages), not on `body`.
 10. Geist Mono ships without the box-drawing subset of the prototype bundle; the app draws no box
