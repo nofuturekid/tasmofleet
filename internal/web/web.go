@@ -171,8 +171,8 @@ type Deps struct {
 	MaxStreamsPerUser int
 	MaxStreams        int
 
-	// BackupCooldown is the minimum time between two manual backups of one
-	// device (default 20 seconds), so repeated clicks cannot evict restore points.
+	// BackupCooldown is the minimum time between two manual backups of one device,
+	// so repeated clicks cannot evict restore points.
 	BackupCooldown time.Duration
 
 	Version        string
