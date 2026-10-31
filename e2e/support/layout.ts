@@ -806,11 +806,11 @@ export async function expectNativeControlsFollowTheme(page: Page, name: string):
  * cardStackGaps (#391, design rule "card stacks") lists every card that has more empty space above
  * it than the grid gap, within its column. A column is the set of cards that start at the same left
  * edge; a card under a short neighbour of a taller row (a row-aligned grid) shows up here, a card
- * in a stack does not. Cards are `.scard`, `.about-card` and `.devcard`; hidden ones are ignored.
+ * in a stack does not. Cards are `.scard`, `.about-card`, `.devcard` and `.ulist`; hidden ones are ignored.
  */
 export async function cardStackGaps(page: Page, maxGap = 17): Promise<string[]> {
   return page.evaluate((limit) => {
-    const cards = [...document.querySelectorAll<HTMLElement>(".scard, .about-card, .devcard")].filter((c) => {
+    const cards = [...document.querySelectorAll<HTMLElement>(".scard, .about-card, .devcard, .ulist")].filter((c) => {
       const r = c.getBoundingClientRect();
       return r.width > 0 && r.height > 0 && !c.closest("[hidden], dialog:not([open])");
     });

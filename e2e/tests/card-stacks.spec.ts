@@ -33,11 +33,12 @@ test.afterAll(async () => {
   await env?.stop();
 });
 
-const tabs = ["general", "network", "mqtt", "discovery", "backups", "firmware", "signin", "advanced"];
+const tabs = ["general", "network", "mqtt", "discovery", "backups", "notifications", "firmware", "signin", "advanced"];
 // [name, path, largest gap between stacked cards]: the policy pages keep their own card gap (--card-gap, 20 to 24 px)
 const pages: [string, string, number][] = [
   ...tabs.map((t): [string, string, number] => [`settings tab ${t}`, `/settings/system?tab=${t}`, 17]),
   ["about", "/about", 17],
+  ["dashboard", "/", 17],
   ["new policy rule", "/policy/rules/new", 25],
 ];
 
@@ -47,10 +48,19 @@ for (const width of [1280, 1000, 600, 375]) {
       await page.setExtraHTTPHeaders(adam);
       await page.setViewportSize({ width, height: 900 });
       await page.goto(app.url + path);
-      await expect(page.locator(".scard:visible, .about-card:visible, .devcard:visible").first()).toBeVisible();
+      await expect(page.locator(".scard:visible, .about-card:visible, .devcard:visible, .ulist:visible").first()).toBeVisible();
       expect(await cardStackGaps(page, maxGap)).toEqual([]);
     });
   }
+  test(`device overview: cards stack under each other at ${width}px`, async ({ page }) => {
+    await page.setExtraHTTPHeaders(adam);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(app.url + "/devices");
+    const href = (await page.getByRole("link", { name: "esp32-dimmer", exact: true }).first().getAttribute("href"))!;
+    await page.goto(app.url + href);
+    await expect(page.locator("#identity")).toBeVisible();
+    expect(await cardStackGaps(page)).toEqual([]);
+  });
   test(`device settings tab: cards stack under each other at ${width}px`, async ({ page }) => {
     await page.setExtraHTTPHeaders(adam);
     await page.setViewportSize({ width, height: 900 });

@@ -167,20 +167,28 @@ templ deviceOverviewPage(p deviceOverview) {
 		@ui.Banner(ui.BannerData{Tone: ui.ToneNeutral, Text: p.NotYet})
 	}
 	@liveRegion(p.Live)
-	if p.Stab != nil {
-		@stabilityCard(*p.Stab, nil)
+	@ui.CardStacks(2) {
+		if p.Stab != nil {
+			@ui.CardStack(ui.SpanAll) {
+				@stabilityCard(*p.Stab, nil)
+			}
+		}
+		@ui.CardStack(1) {
+			@identityCard(p.Ident)
+		}
+		@ui.CardStack(1) {
+			<section id="devconn" class={ "devcard", dimClass(p.Live.Off) } data-dim aria-disabled={ ariaBool(p.Live.Off) } aria-labelledby="dc-conn">
+				<h2 id="dc-conn">{ p.Conn.Title }</h2>
+				@ui.KV(p.Conn.Rows)
+			</section>
+			if p.Paths != nil {
+				@pathsCard(*p.Paths)
+			}
+		}
+		@ui.CardStack(ui.SpanAll) {
+			@devActBox(p.Activity, nil)
+		}
 	}
-	<div class="dev-pair">
-		@identityCard(p.Ident)
-		<section id="devconn" class={ "devcard", dimClass(p.Live.Off) } data-dim aria-disabled={ ariaBool(p.Live.Off) } aria-labelledby="dc-conn">
-			<h2 id="dc-conn">{ p.Conn.Title }</h2>
-			@ui.KV(p.Conn.Rows)
-		</section>
-	</div>
-	if p.Paths != nil {
-		@pathsCard(*p.Paths)
-	}
-	@devActBox(p.Activity, nil)
 }
 
 // deviceLiveParts is the answer of the live refresh: the region the page replaces, and the

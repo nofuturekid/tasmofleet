@@ -18,7 +18,7 @@ always upgrade automatically.
 
 ### Changed
 
-- Card grids no longer line cards up in rows: in every grid the cards stack directly under each other per column, so a short card next to a tall one leaves no empty gap below it. The System Settings tabs, About and the device Settings tab share one column-stack component; the reading order on a phone is unchanged. The rule is in the design system (`docs/spec/design-system.md`, "Card stacks")
+- Card grids no longer line cards up in rows: in every grid the cards stack directly under each other per column, so a short card next to a tall one leaves no empty gap below it. The System Settings tabs (Notifications included), About, the Dashboard, the device Overview and the device Settings tab share one column-stack component; the reading order on a phone is unchanged. The rule is in the design system (`docs/spec/design-system.md`, "Card stacks")
 - Fresh installs and upgrades start pruning at once: with more than three cached releases the older ones are deleted at the first clean-up after the update. Set "Releases kept" to 0 to keep everything as before (#252)
 - A firmware command typed in the console or sent as a bulk command (`Upgrade 1`, `OtaUrl`) now holds the device for TasmoFleet updates until it has restarted (LWT offline then online, or an uptime that shows a new boot) or 10 minutes have passed: the update preview marks the device as refused and says that the typed update is probably still running, and a submit or retry for it is refused. Before, the command's job ended as soon as the device answered, so an update started in the following minute of flashing could overlap it. The hold is kept in memory only; a TasmoFleet restart forgets it (#347)
 

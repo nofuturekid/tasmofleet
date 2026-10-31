@@ -7587,12 +7587,6 @@ form.useradd:has(input[name="otp"][value="1"]:checked) .useradd-pw {
 }
 
 /* ==== page: Dashboard (/, WP P1): tiles, health bar, "Needs attention" and the transactions ==== */
-.dash-cols {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
-  gap: var(--sp-14);
-  align-items: start;
-}
 .dash-none {
   margin: 0;
   padding: var(--sp-14);
@@ -8956,6 +8950,9 @@ body:has(.dv-list .bulkbar:not([hidden])) {
   gap: var(--card-gap);
   margin-bottom: var(--card-gap);
 }
+.devlive > .devcard {
+  margin-bottom: 0;
+}
 /* one row, equal width; a tile that does not apply is not built, so the row has no holes. Three
    across between phone and desktop, two on a phone */
 .dev-tiles {
@@ -9492,6 +9489,9 @@ nav.crumbs a {
   gap: var(--sp-16);
   min-width: 0;
 }
+.cstack > * {
+  margin: 0;
+}
 .cstack-w2 {
   grid-column: span 2;
 }
@@ -9532,6 +9532,10 @@ nav.crumbs a {
   .cstack-all > * {
     column-span: all;
   }
+  /* the margin below the last card of a column run is dropped before a full-width card */
+  .cstack-all:not(:first-child) > * {
+    margin-top: var(--sp-16);
+  }
 }
 @media (max-width: 44.99rem) {
   .cstacks,
@@ -9542,7 +9546,8 @@ nav.crumbs a {
     columns: auto;
     gap: var(--sp-16);
   }
-  .cstack > * {
+  .cstack > *,
+  .cstack-all:not(:first-child) > * {
     margin: 0;
   }
   .cstacks .r1 {

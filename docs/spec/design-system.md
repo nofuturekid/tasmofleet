@@ -205,7 +205,7 @@ Also: [desktop, dark](../design/styleguide/cards-desktop-dark.png) · [phone, li
 
 Rule (maintainer, 2026-10-31, #391): in every card grid the cards stack directly under each other per column. A short card next to a tall one never leaves an empty gap below it, so a grid of cards is never laid out in aligned rows. A page lists its cards column by column; `ui.CardStacks(cols)` holds one `ui.CardStack(span)` per column (span 1 or 2 columns, or `ui.SpanAll` for a full-width stack). From 75 rem the stacks sit side by side, from 45 rem two balanced columns flow through the cards in document order, below that there is one column. The document order is therefore the phone reading order: list the cards in the order a person should read them, or give a card another phone place with `ui.StackRank(n)` (`.r1` to `.r8`). The gap between cards is the 16 px token. A page never copies the CSS (`.cstacks`, `.cstack` in `app.css`); a new card grid uses the component. `e2e/tests/card-stacks.spec.ts` checks that no card has more than the gap above it within its column (`cardStackGaps`), at 1280, 1000, 600 and 375 px.
 
-Component: `ui.CardStacks(cols)`, `ui.CardStack(span)`, `ui.StackRank(n)`. Used by the System Settings tabs, About and the device Settings tab.
+Component: `ui.CardStacks(cols)`, `ui.CardStack(span)`, `ui.StackRank(n)`. Used by the System Settings tabs (Notifications included), About, the Dashboard, the device Overview and the device Settings tab.
 
 ### Form fields
 
