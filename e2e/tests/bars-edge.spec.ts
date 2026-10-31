@@ -1,8 +1,9 @@
 import { test, expect } from "../support/fixtures";
+import { PNG } from "pngjs";
 import { App, startApp } from "../support/stack";
 
 // #395: the top bar and the status bar must span the whole window. With classic (non-overlay)
-// scrollbars the stable scrollbar gutter once left an empty strip right of both bars. The scrollbars
+// scrollbars the stable scrollbar gutter once left a strip right of both bars in the page colour. The scrollbars
 // are drawn here (Playwright hides them by default), as on the maintainer's desktop.
 let app: App;
 test.beforeAll(async () => {
@@ -16,30 +17,43 @@ test.use({
   launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] },
 });
 
+// Why: the page keeps the scrollbar's room on every page (no sideways jump), so on a page that does not
+// scroll the bars' own boxes end before the window edge (the maintainer measured 1686 of 1701). Their
+// background and lines must continue into that strip: the pixel column next to the window edge looks
+// like the one inside the bar on every bar row, and the extension never becomes a horizontal scrollbar.
 for (const width of [1280, 1920]) {
   for (const [label, path] of [["a scrollable page", "/styleguide"], ["a short page", "/users"]] as const) {
-    test(`both bars reach both window edges on ${label} (${width}px)`, { tag: "@core" }, async ({ page }) => {
+    test(`both bars reach the window edge on ${label} (${width}px)`, { tag: "@core" }, async ({ page }) => {
       await page.setViewportSize({ width, height: 600 });
       await page.goto(app.url + path);
       await expect(page.locator("footer.sb")).toBeVisible();
       const m = await page.evaluate(() => {
         const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
-        return {
-          inner: window.innerWidth,
-          client: document.documentElement.clientWidth,
-          top: r("header.top .tb"),
-          sb: r("footer.sb"),
-          scrolls: document.documentElement.scrollHeight > window.innerHeight,
-        };
+        return { inner: window.innerWidth, top: r("header.top"), sn: r("header.top .sn"), sb: r("footer.sb"), scrolls: document.documentElement.scrollHeight > window.innerHeight };
       });
       expect(m.scrolls).toBe(path === "/styleguide");
-      // Why: the strip right of the bars is a drawn scrollbar on every page. An empty reserved gutter
-      // (scrollbar-gutter: stable on a short page) looked like the bars stopping early.
-      expect(m.inner - m.client).toBeGreaterThan(0);
-      for (const bar of [m.top, m.sb]) {
-        expect(bar.left).toBe(0);
-        expect(bar.right).toBe(m.client);
-      }
+      expect(m.top.left).toBe(0);
+      expect(m.sb.left).toBe(0);
+      expect(m.inner - m.top.right).toBeGreaterThan(0); // the strip is kept (no sideways jump)
+      if (m.scrolls) return; // the scrollbar itself fills the strip
+      const png = PNG.sync.read(await page.screenshot());
+      const px = (x: number, y: number) => {
+        const i = (Math.round(y) * png.width + x) * 4;
+        return [...png.data.subarray(i, i + 4)].join(",");
+      };
+      const edge = m.inner - 3; // inside the strip, left of any scrollbar a screenshot omits
+      const inside = m.inner - 60;
+      // the fill only: the lines (1px) lie in the clipped strip and cannot be drawn there
+      const rows: Record<string, number> = {
+        "top bar": 20,
+        "sub-navigation": m.sn.top + 20,
+        "status bar": m.sb.top + 12,
+      };
+      for (const [name, y] of Object.entries(rows)) expect(px(edge, y), name).toBe(px(inside, y));
+      // the extension is clipped, never scrollable
+      expect(await page.evaluate(() => { window.scrollTo(300, 0); return window.scrollX; })).toBe(0);
+      // and the page colour is still the page colour between the bars, only the strip is the bars' colour
+      expect(px(5, 300)).not.toBe(px(edge, 300));
     });
   }
 }
@@ -66,7 +80,7 @@ test.describe("without a scrollbar strip", () => {
 });
 
 // Why: the page must not jump sideways between a short and a long page (v0.10.1). With the scrollbar
-// always drawn, the content column has the same left edge and width on both, and when a short page
+// gutter kept, the content column has the same left edge and width on both, and when a short page
 // grows (a swap adds rows) nothing moves.
 for (const width of [1280, 1920]) {
   test(`the content column does not move between short and long pages (${width}px)`, { tag: "@core" }, async ({ page }) => {

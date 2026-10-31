@@ -276,13 +276,18 @@
 }
 html {
   -webkit-text-size-adjust: 100%;
-  /* The scrollbar is always drawn, so nothing moves sideways between a short and a long page and
-     the bars end at the scrollbar like the rest of the window. scrollbar-gutter: stable (v0.10.1)
-     reserved the same room but left it EMPTY on a short page with classic scrollbars: the header
-     and the fixed status bar stopped ~15px before the window edge (#395). */
-  overflow-y: scroll;
+  /* The scrollbar's room is kept on every page, so nothing moves sideways between a short and a long
+     page (v0.10.1; 0.10.0 had dropped it for the empty strip it leaves right of the top bar on short
+     pages with classic scrollbars, and the whole layout jumped on every page switch instead).
+     That strip is clipped away from the header and the fixed status bar (they end at its left edge);
+     only the canvas colour paints there. On a page that does not scroll it used to show the page
+     colour, so the bars looked as if they ended ~15px before the window edge (#395). It is the bars'
+     colour now, and body (page colour) fills the window height so only the strip stays that colour. */
+  scrollbar-gutter: stable;
+  background: var(--color-surface);
 }
 body {
+  min-height: 100dvh;
   padding-bottom: calc(var(--sb-h) + var(--sp-16));
   margin: 0;
   background: var(--color-bg);
