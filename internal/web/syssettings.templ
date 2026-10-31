@@ -51,41 +51,14 @@ templ sysSettingsPage(p sysPage) {
 		<input type="hidden" name="csrf" value={ p.CSRF }/>
 		for _, tab := range p.Tabs {
 			<div class="sys-tab" id={ "sec-" + tab.Slug } data-sys-tab={ tab.Slug } hidden?={ tab.Slug != p.Active }>
-				@ui.SettingsGrid() {
-					if slices.ContainsFunc(tab.Cards, func(c sysCard) bool { return c.Stack > 0 }) {
-						<div class="fcols fcols-n">
-							for stack := 1; stack <= 2; stack++ {
-								<div class="fcol">
-									for _, c := range tab.Cards {
-										if c.Stack == stack {
-											@sysCardView(p, c)
-										}
-									}
-								</div>
-							}
-						</div>
-					}
-					if slices.ContainsFunc(tab.Cards, func(c sysCard) bool { return c.Col }) {
-						<div class="scol">
+				@ui.CardStacks(3) {
+					for si, span := range tab.Spans {
+						@ui.CardStack(span) {
 							for _, c := range tab.Cards {
-								if c.Col {
+								if c.Stack == si {
 									@sysCardView(p, c)
 								}
 							}
-						</div>
-					}
-					if slices.ContainsFunc(tab.Cards, func(c sysCard) bool { return c.Side }) {
-						<div class="scol-side">
-							for _, c := range tab.Cards {
-								if c.Side {
-									@sysCardView(p, c)
-								}
-							}
-						</div>
-					}
-					for _, c := range tab.Cards {
-						if !c.Col && !c.Side && c.Stack == 0 {
-							@sysCardView(p, c)
 						}
 					}
 				}
@@ -124,13 +97,13 @@ templ sysCardView(p sysPage, c sysCard) {
 	switch c.ID {
 		case "storage":
 			if p.Storage != nil {
-				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, Class: c.Class, Plain: true}) {
+				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, Class: ui.StackRank(c.Phone), Plain: true}) {
 					@sysStorageBlock(p, *p.Storage)
 				}
 			}
 		case "orphans":
 			if p.Storage != nil {
-				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: "Own list with its own delete action, outside the settings form.", Class: c.Class, Plain: true}) {
+				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: "Own list with its own delete action, outside the settings form.", Class: ui.StackRank(c.Phone), Plain: true}) {
 					if len(p.Storage.Orphans) == 0 && len(p.Storage.Unreferenced) == 0 {
 						<p class="ufield-help">No backups of deleted devices.</p>
 					}
@@ -145,13 +118,13 @@ templ sysCardView(p sysPage, c sysCard) {
 			}
 		case "database":
 			if p.DB != nil {
-				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, Class: c.Class, Plain: true}) {
+				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, Class: ui.StackRank(c.Phone), Plain: true}) {
 					@sysDatabaseBlock(p, *p.DB)
 				}
 			}
 		default:
 			if len(c.Rows) > 0 || c.ID == "mqttdiscovery" || c.ID == "notify-message" {
-				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, Class: c.Class, Depends: c.Depends, Badges: sysCardBadges(c)}) {
+				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, Class: ui.StackRank(c.Phone), Depends: c.Depends, Badges: sysCardBadges(c)}) {
 					if c.ID == "mqttdiscovery" {
 						@sysDiscoveryCard(p)
 					}
@@ -666,13 +639,15 @@ templ sysDiscoveryCard(p sysPage) {
 // width, always visible, as two tables side by side (the first half of the list on the left).
 // On a phone they stack.
 templ sysContainer(rows []sysconfig.Row) {
-	@ui.SettingsGrid() {
-	@ui.SettingsCard(ui.SettingsCardData{ID: "card-container", Title: "Set by the container", Note: "Read-only. Change them in the container configuration.", Class: "span2", Plain: true}) {
+	@ui.CardStacks(1) {
+	@ui.CardStack(ui.SpanAll) {
+	@ui.SettingsCard(ui.SettingsCardData{ID: "card-container", Title: "Set by the container", Note: "Read-only. Change them in the container configuration.", Plain: true}) {
 	<p class="ucard-sub">Bootstrap settings (listeners, TLS, keys) come from the container configuration only and are never editable here.</p>
 	<div class="cset">
 		@sysContainerTable(rows[:(len(rows)+1)/2])
 		@sysContainerTable(rows[(len(rows)+1)/2:])
 	</div>
+	}
 	}
 	}
 }

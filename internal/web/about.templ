@@ -37,7 +37,8 @@ const (
 
 templ aboutPage(p aboutView) {
 	<div class="about-head"><h1>About</h1></div>
-	<div class="about-grid">
+	@ui.CardStacks(1) {
+	@ui.CardStack(ui.SpanAll) {
 		<section class="about-card about-version" aria-label="Version">
 			<div class="about-name" data-visual-mask>TasmoFleet { p.Version }</div>
 			<div class="about-build" data-visual-mask>{ p.Platform }</div>
@@ -58,12 +59,13 @@ templ aboutPage(p aboutView) {
 				}
 			</ul>
 		</section>
-	</div>
-	@ui.SettingsCard(ui.SettingsCardData{ID: "card-config", Title: "Effective configuration (" + strconv.Itoa(len(p.Config)) + " settings, secrets masked)", Class: "span2 about-cfg", Plain: true}) {
-		<div class="cset">
-			@aboutConfigTable(p.Config[:(len(p.Config)+1)/2])
-			@aboutConfigTable(p.Config[(len(p.Config)+1)/2:])
-		</div>
+		@ui.SettingsCard(ui.SettingsCardData{ID: "card-config", Title: "Effective configuration (" + strconv.Itoa(len(p.Config)) + " settings, secrets masked)", Class: "about-cfg", Plain: true}) {
+			<div class="cset">
+				@aboutConfigTable(p.Config[:(len(p.Config)+1)/2])
+				@aboutConfigTable(p.Config[(len(p.Config)+1)/2:])
+			</div>
+		}
+	}
 	}
 	<p class="muted about-links">TasmoFleet { p.Version }, AGPL-3.0-or-later. <a href={ templ.SafeURL(sourceURL) } target="_blank" rel="noopener noreferrer">Source</a> · <a href={ templ.SafeURL(p.Base + "/whats-new") }>Changelog</a> · <a href={ templ.SafeURL(licenceURL) } target="_blank" rel="noopener noreferrer">Licence</a></p>
 }

@@ -15,20 +15,23 @@ import (
 // can never vanish from the UI. Adding a setting is: its sysconfig field, its key in a card here,
 // and its sysFieldCopy entry.
 
-// sysCardDef is a card of a tab. Class is "", "span2", "spanall" or "rows2" (combinable). Depends is the
+// sysCardDef is a card of a tab. Stack is the column stack it sits in (#391: cards stack directly
+// under each other per column, see ui.CardStacks); cards are listed stack by stack, so the document
+// order is the phone reading order, unless Phone gives a card another place. Depends is the
 // data-depends rule that dims the card (sysform.js). Special cards (Backups storage, the deleted devices' backups) have no keys.
 type sysCardDef struct {
-	ID, Title, Note, Class, Depends string
-	Col                             bool // stacked with the other Col cards in one two-column group (no row gaps)
-	Side                            bool // stacked with the other Side cards in one column next to the Col group
-	StepUp                          bool // saving asks the admin to confirm: a badge in the header
-	Stack                           int  // 1 or 2: the card sits in that column stack of the tab (cards stack directly under each other); 0 = grid cell
-	Keys                            []string
+	ID, Title, Note, Depends string
+	Stack                    int
+	Phone                    int  // 1-based place on a phone when it differs from the document order; 0 = document order
+	StepUp                   bool // saving asks the admin to confirm: a badge in the header
+	Keys                     []string
 }
 
-// sysTabDef is a tab with its cards.
+// sysTabDef is a tab with its cards. Spans has one entry per stack: how many of the three
+// columns it takes (ui.SpanAll for a full-width stack).
 type sysTabDef struct {
 	Slug, Label string
+	Spans       []int
 	Cards       []sysCardDef
 }
 
@@ -42,57 +45,58 @@ type sysCard struct {
 // sysTab is one tab of the page.
 type sysTab struct {
 	Label, Slug string
+	Spans       []int
 	Cards       []sysCard
 }
 
 // sysLayout is the approved tab order (maintainer, issue #275) with the cards of each tab.
 var sysLayout = []sysTabDef{
-	{"general", "General", []sysCardDef{
-		{ID: "logging", Title: "Logging & audit", Keys: []string{"LOG_LEVEL", "AUDIT_RETENTION"}},
-		{ID: "metrics", Title: "Prometheus metrics", Keys: []string{"METRICS_ENABLED", "METRICS_TOKEN", "METRICS_DEVICE_LABELS"}},
+	{"general", "General", []int{1, 1}, []sysCardDef{
+		{ID: "logging", Title: "Logging & audit", Stack: 0, Keys: []string{"LOG_LEVEL", "AUDIT_RETENTION"}},
+		{ID: "metrics", Title: "Prometheus metrics", Stack: 1, Keys: []string{"METRICS_ENABLED", "METRICS_TOKEN", "METRICS_DEVICE_LABELS"}},
 	}},
-	{"network", "Network & devices", []sysCardDef{
-		{ID: "networks", Title: "Device networks", Note: "Where your devices live.", Keys: []string{"DEVICE_NETWORKS"}},
-		{ID: "health", Title: "Health checks", Note: "How often devices are checked.", Keys: []string{"POLL_INTERVAL", "POLICY_LIVE_INTERVAL", "TELEPERIOD", "CR_WARN_PERCENT"}},
-		{ID: "credentials", Title: "Default device credentials", Note: "Prefilled for new devices.", Keys: []string{"DEVICE_DEFAULT_PASSWORD"}},
+	{"network", "Network & devices", []int{1, 1, 1}, []sysCardDef{
+		{ID: "networks", Title: "Device networks", Note: "Where your devices live.", Stack: 0, Keys: []string{"DEVICE_NETWORKS"}},
+		{ID: "health", Title: "Health checks", Note: "How often devices are checked.", Stack: 1, Keys: []string{"POLL_INTERVAL", "POLICY_LIVE_INTERVAL", "TELEPERIOD", "CR_WARN_PERCENT"}},
+		{ID: "credentials", Title: "Default device credentials", Note: "Prefilled for new devices.", Stack: 2, Keys: []string{"DEVICE_DEFAULT_PASSWORD"}},
 	}},
-	{"mqtt", "MQTT", []sysCardDef{
-		{ID: "broker", Title: "Broker", Note: "Changes apply at once. An empty host turns MQTT off.", Class: "span2", Keys: []string{"MQTT_URL", "MQTT_USER", "MQTT_PASSWORD"}},
-		{ID: "topics", Title: "Topics", Keys: []string{"MQTT_FULLTOPIC"}},
+	{"mqtt", "MQTT", []int{2, 1}, []sysCardDef{
+		{ID: "broker", Title: "Broker", Note: "Changes apply at once. An empty host turns MQTT off.", Stack: 0, Keys: []string{"MQTT_URL", "MQTT_USER", "MQTT_PASSWORD"}},
+		{ID: "topics", Title: "Topics", Stack: 1, Keys: []string{"MQTT_FULLTOPIC"}},
 	}},
-	{"discovery", "Discovery", []sysCardDef{
-		{ID: "mqttdiscovery", Title: "MQTT discovery", Keys: []string{"DISCOVERY_MQTT"}},
-		{ID: "scan", Title: "Network scan", Keys: []string{"DISCOVERY_SCAN", "DISCOVERY_SCAN_INTERVAL", "DISCOVERY_SCAN_CIDRS"}},
+	{"discovery", "Discovery", []int{1, 1}, []sysCardDef{
+		{ID: "mqttdiscovery", Title: "MQTT discovery", Stack: 0, Keys: []string{"DISCOVERY_MQTT"}},
+		{ID: "scan", Title: "Network scan", Stack: 1, Keys: []string{"DISCOVERY_SCAN", "DISCOVERY_SCAN_INTERVAL", "DISCOVERY_SCAN_CIDRS"}},
 	}},
-	{"backups", "Backups", []sysCardDef{
-		{ID: "storage", Title: "Storage", Note: "Read-only. Not part of the form.", Col: true},
-		{ID: "schedule", Title: "Device backup schedule", Side: true, Keys: []string{"BACKUP_INTERVAL", "BACKUP_KEEP", "BACKUP_MAX_AGE"}},
-		{ID: "snapshots", Title: "Snapshot schedule", Side: true, Keys: []string{"SNAPSHOT_INTERVAL", "SNAPSHOT_KEEP"}},
-		{ID: "orphans", Title: "Backups of deleted devices", Col: true},
-		{ID: "database", Title: "TasmoFleet database", Note: "Download and delete act at once, outside the settings form. Admins only; every download and every scheduled snapshot is written to the audit log.", Class: "span2"},
+	{"backups", "Backups", []int{2, 1}, []sysCardDef{
+		{ID: "storage", Title: "Storage", Note: "Read-only. Not part of the form.", Stack: 0, Phone: 1},
+		{ID: "orphans", Title: "Backups of deleted devices", Stack: 0, Phone: 2},
+		{ID: "database", Title: "TasmoFleet database", Note: "Download and delete act at once, outside the settings form. Admins only; every download and every scheduled snapshot is written to the audit log.", Stack: 0, Phone: 4},
+		{ID: "schedule", Title: "Device backup schedule", Stack: 1, Phone: 3, Keys: []string{"BACKUP_INTERVAL", "BACKUP_KEEP", "BACKUP_MAX_AGE"}},
+		{ID: "snapshots", Title: "Snapshot schedule", Stack: 1, Phone: 5, Keys: []string{"SNAPSHOT_INTERVAL", "SNAPSHOT_KEEP"}},
 	}},
-	{"notifications", "Notifications", []sysCardDef{
-		{ID: "notify-events", Title: "Events", Note: "What is sent. Both channels get the same events.", Stack: 1,
+	{"notifications", "Notifications", []int{1, 2}, []sysCardDef{
+		{ID: "notify-events", Title: "Events", Note: "What is sent. Both channels get the same events.", Stack: 0, Phone: 1,
 			Keys: []string{"NOTIFY_UPDATE", "NOTIFY_UPDATE_WHEN", "NOTIFY_BACKUP", "NOTIFY_SNAPSHOT"}},
-		{ID: "notify-message", Title: "Message", Note: "Read-only preview.", Stack: 1},
-		{ID: "notify-webhook", Title: "Webhook", Note: "Home Assistant, ntfy, Gotify, anything that takes a JSON POST.", Stack: 2,
+		{ID: "notify-message", Title: "Message", Note: "Read-only preview.", Stack: 0, Phone: 3},
+		{ID: "notify-webhook", Title: "Webhook", Note: "Home Assistant, ntfy, Gotify, anything that takes a JSON POST.", Stack: 1, Phone: 2,
 			Keys: []string{"NOTIFY_WEBHOOK", "NOTIFY_WEBHOOK_FORMAT", "NOTIFY_WEBHOOK_URL", "NOTIFY_WEBHOOK_AUTH", "NOTIFY_WEBHOOK_HEADER", "NOTIFY_WEBHOOK_SECRET"}},
-		{ID: "notify-email", Title: "E-mail (SMTP)", Note: "SMTP with STARTTLS, TLS or none. No provider APIs in this version.", Stack: 2,
+		{ID: "notify-email", Title: "E-mail (SMTP)", Note: "SMTP with STARTTLS, TLS or none. No provider APIs in this version.", Stack: 1, Phone: 4,
 			Keys: []string{"NOTIFY_SMTP", "NOTIFY_SMTP_HOST", "NOTIFY_SMTP_PORT", "NOTIFY_SMTP_SECURITY", "NOTIFY_SMTP_USER", "NOTIFY_SMTP_PASSWORD", "NOTIFY_SMTP_FROM", "NOTIFY_SMTP_TO"}},
 	}},
-	{"firmware", "Firmware & updates", []sysCardDef{
-		{ID: "source", Title: "Firmware source", Class: "span2 rows2", Keys: []string{"FIRMWARE_BASE_URL", "FIRMWARE_SOURCES", "FIRMWARE_REFRESH_INTERVAL", "FIRMWARE_KEEP_RELEASES"}},
-		{ID: "crosscheck", Title: "Cross-check", Keys: []string{"FIRMWARE_ALLOW_SINGLE_SOURCE"}},
-		{ID: "ota", Title: "Updates (OTA)", Keys: []string{"OTA_PARALLEL", "OTA_POWER_MAX_AGE", "OTA_RESTORE_OTAURL"}},
+	{"firmware", "Firmware & updates", []int{2, 1}, []sysCardDef{
+		{ID: "source", Title: "Firmware source", Stack: 0, Keys: []string{"FIRMWARE_BASE_URL", "FIRMWARE_SOURCES", "FIRMWARE_REFRESH_INTERVAL", "FIRMWARE_KEEP_RELEASES"}},
+		{ID: "crosscheck", Title: "Cross-check", Stack: 1, Keys: []string{"FIRMWARE_ALLOW_SINGLE_SOURCE"}},
+		{ID: "ota", Title: "Updates (OTA)", Stack: 1, Keys: []string{"OTA_PARALLEL", "OTA_POWER_MAX_AGE", "OTA_RESTORE_OTAURL"}},
 	}},
-	{"signin", "Sign-in", []sysCardDef{
-		{ID: "mode", Title: "Sign-in mode", Class: "spanall", StepUp: true, Keys: []string{"AUTH_MODE"}},
-		{ID: "idp", Title: "Identity provider", Note: "Disabled while Local accounts is selected.", Class: "span2", Depends: "v.AUTH_MODE=oidc", StepUp: true,
+	{"signin", "Sign-in", []int{ui.SpanAll, 2, 1}, []sysCardDef{
+		{ID: "mode", Title: "Sign-in mode", Stack: 0, StepUp: true, Keys: []string{"AUTH_MODE"}},
+		{ID: "idp", Title: "Identity provider", Note: "Disabled while Local accounts is selected.", Stack: 1, Depends: "v.AUTH_MODE=oidc", StepUp: true,
 			Keys: []string{"OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "OIDC_SCOPES", "OIDC_NAME_CLAIM", "OIDC_DISPLAY_NAME"}},
-		{ID: "roles", Title: "Roles and claims", Depends: "v.AUTH_MODE=oidc", StepUp: true,
+		{ID: "roles", Title: "Roles and claims", Stack: 2, Depends: "v.AUTH_MODE=oidc", StepUp: true,
 			Keys: []string{"ADMIN_GROUPS", "OPERATOR_GROUPS", "OIDC_GROUPS_CLAIM", "OIDC_USERNAME_CLAIM"}},
 	}},
-	{"advanced", "Advanced", []sysCardDef{
+	{"advanced", "Advanced", []int{1}, []sysCardDef{
 		{ID: "other", Title: "Other settings"},
 	}},
 }
@@ -136,7 +140,7 @@ func sysPlace(key string) (tab, card int) {
 func sysTabsOf(rows map[string]sysRow) []sysTab {
 	tabs := make([]sysTab, len(sysLayout))
 	for ti, def := range sysLayout {
-		tabs[ti] = sysTab{Label: def.Label, Slug: def.Slug, Cards: make([]sysCard, len(def.Cards))}
+		tabs[ti] = sysTab{Label: def.Label, Slug: def.Slug, Spans: def.Spans, Cards: make([]sysCard, len(def.Cards))}
 		for ci, cd := range def.Cards {
 			tabs[ti].Cards[ci] = sysCard{sysCardDef: cd}
 		}

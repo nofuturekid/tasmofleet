@@ -31,6 +31,7 @@ type settingsRow struct {
 type settingsGroup struct {
 	ID, Name, Note string
 	Col            int // 0..2: the column stack it sits in from 75rem
+	Phone          int // 1-based place on a phone: the cards read row by row across the columns
 	Rows           []settingsRow
 }
 
@@ -75,8 +76,10 @@ var settingsCards = []settingsCard{
 // never carry a value.
 func buildGroups(orig, cur map[string]string, errs map[string]string) []settingsGroup {
 	var out []settingsGroup
+	depth := map[int]int{} // cards already placed in each column
 	for _, c := range settingsCards {
-		grp := settingsGroup{ID: c.ID, Name: c.Name, Note: c.Note, Col: c.Col}
+		grp := settingsGroup{ID: c.ID, Name: c.Name, Note: c.Note, Col: c.Col, Phone: depth[c.Col]*3 + c.Col + 1}
+		depth[c.Col]++
 		for _, k := range c.Keys {
 			f, ok := settings.Lookup(k)
 			if !ok {
