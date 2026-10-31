@@ -205,9 +205,6 @@ export const isMedia = !!process.env.DEMO_MEDIA;
 /** mediaAdmin is the signed-in admin of the README pictures: the name shows in the navigation bar. */
 export const mediaAdmin = { "X-authentik-username": "markus", "X-authentik-groups": "adm" };
 
-/** pageAdmin is the admin principal of the run: the design's Maren, or the media's Markus. */
-export const pageAdmin = isMedia ? mediaAdmin : designAdmin;
-
 /** mediaNames are the fixture devices that get a plainer name for the pictures (no "Kitchen Plug 2" style numbering, no 60-character name). */
 const mediaNames: Record<string, string> = {
   d7: "Attic Heater Plug",
@@ -252,6 +249,9 @@ export function mediaFixture(fx: DesignFixture): DesignFixture {
 /** designAdmin and designOperator are the header principals of the visual stacks; the prototype's signed-in user is Maren. */
 export const designAdmin = { "X-authentik-username": "maren", "X-authentik-groups": "adm" };
 export const designOperator = { "X-authentik-username": "jonas", "X-authentik-groups": "ops" };
+
+/** pageAdmin is the admin principal of the run: the design's Maren, or the media's Markus. */
+export const pageAdmin = isMedia ? mediaAdmin : designAdmin;
 
 /**
  * designPolicyRules converts the prototype's rules to the POLICY_RULES format v0.10.1 understands.
