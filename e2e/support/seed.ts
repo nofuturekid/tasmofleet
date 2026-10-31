@@ -194,6 +194,61 @@ export function loadDesignFixture(): DesignFixture {
   return JSON.parse(readFileSync(designFixturePath, "utf8")) as DesignFixture;
 }
 
+
+// ---------------------------------------------------------------------------
+// README media fleet (make demo-media)
+// ---------------------------------------------------------------------------
+
+/** isMedia: the run renders the README's pictures (DEMO_MEDIA=1), which use the cleaned-up fleet of mediaFixture. */
+export const isMedia = !!process.env.DEMO_MEDIA;
+
+/** mediaAdmin is the signed-in admin of the README pictures: the name shows in the navigation bar. */
+export const mediaAdmin = { "X-authentik-username": "markus", "X-authentik-groups": "adm" };
+
+/** pageAdmin is the admin principal of the run: the design's Maren, or the media's Markus. */
+export const pageAdmin = isMedia ? mediaAdmin : designAdmin;
+
+/** mediaNames are the fixture devices that get a plainer name for the pictures (no "Kitchen Plug 2" style numbering, no 60-character name). */
+const mediaNames: Record<string, string> = {
+  d7: "Attic Heater Plug",
+  d25: "Greenhouse Fan",
+  d34: "Workshop Heater Plug",
+  d36: "Carport Ceiling Light",
+  d38: "Basement Stairs Switch",
+  d39: "Guest Bathroom Lamp",
+  d43: "Guest Room Heater Plug",
+  d44: "Terrace Ceiling Light",
+  d47: "Dining Room Dimmer",
+  d48: "Guest Room LED Strip",
+  d50: "Bathroom Heater Plug",
+  d51: "Garage Entrance Ceiling Light",
+  d56: "Workshop Bench Dimmer",
+  d59: "Entrance Ceiling Light",
+};
+
+/**
+ * mediaFixture derives the fleet of the README pictures from the design fixture, which stays as it
+ * is for the other specs: believable device names (each also its Friendly name 1), a home domain
+ * instead of lab.home, a running update without a failed device (5 done, 4 in progress, 3 waiting),
+ * and only a few devices that need attention (two offline, one never answered).
+ */
+export function mediaFixture(fx: DesignFixture): DesignFixture {
+  const m: DesignFixture = JSON.parse(JSON.stringify(fx).replaceAll("mqtt.lab.home", "mqtt.home.lan").replaceAll("@lab.home", "@home.lan").replaceAll("Use the lab MQTT broker", "Use the home MQTT broker"));
+  for (const d of m.devices) {
+    d.name = mediaNames[d.id] ?? d.name;
+    (d as { friendlyName?: string }).friendlyName = d.name;
+    if (["d38", "d49", "d53"].includes(d.id)) d.status = "online";
+  }
+  const name = (id: string) => m.devices.find((d) => d.id === id)!.name;
+  for (const t of m.transaction.devices) {
+    t.name = name(t.id);
+    if (t.state === "failed") t.state = "downloading";
+  }
+  for (const u of m.users) if (u.user === "maren") u.user = "markus";
+  for (const u of m.users as { name: string }[]) if (u.name === "Maren Koch") u.name = "Markus Koch";
+  return m;
+}
+
 /** designAdmin and designOperator are the header principals of the visual stacks; the prototype's signed-in user is Maren. */
 export const designAdmin = { "X-authentik-username": "maren", "X-authentik-groups": "adm" };
 export const designOperator = { "X-authentik-username": "jonas", "X-authentik-groups": "ops" };

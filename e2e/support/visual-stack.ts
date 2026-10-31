@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "@playwright/test";
-import { designAdmin, designFixturePath, designPolicyRules, deviceIds, loadDesignFixture, seedDesignV2, seedRunningTransaction, type DesignFixture } from "./seed";
+import { designFixturePath, designPolicyRules, deviceIds, isMedia, loadDesignFixture, mediaFixture, pageAdmin, seedDesignV2, seedRunningTransaction, type DesignFixture } from "./seed";
 import { App, Devenv, freePort, startApp, startDevenv } from "./stack";
 import type { StackKind } from "./visual-entries";
 
@@ -55,8 +55,17 @@ function plain(kind: StackKind, app: App): VisualStack {
 }
 
 async function startFleet(browser: Browser, mutating: boolean): Promise<VisualStack> {
-  const fx = loadDesignFixture();
-  const env = await startDevenv(["-design-fixture", designFixturePath]);
+  let fx = loadDesignFixture();
+  let fixturePath = designFixturePath;
+  let mediaDir = "";
+  if (isMedia) {
+    // the README pictures show a cleaned-up copy of the fleet, written next to the run
+    fx = mediaFixture(fx);
+    mediaDir = mkdtempSync(join(tmpdir(), "tasmofleet-media-"));
+    fixturePath = join(mediaDir, "media-fixture.json");
+    writeFileSync(fixturePath, JSON.stringify(fx));
+  }
+  const env = await startDevenv(["-design-fixture", fixturePath]);
   const fwPort = await freePort();
   const app = await startApp({
     env: {
@@ -72,8 +81,9 @@ async function startFleet(browser: Browser, mutating: boolean): Promise<VisualSt
   const stop = async () => {
     await app.stop();
     await env.stop();
+    if (mediaDir) rmSync(mediaDir, { recursive: true, force: true });
   };
-  const page = await browser.newPage({ extraHTTPHeaders: designAdmin, viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ extraHTTPHeaders: pageAdmin, viewport: { width: 1280, height: 900 } });
   try {
     importFleet(app, env, fx);
     await seedDesignV2(page, app, env, fx);

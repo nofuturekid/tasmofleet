@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import { root } from "../support/stack";
-import { designAdmin } from "../support/seed";
+import { isMedia, pageAdmin } from "../support/seed";
 import { pickForUpdate, startUpdate, txnState } from "../support/updates";
 import { startVisualStack, type VisualStack } from "../support/visual-stack";
 
@@ -51,7 +51,7 @@ test("static demo site", async ({ browser }) => {
   const stack = await startVisualStack("fleet", browser);
   try {
     const context = await browser.newContext({
-      extraHTTPHeaders: designAdmin,
+      extraHTTPHeaders: pageAdmin,
       viewport: { width: 1280, height: 860 },
     });
     const page = await context.newPage();
@@ -75,11 +75,11 @@ test("README animation", async ({ browser }) => {
   const videoDir = join(root, "e2e/test-results/demo-video");
   rmSync(videoDir, { recursive: true, force: true });
   try {
-    const setup = await browser.newContext({ extraHTTPHeaders: designAdmin });
+    const setup = await browser.newContext({ extraHTTPHeaders: pageAdmin });
     await setTheme(await setup.newPage(), stack, "light");
     await setup.close();
     const context = await browser.newContext({
-      extraHTTPHeaders: designAdmin,
+      extraHTTPHeaders: pageAdmin,
       viewport: { width: 1280, height: 760 },
       recordVideo: { dir: videoDir, size: { width: 1280, height: 760 } },
     });
@@ -418,16 +418,22 @@ function neutralise(html: string): string {
 function addressRewriter(): (s: string, ownPort?: string) => string {
   const loop = new Map<string, string>();
   const ip = (port: string) => {
-    if (!loop.has(port)) loop.set(port, `192.0.2.${10 + loop.size}`);
+    if (!loop.has(port)) loop.set(port, `${isMedia ? "192.168.1" : "192.0.2"}.${10 + loop.size}`);
     return loop.get(port)!;
   };
+  // The README pictures (DEMO_MEDIA) show one ordinary home network (192.168.1.x, home.lan) instead of the
+  // documentation ranges; short addresses keep the device list's Address column from truncating. A bare
+  // 127.0.0.1 away from a device's own pages is a device's former address (Address changed on the
+  // dashboard), so each one gets an address of its own.
+  let bare = 0;
+  const other = () => (isMedia ? `192.168.1.${150 + bare++}` : "192.0.2.1");
   return (s, ownPort) =>
     s
       .replace(/127\.0\.0\.1:(\d{2,5})/g, (_, port: string) => ip(port))
-      .replace(/127\.0\.0\.1(?![/\d])/g, () => (ownPort ? ip(ownPort) : "192.0.2.1"))
-      .replace(/\b192\.168\.20\.(\d{1,3})\b/g, "198.51.100.$1")
+      .replace(/127\.0\.0\.1(?![/\d])/g, () => (ownPort ? ip(ownPort) : other()))
+      .replace(/\b192\.168\.20\.(\d{1,3})\b/g, isMedia ? "192.168.1.$1" : "198.51.100.$1")
       // the device captures (testdata/fixtures) and the app's placeholders use 172.31.x and lab.home
-      .replace(/\b172\.31\.\d{1,3}\.(\d{1,3})\b/g, "203.0.113.$1")
-      .replace(/\b([a-z0-9-]+)\.(<wbr>)?lab\.(<wbr>)?home\b/g, "$1.$2example.$3internal") // long values carry <wbr> after dots
+      .replace(/\b172\.31\.\d{1,3}\.(\d{1,3})\b/g, isMedia ? "192.168.1.$1" : "203.0.113.$1")
+      .replace(/\b([a-z0-9-]+)\.(<wbr>)?lab\.(<wbr>)?home\b/g, isMedia ? "$1.$2home.$3lan" : "$1.$2example.$3internal") // long values carry <wbr> after dots
       .replace(/\/tmp\/tasmofleet-[A-Za-z0-9_-]+/g, "/data");
 }

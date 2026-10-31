@@ -26,7 +26,10 @@ type designFixture struct {
 	// ReleaseNotes are the date and notes of the newest releases (the firmware page's list).
 	ReleaseNotes []designRelease `json:"releaseNotes"`
 	Devices      []struct {
-		Name         string `json:"name"`
+		Name string `json:"name"`
+		// FriendlyName, when set, is the device's Friendly name 1 (the README media's fleet sets it to the
+		// name; without it the simulator keeps the name of the capture it replays).
+		FriendlyName string `json:"friendlyName"`
 		Chip         string `json:"chip"`
 		Firmware     string `json:"firmware"`
 		Status       string `json:"status"`
@@ -138,8 +141,12 @@ func startDesignFleet(ctx context.Context, fleet simulator.Fleet, fx *designFixt
 		if d.Relays == 2 {
 			power[1] = !d.Power // the prototype shows relay 2 as the opposite of relay 1
 		}
+		var friendly []string
+		if d.FriendlyName != "" {
+			friendly = []string{d.FriendlyName}
+		}
 		dev, err := fleet.Add(ctx, simulator.DeviceSpec{
-			Name: d.Name, Profile: profile, Version: d.Firmware, Relays: d.Relays, Power: power,
+			Name: d.Name, Profile: profile, Version: d.Firmware, Relays: d.Relays, Power: power, FriendlyNames: friendly,
 			Settings: map[string]string{
 				"teleperiod":   fmt.Sprint(d.TelePeriod),
 				"poweronstate": fmt.Sprint(d.PowerOnState),
