@@ -45,6 +45,7 @@ always upgrade automatically.
 
 ### Fixed
 
+- The top bar and the status bar now reach the right edge of the window on short pages too: the page always draws its scrollbar instead of reserving an empty strip beside the bars (#395)
 - The Columns menu now reliably reopens after you pin a column, and stays open when a device event refreshes the list at the same moment. The page that was about to reload could take the reopen note itself, and a refresh right after the menu opened could drop its open state (#273)
 
 ### Security
