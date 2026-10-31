@@ -168,10 +168,43 @@ async function screenshots(page: Page, stack: VisualStack): Promise<void> {
     await page.screenshot({ path: join(media, file) });
   };
   const ph = (k: string) => stack.placeholders.get(k) ?? "";
-  await shot("/", "dashboard.png");
+  await shot("/", "dashboard.png", "dark");
   await shot("/devices", "devices.png");
-  await shot(`/transactions/${ph("txn")}`, "transaction.png");
-  await shot(`/devices/${ph("d2")}`, "device-dark.png", "dark");
+  await liveShots(page, stack, ph("d2"));
+}
+
+/**
+ * liveShots shoots the two pages that need the running stack: the device Settings tab (read from the
+ * simulator by htmx after the page loads) and the rule editor with the catalogue's suggestions open.
+ * The address rewrite is the static site's.
+ */
+async function liveShots(page: Page, stack: VisualStack, d2: string): Promise<void> {
+  const addr = addressRewriter();
+  await page.unroute("http://demo.invalid/**");
+  await page.route(
+    (u) => u.origin === new URL(stack.app.url).origin && !u.pathname.startsWith("/events"),
+    async (r) => {
+      const res = await r.fetch({ maxRedirects: 0 });
+      if (!(res.headers()["content-type"] ?? "").startsWith("text/html")) return r.fulfill({ response: res });
+      return r.fulfill({ response: res, body: addr(await res.text()) });
+    },
+  );
+  const theme = (t: string) => page.evaluate((v) => document.documentElement.setAttribute("data-theme", v), t);
+  await page.goto(stack.app.url + `/devices/${d2}/settings`);
+  await expect(page.getByText("Reading the settings from the device")).toBeHidden({ timeout: 60_000 });
+  await theme("dark");
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: join(media, "device-settings.png") });
+  await page.goto(stack.app.url + "/policy/rules/new?command=Timezone");
+  await page.locator("input[name='name']").fill("Home Assistant discovery");
+  const cmd = page.locator("#rule-command");
+  await cmd.fill("");
+  await cmd.dispatchEvent("change");
+  await cmd.pressSequentially("SetOpt");
+  await expect(page.locator("#cmd-sug")).toBeVisible();
+  await theme("light");
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(media, "policy-editor.png") });
 }
 
 // ---------------------------------------------------------------------------

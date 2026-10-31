@@ -81,11 +81,11 @@ everything; operators can run updates, backups, power toggles, restarts and the 
 commands, but cannot edit the inventory, restore backups, manage firmware, edit or fix policy,
 edit settings or manage users.
 
-| Dashboard                                                                                | Device list                                                                   |
-| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| ![Dashboard with fleet state, attention list and transactions](docs/media/dashboard.png) | ![Device list with status, firmware and chip columns](docs/media/devices.png) |
-| **Running update transaction**                                                           | **Device page (dark theme)**                                                  |
-| ![A transaction with per-device progress](docs/media/transaction.png)                    | ![Device overview in the dark theme](docs/media/device-dark.png)              |
+| Dashboard (dark)                                                                              | Device list                                                                   |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| ![Dashboard with fleet state, attention list and transactions](docs/media/dashboard.png)      | ![Device list with status, firmware and chip columns](docs/media/devices.png) |
+| **Device Settings tab (dark)**                                                                | **Policy rule editor with command suggestions**                               |
+| ![Curated device settings read from the device](docs/media/device-settings.png)               | ![Policy rule editor suggesting commands from the Tasmota catalogue](docs/media/policy-editor.png) |
 
 All screenshots show simulated devices.
 
