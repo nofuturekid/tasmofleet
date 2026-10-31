@@ -4847,9 +4847,17 @@ html[data-live="offline"] .sb-edge {
   text-decoration: none;
   border-left: 1px solid var(--color-border);
 }
+/* the group has a visible start and end (#395): a divider before the first and after the last item,
+   on the content column's edges, like the dividers between the items */
+.sb-wide::before,
+.sb-wide::after {
+  content: "";
+  flex: none;
+  width: 1px;
+  background: var(--color-border);
+}
 .sb-i:first-child {
   border-left: 0;
-  padding-left: 0;
 }
 a.sb-i:hover {
   background: var(--color-surface-2);
@@ -4871,7 +4879,6 @@ a.sb-i:hover {
   border: 0;
 }
 .sb-ver {
-  padding-right: 0;
   font: 400 11.5px var(--font-mono);
 }
 .sb-live {
@@ -4979,12 +4986,6 @@ html[data-live="offline"] .sb-i:has(.sb-live) {
 }
 html[data-live="offline"] .sb-i:has(.sb-live) b {
   color: var(--color-danger-fg);
-}
-.sb-i:first-child.t-warn,
-.sb-i:first-child.t-bad,
-html[data-live="reconnecting"] .sb-i:first-child:has(.sb-live),
-html[data-live="offline"] .sb-i:first-child:has(.sb-live) {
-  padding-left: var(--sp-12);
 }
 /* a lost stream: what the bar says about the broker, jobs and backup may be stale */
 html[data-live="reconnecting"] .sb-stale,

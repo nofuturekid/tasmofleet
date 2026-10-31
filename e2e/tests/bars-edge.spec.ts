@@ -64,3 +64,34 @@ test.describe("without a scrollbar strip", () => {
     });
   }
 });
+
+// Why: the page must not jump sideways between a short and a long page (v0.10.1). With the scrollbar
+// always drawn, the content column has the same left edge and width on both, and when a short page
+// grows (a swap adds rows) nothing moves.
+for (const width of [1280, 1920]) {
+  test(`the content column does not move between short and long pages (${width}px)`, { tag: "@core" }, async ({ page }) => {
+    await page.setViewportSize({ width, height: 600 });
+    const column = () =>
+      page.evaluate(() => {
+        const r = document.querySelector("header.top .shell-in")!.getBoundingClientRect();
+        const m = document.querySelector("main")!.getBoundingClientRect();
+        return { left: r.left, width: r.width, mainLeft: m.left, mainWidth: m.width, scrolls: document.documentElement.scrollHeight > window.innerHeight };
+      });
+    await page.goto(app.url + "/users");
+    const short = await column();
+    await page.goto(app.url + "/styleguide");
+    const long = await column();
+    console.log(`${width}: short`, JSON.stringify(short), "long", JSON.stringify(long));
+    expect([short.scrolls, long.scrolls]).toEqual([false, true]);
+    expect({ ...short, scrolls: 0 }).toEqual({ ...long, scrolls: 0 });
+    await page.goto(app.url + "/users");
+    await page.evaluate(() => {
+      const d = document.createElement("div");
+      d.style.height = "3000px";
+      document.querySelector("main")!.appendChild(d);
+    });
+    const grown = await column();
+    expect(grown.scrolls).toBe(true);
+    expect({ ...grown, scrolls: 0 }).toEqual({ ...short, scrolls: 0 });
+  });
+}
