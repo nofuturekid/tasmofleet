@@ -372,3 +372,12 @@ func dashTxnRow(base string, now time.Time, t txView) ui.TxnRowData {
 	return ui.TxnRowData{ID: txID(t.ID), Title: dashTxnTitle(t), Result: res, Tone: tone, When: ui.StampDayText(now, t.Started), WhenAt: t.Started,
 		Href: fmt.Sprintf("%s/transactions/%d", base, t.ID)}
 }
+
+// dashStacks is the number of card columns of the dashboard: the transactions card sits beside
+// "Needs attention" when it is shown, otherwise that card takes the width alone.
+func dashStacks(d dashView) int {
+	if d.TxnCard {
+		return 2
+	}
+	return 1
+}

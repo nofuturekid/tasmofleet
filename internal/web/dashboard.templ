@@ -34,26 +34,30 @@ templ dashboardPage(d dashView) {
 				}
 			</div>
 			@ui.HealthBar(d.OK, d.Off, d.Unk)
-			<div class="dash-cols">
-				@ui.ListCard("Needs attention", "All devices", d.Base+"/devices") {
-					@ui.AttentionList(d.Props, d.Items, d.CSRF)
-					if len(d.Props) == 0 && len(d.Items) == 0 {
-						<p class="dash-none">Nothing needs attention: every device answers and follows the policy.</p>
-					}
-				}
-				if d.TxnCard {
-					@ui.ListCard("Update transactions", "History", d.Base+"/transactions") {
-						if d.Card != nil {
-							@ui.TxnCard(*d.Card)
-							for _, r := range d.Rows {
-								@ui.TxnRow(r)
-							}
-						} else {
-							<p class="dash-none">No transactions yet. Updates you start show up here.</p>
+			@ui.CardStacks(dashStacks(d)) {
+				@ui.CardStack(1) {
+					@ui.ListCard("Needs attention", "All devices", d.Base+"/devices") {
+						@ui.AttentionList(d.Props, d.Items, d.CSRF)
+						if len(d.Props) == 0 && len(d.Items) == 0 {
+							<p class="dash-none">Nothing needs attention: every device answers and follows the policy.</p>
 						}
 					}
 				}
-			</div>
+				if d.TxnCard {
+					@ui.CardStack(1) {
+						@ui.ListCard("Update transactions", "History", d.Base+"/transactions") {
+							if d.Card != nil {
+								@ui.TxnCard(*d.Card)
+								for _, r := range d.Rows {
+									@ui.TxnRow(r)
+								}
+							} else {
+								<p class="dash-none">No transactions yet. Updates you start show up here.</p>
+							}
+						}
+					}
+				}
+			}
 		}
 	</div>
 }

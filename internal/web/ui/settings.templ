@@ -9,14 +9,7 @@ templ Info(id, label, text string) {
 	<div id={ id } popover class="uinfo-pop" role="note">{ text }</div>
 }
 
-// SettingsGrid is the card grid of a tab: 3, 2 or 1 columns by the width available.
-templ SettingsGrid() {
-	<div class="sgrid">
-		{ children... }
-	</div>
-}
-
-// SettingsCardData describes a card: Class is "", "span2", "spanall" or "rows2"; Depends is the
+// SettingsCardData describes a card: Class is "" or a phone rank (StackRank); Depends is the
 // data-depends rule (see sysform.js) that dims the card while it does not apply.
 type SettingsCardData struct {
 	ID, Title, Note, Class, Depends string

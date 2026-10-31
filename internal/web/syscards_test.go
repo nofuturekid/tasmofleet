@@ -4,11 +4,13 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/nofuturekid/tasmofleet/internal/config"
 	"github.com/nofuturekid/tasmofleet/internal/sysconfig"
+	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
 // formBody is the HTML of the settings form (between its opening tag and its closing tag).
@@ -531,14 +533,16 @@ func TestSystemSettingsResetIsOfferedOnlyWhenTheValueDiffersFromTheDefault(t *te
 // columns and Roles and claims the third; the mode card holds its Restart and confirm badges in the
 // header and says PUBLIC_URL below the choices, with no field label row (no lone reset line).
 func TestSystemSettingsSignInTabFollowsTheMockup(t *testing.T) {
-	want := map[string]string{"mode": "spanall", "idp": "span2", "roles": ""}
 	for _, d := range sysLayout {
 		if d.Slug != "signin" {
 			continue
 		}
+		if !slices.Equal(d.Spans, []int{ui.SpanAll, 2, 1}) {
+			t.Errorf("sign-in stacks %v, want full width, two columns, one", d.Spans)
+		}
 		for _, c := range d.Cards {
-			if c.Class != want[c.ID] {
-				t.Errorf("card %s class %q, want %q", c.ID, c.Class, want[c.ID])
+			if want := map[string]int{"mode": 0, "idp": 1, "roles": 2}[c.ID]; c.Stack != want {
+				t.Errorf("card %s in stack %d, want %d", c.ID, c.Stack, want)
 			}
 		}
 	}

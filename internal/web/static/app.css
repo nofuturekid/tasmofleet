@@ -7383,12 +7383,6 @@ form.useradd:has(input[name="otp"][value="1"]:checked) .useradd-pw {
   font: 600 22px/1.2 var(--font-sans);
   letter-spacing: -0.015em;
 }
-.about-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--sp-14);
-  align-items: start;
-}
 .about-card {
   background: var(--color-surface);
   border: var(--hair-w) solid var(--color-border);
@@ -7523,9 +7517,6 @@ form.useradd:has(input[name="otp"][value="1"]:checked) .useradd-pw {
   --t-fg: var(--color-neutral-fg);
 }
 /* the effective configuration: a full-width card of two tables (.cset, shared with Advanced); keys stay on one line on a desktop */
-.about-cfg {
-  margin-top: var(--sp-14);
-}
 .about-cfg .cset table {
   table-layout: fixed;
   width: 100%;
@@ -7596,12 +7587,6 @@ form.useradd:has(input[name="otp"][value="1"]:checked) .useradd-pw {
 }
 
 /* ==== page: Dashboard (/, WP P1): tiles, health bar, "Needs attention" and the transactions ==== */
-.dash-cols {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
-  gap: var(--sp-14);
-  align-items: start;
-}
 .dash-none {
   margin: 0;
   padding: var(--sp-14);
@@ -8965,6 +8950,9 @@ body:has(.dv-list .bulkbar:not([hidden])) {
   gap: var(--card-gap);
   margin-bottom: var(--card-gap);
 }
+.devlive > .devcard {
+  margin-bottom: 0;
+}
 /* one row, equal width; a tile that does not apply is not built, so the row has no holes. Three
    across between phone and desktop, two on a phone */
 .dev-tiles {
@@ -9465,9 +9453,11 @@ nav.crumbs a {
   color: var(--color-text-2);
 }
 
-/* the device Settings tab (#367): one card per group in three independent column stacks (cards sit
-   directly under each other); two balanced columns below 75rem, one on phones in a set order. The
-   Save bar spans the full width below. */
+/* Card stacks (#391, #367): in every card grid the cards stack directly under each other per column,
+   so a short card beside a tall one leaves no gap below it. ui.CardStacks holds ui.CardStack columns
+   (1, 2 or all columns wide); from 75rem the stacks sit side by side, from 45rem two balanced
+   columns flow through the cards in document order, below that one column. The document order is
+   the phone reading order; .r1 to .r8 (ui.StackRank) place a card elsewhere on a phone. */
 .devform.devform-cards {
   display: flex;
   flex-direction: column;
@@ -9479,17 +9469,34 @@ nav.crumbs a {
   border-radius: 0;
   background: none;
 }
-.fcols {
+.cstacks {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--sp-16);
   align-items: start;
 }
-.fcol {
+.cstacks-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.cstacks-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.cstacks-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cstack {
   display: flex;
   flex-direction: column;
   gap: var(--sp-16);
   min-width: 0;
+}
+.cstack > * {
+  margin: 0;
+}
+.cstack-w2 {
+  grid-column: span 2;
+}
+.cstack-all {
+  grid-column: 1 / -1;
 }
 .gcard .gbody {
   display: grid;
@@ -9507,47 +9514,65 @@ nav.crumbs a {
   background: var(--color-surface);
 }
 @media (max-width: 74.99rem) {
-  .fcols {
+  .cstacks {
     display: block;
     columns: 2;
     column-gap: var(--sp-16);
   }
-  .fcol {
+  .cstacks-1 {
+    columns: auto;
+  }
+  .cstack {
     display: contents;
   }
-  .gcard {
+  .cstack > * {
     break-inside: avoid;
     margin: 0 0 var(--sp-16);
   }
+  .cstack-all > * {
+    column-span: all;
+  }
+  /* the margin below the last card of a column run is dropped before a full-width card */
+  .cstack-all:not(:first-child) > * {
+    margin-top: var(--sp-16);
+  }
 }
 @media (max-width: 44.99rem) {
-  .fcols {
+  .cstacks,
+  .cstacks-1 {
     display: flex;
     flex-direction: column;
     align-items: stretch;
     columns: auto;
     gap: var(--sp-16);
   }
-  .gcard {
+  .cstack > *,
+  .cstack-all:not(:first-child) > * {
     margin: 0;
   }
-  #card-names {
+  .cstacks .r1 {
     order: 1;
   }
-  #card-network {
+  .cstacks .r2 {
     order: 2;
   }
-  #card-power {
+  .cstacks .r3 {
     order: 3;
   }
-  #card-options {
+  .cstacks .r4 {
     order: 4;
   }
-  #card-mqtt {
+  .cstacks .r5 {
     order: 5;
   }
-  #card-time {
+  .cstacks .r6 {
     order: 6;
+  }
+  .cstacks .r7 {
+    order: 7;
+  }
+  .cstacks .r8 {
+    order: 8;
   }
 }
 
@@ -11864,28 +11889,14 @@ dialog.fw-notes-dlg .fw-dlg-body {
 .sys-after[hidden] {
   display: none;
 }
-.sgrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
-  gap: var(--sp-16);
+.syspage .cstacks {
   max-width: 1240px;
-  align-items: start;
 }
 .scard {
   background: var(--color-surface);
   border: var(--hair-w) solid var(--color-border);
   border-radius: var(--r-card);
   padding: var(--sp-16) var(--sp-18);
-  min-width: 0;
-}
-.scard.span2 {
-  grid-column: span 2;
-}
-.scol {
-  grid-column: span 2;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-16);
   min-width: 0;
 }
 /* Backups tab: the TasmoFleet database card and the snapshot schedule (#301) */
@@ -11938,33 +11949,8 @@ dialog.fw-notes-dlg .fw-dlg-body {
 #card-snapshots .sys-status {
   margin-top: var(--sp-4);
 }
-/* side column: device schedule and snapshot schedule stacked, spanning the same two rows */
-.scol-side {
-  grid-row: span 2;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-16);
-  min-width: 0;
-}
-@media (max-width: 44.99rem) {
-  .scol-side {
-    display: contents;
-  }
-  #card-database {
-    order: 1;
-  }
-  #card-snapshots {
-    order: 2;
-  }
-}
 #card-schedule .sbody {
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-}
-.scard.rows2 {
-  grid-row: span 2;
-}
-.scard.spanall {
-  grid-column: 1 / -1;
 }
 .scard.is-off,
 .dep.is-off {
@@ -12401,15 +12387,8 @@ input:focus-visible + .swtrack {
 }
 /* Advanced (#350): the after-form cards use the full content width; the container settings sit in
    two tables side by side, one table on a phone */
-.sys-after,
-.sys-after > .sgrid {
+.sys-after {
   max-width: none;
-}
-.sys-after > .sgrid {
-  grid-template-columns: minmax(0, 1fr);
-}
-.sys-after > .sgrid > .scard.span2 {
-  grid-column: 1 / -1;
 }
 .cset {
   display: grid;
@@ -12449,8 +12428,8 @@ input:focus-visible + .swtrack {
   .utabs[aria-label="Settings sections"]::-webkit-scrollbar {
     display: none;
   }
-  .sgrid {
-    grid-template-columns: minmax(0, 1fr);
+  .syspage .cstacks,
+  .sys-after .cstacks {
     gap: 0;
   }
   .scard {
@@ -12459,13 +12438,6 @@ input:focus-visible + .swtrack {
     border-radius: 0;
     background: transparent;
     padding: var(--sp-16) 0;
-  }
-  .scol,
-  .scard.span2,
-  .scard.spanall,
-  .scard.rows2 {
-    grid-column: auto;
-    grid-row: auto;
   }
   .sch {
     flex-wrap: wrap;
@@ -15102,23 +15074,6 @@ details.devcard > summary {
   }
 }
 
-/* Settings, Notifications tab (#249): two column stacks (the .fcol pattern of the device Settings
-   tab), so a short card sits directly under the one above it instead of leaving a row gap. The
-   left stack is one grid column wide, the right one two. */
-.fcols.fcols-n {
-  grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-}
-@media (min-width: 60rem) {
-  /* the device Settings rules above turn .fcols into text columns below 75rem; this tab keeps its two stacks */
-  .fcols.fcols-n {
-    display: grid;
-    columns: auto;
-  }
-  .fcols-n .fcol {
-    display: flex;
-  }
-}
 .sys-pre {
   margin: 0;
   padding: var(--sp-10) var(--sp-12);
@@ -15130,36 +15085,6 @@ details.devcard > summary {
   white-space: pre-wrap;
   word-break: break-all;
 }
-@media (max-width: 59.99rem) {
-  /* one column: the cards in reading order, not column by column */
-  .fcols.fcols-n {
-    display: flex;
-    flex-direction: column;
-    columns: auto;
-    gap: var(--sp-16);
-  }
-  .fcols-n .fcol {
-    display: contents;
-  }
-  .fcols-n #card-notify-events {
-    order: 1;
-  }
-  .fcols-n #card-notify-webhook {
-    order: 2;
-  }
-  .fcols-n #card-notify-message {
-    order: 3;
-  }
-  .fcols-n #card-notify-email {
-    order: 4;
-  }
-}
-@media (max-width: 44.99rem) {
-  .fcols.fcols-n {
-    gap: 0;
-  }
-}
-
 /* Online + Boot loop / Weak Wi-Fi + a policy deviation does not fit the 170 px Status column on one line:
    the badges wrap instead of being cut (#325). */
 .devtable td.st-wrap {

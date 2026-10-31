@@ -104,7 +104,7 @@ async function shoot(page: Page, state: string) {
 // the short Events card next to the tall Webhook card. On a phone it is one column.
 test("the cards stack per column without gaps; one column on a phone", { tag: "@core" }, async ({ page }) => {
   await open(page);
-  await expect(page.locator("#sec-notifications .sgrid .scard h2")).toHaveText(["Events", "Message", "Webhook", "E-mail (SMTP)"]);
+  await expect(page.locator("#sec-notifications .cstacks .scard h2")).toHaveText(["Events", "Message", "Webhook", "E-mail (SMTP)"]);
   const box = async (id: string) => (await page.locator(id).boundingBox())!;
   const events = await box("#card-notify-events"), message = await box("#card-notify-message");
   const webhook = await box("#card-notify-webhook"), email = await box("#card-notify-email");

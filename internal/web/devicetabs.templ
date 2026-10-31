@@ -99,12 +99,12 @@ templ settingsBody(p settingsPage, base, csrf string) {
 	} else if len(p.Groups) > 0 {
 		<form class="devform devform-cards" method="post" action={ templ.SafeURL(base + devPath(p.Device.ID, "/settings")) } data-track-changes>
 			<input type="hidden" name="csrf" value={ csrf }/>
-			<div class="fcols">
+			@ui.CardStacks(3) {
 				for col := 0; col < 3; col++ {
-					<div class="fcol">
+					@ui.CardStack(1) {
 						for _, g := range p.Groups {
 							if g.Col == col {
-								<section class="scard gcard" id={ "card-" + g.ID }>
+								<section class={ "scard", "gcard", ui.StackRank(g.Phone) } id={ "card-" + g.ID }>
 									<div class="sch">
 										<div>
 											<h2>{ g.Name }</h2>
@@ -119,9 +119,9 @@ templ settingsBody(p settingsPage, base, csrf string) {
 								</section>
 							}
 						}
-					</div>
+					}
 				}
-			</div>
+			}
 			<div class="devform-foot">
 				<span class="devform-count">Applied immediately and saved to the device once. <span data-changed-count aria-live="polite"></span></span>
 				<button type="reset" class="btn">Reset</button>

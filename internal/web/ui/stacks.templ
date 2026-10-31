@@ -1,0 +1,36 @@
+package ui
+
+import "strconv"
+
+// Card stacks (#391, design rule): in every card grid the cards stack directly under each other per
+// column, so a short card next to a tall one leaves no empty gap below it. A page lists its cards
+// stack by stack inside CardStacks; that order is also the phone reading order (one column), so list
+// the cards in the order a person should read them, or give a card a phone place with StackRank.
+// The CSS (.cstacks, .cstack in app.css) is the only place that knows the breakpoints: columns
+// from 75rem, two balanced columns from 45rem, one column below.
+
+// SpanAll is the span of a stack that takes the whole row.
+const SpanAll = -1
+
+// CardStacks is the container of the stacks: cols columns (1 to 3) from 75rem.
+templ CardStacks(cols int) {
+	<div class={ "cstacks", "cstacks-" + strconv.Itoa(cols) }>
+		{ children... }
+	</div>
+}
+
+// CardStack is one column stack; span is the number of columns it takes (1, 2) or SpanAll.
+templ CardStack(span int) {
+	<div class={ "cstack", templ.KV("cstack-w2", span == 2), templ.KV("cstack-all", span == SpanAll) }>
+		{ children... }
+	</div>
+}
+
+// StackRank is the class that sets a card's place (1 to 8) on a phone when it differs from the
+// document order. The classes exist in app.css up to r8.
+func StackRank(n int) string {
+	if n < 1 {
+		return ""
+	}
+	return "r" + strconv.Itoa(n)
+}
