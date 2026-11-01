@@ -77,6 +77,10 @@ type StartOptions struct {
 	// no stored MAC (trust on first use). The live MAC must still be this one
 	// when the restore starts, or it is refused.
 	ExpectMAC string
+	// ConfirmedFiles is the number of files the confirmation page said the restore writes first. Files
+	// are written only when the plan at run time has exactly that many (a page that showed none, or
+	// an MQTT restore, cannot become a restore that writes files); 0 restores the settings only.
+	ConfirmedFiles int
 }
 
 // Assessment is what Assess found: the risks the admin has to accept.
@@ -365,7 +369,7 @@ func (m *Manager) StartWith(ctx context.Context, actor string, bid model.BackupI
 	go func() {
 		defer m.wg.Done()
 		defer release()
-		m.run(m.o.Context, job, dev, dmp, ips)
+		m.run(m.o.Context, job, dev, dmp, ips, opt.ConfirmedFiles)
 	}()
 	return job, nil
 }

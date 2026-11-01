@@ -49,7 +49,7 @@ func TestFailActiveRestores(t *testing.T) {
 	if err := s.UpdateRestore(ctx, jb); err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.FailActiveRestores(ctx, "interrupted by restart")
+	n, err := s.FailActiveRestores(ctx, "interrupted by restart", nil)
 	if err != nil || n != 1 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
@@ -86,7 +86,7 @@ func TestRestoreInFilesStateIsActiveAndRecoveredAfterARestart(t *testing.T) {
 	if _, err := s.CreateRestore(ctx, RestoreJob{DeviceID: d, BackupID: 2, Actor: "x"}); !errors.Is(err, ErrConflict) {
 		t.Errorf("a second restore while files are written: %v, want ErrConflict", err)
 	}
-	if n, err := s.FailActiveRestores(ctx, "interrupted by restart"); err != nil || n != 1 {
+	if n, err := s.FailActiveRestores(ctx, "interrupted by restart", nil); err != nil || n != 1 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
 	if got, _ := s.GetRestore(ctx, id); got.State != RestoreFailed {

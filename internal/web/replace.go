@@ -171,7 +171,7 @@ func (h *handler) replaceRun(w http.ResponseWriter, r *http.Request) {
 		h.renderReplace(w, r, http.StatusUnprocessableEntity, p)
 		return
 	}
-	opt := restore.StartOptions{AllowMajorChange: r.PostFormValue("major_ok") == "1", AllowUnknownFamily: r.PostFormValue("family_ok") == "1"}
+	opt := restore.StartOptions{AllowMajorChange: r.PostFormValue("major_ok") == "1", AllowUnknownFamily: r.PostFormValue("family_ok") == "1", ConfirmedFiles: formCount(r.PostFormValue("files"))}
 	job, err := h.replacer().StartReplace(r.Context(), actor(r), req, opt)
 	var need *restore.OverrideError
 	switch {

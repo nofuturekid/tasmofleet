@@ -453,7 +453,7 @@ func (m *Manager) StartReplace(ctx context.Context, actor string, req ReplaceReq
 		defer m.wg.Done()
 		defer release()
 		defer unclaim()
-		m.runReplace(m.o.Context, job, p)
+		m.runReplace(m.o.Context, job, p, opt.ConfirmedFiles)
 	}()
 	return job, nil
 }
@@ -497,7 +497,7 @@ func (m *Manager) failReplace(ctx context.Context, j *Job, why string) {
 // hardware, 2) restore the old device's backup onto it, expecting the NEW
 // hardware's MAC, 3) wait for the reboot and verify, 4) let the entry take
 // over the new MAC set in one transaction.
-func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan) {
+func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan, confirmedFiles int) {
 	ctx = backup.WithRun(ctx, backup.Run{Trigger: model.TriggerReplace})
 	bare := model.Device{Address: p.cand.Address, Port: p.cand.Port}
 	target := tasmota.TargetFor(bare)
@@ -521,7 +521,7 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan) {
 		}
 		return nil
 	}
-	fo, ferr := m.filesStep(ctx, &j, target, func(context.Context) (string, error) { return p.cand.Identity.Version, nil }, false, stillThere)
+	fo, ferr := m.filesStep(ctx, &j, target, func(context.Context) (string, error) { return p.cand.Identity.Version, nil }, false, stillThere, confirmedFiles)
 	if ferr != nil {
 		var ff *failedFiles
 		text := failFilesNone + ferr.Error()
@@ -533,24 +533,24 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan) {
 	}
 	m.step(ctx, &j, store.RestoreSending, "asking the replacement device to fetch the configuration")
 	if err := stillThere(); err != nil {
-		m.failReplace(ctx, &j, failUnchanged+err.Error())
+		m.failReplace(ctx, &j, fo.afterFiles(failUnchanged+err.Error()))
 		return
 	}
 	before, err := m.uptime(ctx, target)
 	if err != nil {
-		m.failReplace(ctx, &j, "replacement "+failUnreachable+err.Error())
+		m.failReplace(ctx, &j, fo.afterFiles("replacement "+failUnreachable+err.Error()))
 		return
 	}
 	tok, err := m.issue(j, p.dmp, []netip.Addr{p.ip})
 	if err != nil {
-		m.failReplace(ctx, &j, failToken+err.Error())
+		m.failReplace(ctx, &j, fo.afterFiles(failToken+err.Error()))
 		return
 	}
 	defer m.revoke(tok)
 	if _, err := m.o.Client.Command(ctx, target, "WebGetConfig "+m.o.BaseURL+"/restore/"+tok); err != nil {
 		unknown := m.consumed(tok) || errors.Is(err, tasmota.ErrTimeout) || errors.Is(err, tasmota.ErrBadResponse)
 		if !unknown {
-			m.failReplace(ctx, &j, failWebGetConfig+redactToken(err.Error(), tok))
+			m.failReplace(ctx, &j, fo.afterFiles(failWebGetConfig+redactToken(err.Error(), tok)))
 			return
 		}
 		m.o.Log.Warn("replace: WebGetConfig outcome unknown, checking the device", "component", "restore", "job", j.ID, "err", redactToken(err.Error(), tok))

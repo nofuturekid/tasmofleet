@@ -25,6 +25,8 @@ const (
 	// written (or one could not be put back). Both leave the settings as they were.
 	failFilesNone   = "the files could not be written, the device is unchanged: "
 	failFilesPartly = "files partly written, settings unchanged: "
+	// failFilesWritten: the files step succeeded, a later step before the settings went over failed.
+	failFilesWritten = "files written, settings unchanged: "
 
 	failPreBackup        = "backup before the restore failed, nothing was changed: "
 	failPreBackupReplace = "backup of the replacement device failed, nothing was changed: "
@@ -63,6 +65,8 @@ func FailedStep(detail string) int {
 	switch {
 	case strings.HasPrefix(detail, failFilesNone), strings.HasPrefix(detail, failFilesPartly):
 		return StepFiles
+	case strings.HasPrefix(detail, failFilesWritten):
+		return StepUpload // only the steps before the settings are wrapped (fo.afterFiles)
 	case strings.HasPrefix(detail, failPreBackup), strings.HasPrefix(detail, failPreBackupReplace):
 		return StepBackup
 	case strings.HasPrefix(detail, failAfterRestore), strings.HasPrefix(detail, failTakeOver):
@@ -75,7 +79,9 @@ func FailedStep(detail string) int {
 
 // FilesChanged reports whether a failure text says that the files step wrote to the device before
 // it failed: the page then offers the rollback to the backup taken first.
-func FilesChanged(detail string) bool { return strings.HasPrefix(detail, failFilesPartly) }
+func FilesChanged(detail string) bool {
+	return strings.HasPrefix(detail, failFilesPartly) || strings.HasPrefix(detail, failFilesWritten)
+}
 
 // detailSep separates the files summary from the rest in the Detail of a finished job.
 const detailSep = "\n"
@@ -87,4 +93,13 @@ func SplitDetail(detail string) (files, rest string) {
 		return f, r
 	}
 	return "", detail
+}
+
+// InterruptedDetails are the failure texts start-up recovery gives jobs that were running when the
+// process stopped, per job state; states not listed get the generic text. An interrupted files step
+// may have written files, which the generic text would not say.
+func InterruptedDetails() map[string]string {
+	return map[string]string{
+		store.RestoreFiles: failFilesPartly + "interrupted by a restart of tasmofleet; some files may have been written, the settings were not sent",
+	}
 }

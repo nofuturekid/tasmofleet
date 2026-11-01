@@ -19,7 +19,7 @@ func (a *runtime) setupRestore() error {
 	if a.backups == nil {
 		return nil
 	}
-	n, err := a.svc.Store.FailActiveRestores(context.Background(), "interrupted by a restart of tasmofleet")
+	n, err := a.svc.Store.FailActiveRestores(context.Background(), "interrupted by a restart of tasmofleet", restore.InterruptedDetails())
 	if err != nil {
 		return fmt.Errorf("restore recovery: %w", err)
 	}

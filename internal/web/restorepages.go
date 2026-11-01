@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -167,6 +168,10 @@ func restoreConfirmOf(v view, p confirmPage) restoreConfirmView {
 		"Settings are read back and compared with the backup.",
 	}
 	ack := "I understand that " + p.Device.Name + " restarts, its configuration is replaced by this backup and the old credentials (Wi-Fi, MQTT, web password) come back"
+	c.Hidden = append(c.Hidden, ui.KVRow{Key: "files", Value: strconv.Itoa(confirmedFiles(p.Files))})
+	if p.Files.Why != "" {
+		c.FilesWarn = sentence(p.Files.Why) // also without a list (a damaged archive has none)
+	}
 	if n := len(p.Files.Files); n > 0 {
 		stored := fmt.Sprintf("%s, %s", filesPlural(n), humanBytes(p.Files.Bytes))
 		card := &filesCard{Rows: fileRowsOf(p.Files)}
@@ -174,7 +179,7 @@ func restoreConfirmOf(v view, p confirmPage) restoreConfirmView {
 			card.Title = "Files written first (" + stored + ")"
 			card.Foot = "Files first, then the settings, one restart. Files of the same name are replaced. Nothing on the device is deleted: files that are not in the backup stay as they are."
 			c.StepsText = []string{
-				"TasmoFleet backs up the current state first, with its files, so you can undo this.",
+				"TasmoFleet backs up the current state first, with its files, so you can undo this (a file that backup cannot hold is not overwritten).",
 				fmt.Sprintf("The %s are written to the device's filesystem.", filesPlural(n)),
 				"The backup is uploaded and the device restarts (relays switch off for a few seconds).",
 				"Settings and files are read back and compared with the backup.",
@@ -183,7 +188,6 @@ func restoreConfirmOf(v view, p confirmPage) restoreConfirmView {
 		} else {
 			card.Title = "Files in this backup (" + stored + "): not restored"
 			card.Foot = "Nothing on the device is deleted or changed."
-			c.FilesWarn = sentence(p.Files.Why)
 		}
 		c.Files = card
 	} else if p.Files.Note != "" {
@@ -299,7 +303,7 @@ func restoreJobOf(base string, p jobPage, target, pre model.Backup, preFiles boo
 					}
 				}
 			case restore.StepFiles:
-				s.Detail = filesStepDetail(j.Detail, prog)
+				s.Detail = filesStepDetail(j, prog)
 			case restore.StepUpload:
 				if target.ID != 0 {
 					s.Detail = humanBytes(target.Size) + " uploaded over " + map[bool]string{true: "MQTT", false: "HTTP"}[j.Transport == model.TransportMQTT]
@@ -405,12 +409,19 @@ func writeComponent(w http.ResponseWriter, r *http.Request, status int, c templ.
 	return c.Render(r.Context(), w)
 }
 
-// filesStepDetail is the line under the finished files step: what the step did, kept in the job's
-// Detail, plus the files the backup does not hold.
-func filesStepDetail(detail string, prog *restore.FilesProgress) string {
-	files, _ := restore.SplitDetail(detail)
+// filesStepDetail is the line under the finished files step: what the step did, plus the files the
+// backup does not hold. While later steps run the job's Detail holds their status, so the line comes
+// from the progress; the stored summary (first line of a finished job's Detail) serves after a restart.
+func filesStepDetail(j restore.Job, prog *restore.FilesProgress) string {
+	files, _ := restore.SplitDetail(j.Detail)
+	if prog != nil && prog.Summary != "" {
+		files = prog.Summary
+	}
 	if files == "" {
-		return "No files in this backup"
+		if j.State == store.RestoreDone {
+			return "No files in this backup"
+		}
+		return ""
 	}
 	files = upperFirst(files)
 	if prog != nil && len(prog.NotStored) > 0 {
@@ -421,6 +432,15 @@ func filesStepDetail(detail string, prog *restore.FilesProgress) string {
 		}
 	}
 	return files
+}
+
+// confirmedFiles is the number the confirmation form carries: the files this restore writes first,
+// 0 when it writes none.
+func confirmedFiles(p restore.FilesPlan) int {
+	if p.Restores() {
+		return len(p.Files)
+	}
+	return 0
 }
 
 // progressRow is a file of the files step with its state.

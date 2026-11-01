@@ -316,3 +316,24 @@ func TestReplacePreviewListsTheFilesAndAcknowledgesThem(t *testing.T) {
 		t.Errorf("files that cannot be written must say why:\n%s", off)
 	}
 }
+
+// Why (M3): the replacement confirmation is bound to the file plan it showed, like the restore's.
+func TestReplaceConfirmationCarriesTheFileCount(t *testing.T) {
+	e, _, rr := newAdminEnv(t)
+	rr.preview.Files = restore.FilesPlan{Files: []restore.PlannedFile{{Path: "/autoexec.be", Size: 1}, {Path: "/x.be", Size: 1}}}
+	_, body := e.do(t, "GET", "/devices/1/replace/preview?address=10.0.0.9", "admin", nil)
+	if !strings.Contains(body, `name="files" value="2"`) {
+		t.Errorf("form lacks the file count:\n%s", body)
+	}
+	e.do(t, "POST", "/devices/1/replace", "admin", url.Values{"address": {"10.0.0.9"}, "confirm": {"1"}, "files": {"2"}})
+	e.do(t, "POST", "/devices/1/replace", "admin", url.Values{"address": {"10.0.0.9"}, "confirm": {"1"}})
+	if len(rr.opts) != 2 || rr.opts[0].ConfirmedFiles != 2 || rr.opts[1].ConfirmedFiles != 0 {
+		t.Errorf("options: %+v", rr.opts)
+	}
+	// a reason without a list is shown too
+	rr.preview.Files = restore.FilesPlan{Why: "the files archive of this backup is damaged or missing, so only the settings are restored"}
+	_, off := e.do(t, "GET", "/devices/1/replace/preview?address=10.0.0.9", "admin", nil)
+	if !strings.Contains(off, "damaged or missing") || !strings.Contains(off, `name="files" value="0"`) {
+		t.Errorf("reason missing:\n%s", off)
+	}
+}

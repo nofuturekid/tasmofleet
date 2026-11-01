@@ -10,6 +10,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/backup"
 	"github.com/nofuturekid/tasmofleet/internal/model"
@@ -86,6 +87,11 @@ type FilesProgress struct {
 	NotStored []backup.ManifestSkip
 	// Writes counts the uploads that reached the device (each is a flash write there), put-backs included.
 	Writes int
+	// NotUndone names files that were not written because the backup taken before did not hold their
+	// current content, so overwriting them could not have been undone.
+	NotUndone []string
+	// Summary is what the files step did (or why it did nothing), for the page while later steps run.
+	Summary string
 	// Lost names files that could not be put back after a failed upload: their old content is gone
 	// from the device.
 	Lost []string
@@ -127,6 +133,7 @@ func (p *progress) snapshot() FilesProgress {
 	out := p.p
 	out.Files = append([]FileProgress(nil), p.p.Files...)
 	out.Lost = append([]string(nil), p.p.Lost...)
+	out.NotUndone = append([]string(nil), p.p.NotUndone...)
 	return out
 }
 
@@ -161,6 +168,18 @@ func (pr *progress) wrote() {
 	pr.m.mu.Lock()
 	defer pr.m.mu.Unlock()
 	pr.p.Writes++
+}
+
+func (pr *progress) notUndone(name string) {
+	pr.m.mu.Lock()
+	defer pr.m.mu.Unlock()
+	pr.p.NotUndone = append(pr.p.NotUndone, name)
+}
+
+func (pr *progress) setSummary(s string) {
+	pr.m.mu.Lock()
+	defer pr.m.mu.Unlock()
+	pr.p.Summary = s
 }
 
 func (pr *progress) lost(name string) {
@@ -228,11 +247,13 @@ func (m *Manager) planFiles(ctx context.Context, id model.BackupID, t tasmota.Ta
 // filesCheck is what the verification compares with the fresh backup: the files the device holds
 // in the backup's version afterwards (written or already the same).
 type filesCheck struct {
-	want map[string]string // device path -> SHA-256 hex of the backup's content
+	want   map[string]string // device path -> SHA-256 hex of the backup's content
+	missed []string          // files not written because the restore could not have been undone
 }
 
 // filesOutcome is what the files step reports to the rest of the run.
 type filesOutcome struct {
+	wrote   bool // at least one upload reached the device: a later failure may not say "nothing was changed"
 	plan    FilesPlan
 	summary string // the sentence for the finished job; empty when there is nothing to say
 	check   *filesCheck
@@ -244,12 +265,6 @@ type failedFiles struct{ text string }
 func (e *failedFiles) Error() string { return e.text }
 
 func display(p string) string { return strings.TrimPrefix(p, "/") }
-
-// reachedDevice reports whether an upload error leaves the file untouched: the client checked or
-// asked before it sent a body.
-func untouched(err error) bool {
-	return errors.Is(err, tasmota.ErrBadPath) || errors.Is(err, tasmota.ErrFolderNotFound) || errors.Is(err, tasmota.ErrNotAFolder)
-}
 
 // sizeOnDevice lists the file's folder and returns its size (the device says "Successful" after a
 // short write, so every upload is checked).
@@ -270,27 +285,67 @@ func sizeOnDevice(ctx context.Context, fs tasmota.FileSystem, t tasmota.Target, 
 	return 0, tasmota.ErrFileNotFound
 }
 
+// undoSet maps device paths to the SHA-256 of the file in the backup taken before the restore: the
+// files that backup can give back.
+type undoSet map[string]string
+
+// undoable reads what the safety backup of this run holds of the device's files. A backup without
+// files, or one that cannot be read, holds none: every file that would be overwritten is then skipped.
+func (m *Manager) undoable(ctx context.Context, pre model.BackupID) undoSet {
+	set := undoSet{}
+	if m.o.Files == nil || pre == 0 {
+		return set
+	}
+	rf, err := m.o.Files.RunFiles(ctx, pre)
+	if err != nil || rf.Manifest == nil {
+		return set
+	}
+	for _, f := range rf.Manifest.Files {
+		set[f.Path] = f.SHA256
+	}
+	return set
+}
+
+// Why a file is not written; fixed sentences (error text can carry device URLs).
+const (
+	whyNoUndo   = "not in the backup taken before, so overwriting it could not be undone"
+	whyNameLong = "the device cannot take this file name (49 byte limit for folder and name)"
+	whyNoFolder = "folder missing on the device; create it in the device's file manager"
+)
+
+// putBackTimeout bounds the put-back of an old file; it runs even when the restore was cancelled,
+// because a half-written file is worse than a slow shutdown.
+const putBackTimeout = 2 * time.Minute
+
 // writeFiles puts the plan's files on the device, one after the other (see the package comment of
 // this file). It returns what happened, or a *failedFiles whose text ends the restore with the
 // settings unchanged.
 func (m *Manager) writeFiles(ctx context.Context, j *Job, t tasmota.Target, plan FilesPlan) (*filesOutcome, error) {
 	fs := m.o.Client.(tasmota.FileSystem) // planFiles only plans files for a client that has it
 	pr := m.track(j.ID, plan)
+	undo := m.undoable(ctx, j.PreBackupID)
 	out := &filesOutcome{plan: plan, check: &filesCheck{want: map[string]string{}}}
 	total := len(plan.Files)
-	fail := func(i int, state FileState, why string, prefix, text string) (*filesOutcome, error) {
-		pr.set(i, state, why)
+	fail := func(i int, state FileState, prefix, text string) (*filesOutcome, error) {
+		pr.set(i, state, "")
 		return nil, &failedFiles{prefix + text}
 	}
 	for i, f := range plan.Files {
 		if err := ctx.Err(); err != nil {
-			return fail(i, FileWaiting, "", failFilesNone, err.Error())
+			return fail(i, FileWaiting, m.filesPrefix(pr), err.Error())
 		}
 		m.step(ctx, j, store.RestoreFiles, fmt.Sprintf("writing %s (%d of %d)", display(f.Path), i+1, total))
 		pr.set(i, FileWriting, "")
+		skip := func(why string) {
+			pr.set(i, FileSkipped, why)
+		}
+		if err := tasmota.CheckUploadPath(f.Path); err != nil {
+			skip(whyNameLong)
+			continue
+		}
 		data, err := plan.archive.Read(f.Path)
 		if err != nil {
-			return fail(i, FileFailed, "", m.filesPrefix(pr), display(f.Path)+": "+err.Error())
+			return fail(i, FileFailed, m.filesPrefix(pr), display(f.Path)+": "+err.Error())
 		}
 		// Keep the device's current file: the upload deletes it first, and a failed upload must not
 		// cost the person a file. A file that cannot be read cannot be put back, so none is written.
@@ -303,21 +358,40 @@ func (m *Manager) writeFiles(ctx context.Context, j *Job, t tasmota.Target, plan
 				out.check.want[f.Path] = shaOf(data)
 				continue
 			}
+			// A restore must be undoable: the file may be overwritten only when the backup taken
+			// before holds exactly this content (it can be capped, incomplete or missing).
+			if undo[f.Path] != shaOf(old) {
+				skip(whyNoUndo)
+				pr.notUndone(display(f.Path))
+				out.check.missed = append(out.check.missed, display(f.Path))
+				continue
+			}
+		case errors.Is(err, tasmota.ErrFileTooLarge):
+			// Bigger than the safety backup holds (1 MiB): it could not be undone, so it stays.
+			skip(whyNoUndo)
+			pr.notUndone(display(f.Path))
+			out.check.missed = append(out.check.missed, display(f.Path))
+			continue
 		case errors.Is(err, tasmota.ErrFileNotFound):
 		case errors.Is(err, tasmota.ErrNotAFile):
-			pr.set(i, FileSkipped, "a folder of this name exists on the device")
+			skip("a folder of this name exists on the device")
 			continue
 		default:
-			return fail(i, FileFailed, "", m.filesPrefix(pr), display(f.Path)+" on the device could not be read first, so it was not overwritten: "+err.Error())
+			return fail(i, FileFailed, m.filesPrefix(pr), display(f.Path)+" on the device could not be read first, so it was not overwritten: "+err.Error())
 		}
 
 		err = fs.UploadFile(ctx, t, f.Path, data)
-		if !untouched(err) {
+		notSent := errors.Is(err, tasmota.ErrNotSent)
+		if !notSent {
 			pr.wrote()
 		}
-		if errors.Is(err, tasmota.ErrFolderNotFound) || errors.Is(err, tasmota.ErrNotAFolder) {
-			pr.set(i, FileSkipped, "folder missing on the device; create it in the device's file manager")
+		switch {
+		case errors.Is(err, tasmota.ErrFolderNotFound), errors.Is(err, tasmota.ErrNotAFolder):
+			skip(whyNoFolder)
 			continue
+		case notSent:
+			// Nothing reached the file: no put-back, no write counted, the old file is intact.
+			return fail(i, FileFailed, m.filesPrefix(pr), display(f.Path)+" was not written, the file on the device is untouched: "+err.Error())
 		}
 		if err == nil {
 			var n int64
@@ -334,7 +408,9 @@ func (m *Manager) writeFiles(ctx context.Context, j *Job, t tasmota.Target, plan
 		out.check.want[f.Path] = shaOf(data)
 	}
 	snap := pr.snapshot()
+	out.wrote = snap.Writes > 0
 	out.summary = filesSummary(snap)
+	pr.setSummary(out.summary)
 	return out, nil
 }
 
@@ -354,13 +430,15 @@ func (m *Manager) putBack(ctx context.Context, fs tasmota.FileSystem, t tasmota.
 	if !hasOld {
 		return display(p) + " did not exist before and may now be partly written"
 	}
-	err := fs.UploadFile(ctx, t, p, old)
-	if !untouched(err) {
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), putBackTimeout)
+	defer cancel()
+	err := fs.UploadFile(bctx, t, p, old)
+	if !errors.Is(err, tasmota.ErrNotSent) {
 		pr.wrote()
 	}
 	if err == nil {
 		var n int64
-		if n, err = sizeOnDevice(ctx, fs, t, p); err == nil && n != int64(len(old)) {
+		if n, err = sizeOnDevice(bctx, fs, t, p); err == nil && n != int64(len(old)) {
 			err = errors.New("size differs after the put-back")
 		}
 	}
@@ -384,7 +462,11 @@ func filesSummary(p FilesProgress) string {
 		parts = append(parts, fmt.Sprintf("%d already the same", same))
 	}
 	if skipped > 0 {
-		parts = append(parts, fmt.Sprintf("%d skipped", skipped))
+		sk := fmt.Sprintf("%d skipped", skipped)
+		if n := len(p.NotUndone); n > 0 {
+			sk += fmt.Sprintf(" (%d of them not written because the backup taken before does not hold the file as it is on the device, so it could not be undone)", n)
+		}
+		parts = append(parts, sk)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -401,39 +483,58 @@ func notWrittenSummary(plan FilesPlan) string {
 }
 
 // verifyFiles compares the files a fresh backup read from the device with what the restore put
-// there. A file the device rewrote itself (Zigbee data) shows up as a difference, named, never its content.
+// there. A file the device rewrote itself (Zigbee data) shows up as a difference, named, never its
+// content; a file the fresh backup could not read back (over the size limit, unreadable) is said
+// separately, because "differs" would claim more than is known.
 func (m *Manager) verifyFiles(ctx context.Context, fresh []model.Backup, fc *filesCheck) (string, bool) {
-	if len(fc.want) == 0 {
-		return "", true
+	var parts []string
+	ok := true
+	if n := len(fc.missed); n > 0 {
+		parts = append(parts, fmt.Sprintf("%s not written because the backup taken before could not have undone it: %s", plural(n, "file", "files"), strings.Join(fc.missed, ", ")))
+		ok = false
 	}
-	var row *model.Backup
-	for i := range fresh {
-		if fresh[i].Kind == model.BackupFiles {
-			row = &fresh[i]
+	if len(fc.want) > 0 {
+		var row *model.Backup
+		for i := range fresh {
+			if fresh[i].Kind == model.BackupFiles {
+				row = &fresh[i]
+			}
+		}
+		if row == nil || m.o.Files == nil {
+			return strings.Join(append(parts, "the files could not be compared (the fresh backup holds no files)"), "; "), false
+		}
+		arc, err := m.o.Files.OpenFilesArchive(ctx, row.ID)
+		if err != nil {
+			return strings.Join(append(parts, "the files could not be compared (the fresh backup's files could not be read)"), "; "), false
+		}
+		have := map[string]string{}
+		for _, f := range arc.Manifest.Files {
+			have[f.Path] = f.SHA256
+		}
+		var diff, unread []string
+		for p, sum := range fc.want {
+			switch got, found := have[p]; {
+			case !found:
+				unread = append(unread, display(p))
+			case got != sum:
+				diff = append(diff, display(p))
+			}
+		}
+		slices.Sort(diff)
+		slices.Sort(unread)
+		if len(diff) == 0 && len(unread) == 0 {
+			parts = append(parts, fmt.Sprintf("the %s match the backup", plural(len(fc.want), "file", "files")))
+		}
+		if len(diff) > 0 {
+			parts = append(parts, fmt.Sprintf("%s differ from the backup: %s", plural(len(diff), "file", "files"), strings.Join(diff, ", ")))
+			ok = false
+		}
+		if len(unread) > 0 {
+			parts = append(parts, fmt.Sprintf("%s could not be read back to compare: %s", plural(len(unread), "file", "files"), strings.Join(unread, ", ")))
+			ok = false
 		}
 	}
-	if row == nil || m.o.Files == nil {
-		return "the files could not be compared (the fresh backup holds no files)", false
-	}
-	arc, err := m.o.Files.OpenFilesArchive(ctx, row.ID)
-	if err != nil {
-		return "the files could not be compared (the fresh backup's files could not be read)", false
-	}
-	have := map[string]string{}
-	for _, f := range arc.Manifest.Files {
-		have[f.Path] = f.SHA256
-	}
-	var diff []string
-	for p, sum := range fc.want {
-		if have[p] != sum {
-			diff = append(diff, display(p))
-		}
-	}
-	slices.Sort(diff)
-	if len(diff) == 0 {
-		return fmt.Sprintf("the %s match the backup", plural(len(fc.want), "file", "files")), true
-	}
-	return fmt.Sprintf("%s differ from the backup: %s", plural(len(diff), "file", "files"), strings.Join(diff, ", ")), false
+	return strings.Join(parts, "; "), ok
 }
 
 func plural(n int, one, many string) string {
@@ -443,15 +544,27 @@ func plural(n int, one, many string) string {
 	return fmt.Sprintf("%d %s", n, many)
 }
 
-// filesStep is the whole files step of a restore: plan, check the identity, write. fo is never nil
-// on success; a non-nil error is the failure text that ends the job.
-func (m *Manager) filesStep(ctx context.Context, j *Job, t tasmota.Target, version func(context.Context) (string, error), viaMQTT bool, identity func() error) (*filesOutcome, error) {
+// filesStep is the whole files step of a restore: plan, check the confirmation, check the identity,
+// write. confirmed is the number of files the confirmation page promised (StartOptions.ConfirmedFiles):
+// files are written only when the page showed exactly this plan. fo is never nil on success; a
+// non-nil error is the failure text that ends the job.
+func (m *Manager) filesStep(ctx context.Context, j *Job, t tasmota.Target, version func(context.Context) (string, error), viaMQTT bool, identity func() error, confirmed int) (*filesOutcome, error) {
 	plan, err := m.planFiles(ctx, j.BackupID, t, version, viaMQTT)
 	if err != nil {
 		return nil, &failedFiles{failFilesNone + err.Error()}
 	}
+	if plan.Why == "" && len(plan.Files) > 0 {
+		switch {
+		case confirmed == 0:
+			plan.Why = "the confirmation did not offer them, so only the settings are restored"
+		case confirmed != len(plan.Files):
+			plan.Why = "the list of files changed since the confirmation, so only the settings are restored"
+		}
+	}
 	if !plan.Restores() {
-		return &filesOutcome{plan: plan, summary: notWrittenSummary(plan)}, nil
+		out := &filesOutcome{plan: plan, summary: notWrittenSummary(plan)}
+		m.track(j.ID, FilesPlan{NotStored: plan.NotStored}).setSummary(out.summary)
+		return out, nil
 	}
 	m.step(ctx, j, store.RestoreFiles, "checking the device before writing files")
 	// The address may have changed hands since Start: the files of this device must never go to another one.
@@ -459,6 +572,18 @@ func (m *Manager) filesStep(ctx context.Context, j *Job, t tasmota.Target, versi
 		return nil, &failedFiles{failFilesNone + err.Error()}
 	}
 	return m.writeFiles(ctx, j, t, plan)
+}
+
+// afterFiles words a failure of a later step. When files were already written the device is not
+// "unchanged": the text says the settings are, names the files, and the page offers the rollback.
+// The step stays the upload step (FailedStep).
+func (fo *filesOutcome) afterFiles(text string) string {
+	if fo == nil || !fo.wrote {
+		return text
+	}
+	text = strings.Replace(text, ", nothing was changed: ", ": ", 1)
+	text = strings.TrimPrefix(text, failUnchanged)
+	return failFilesWritten + text
 }
 
 // withSummary puts the files part in front of the verification sentence (see SplitDetail).

@@ -13195,53 +13195,17 @@ main.bare {
 }
 
 /* restore (#324): the files list (confirmation card, progress card) */
-.rs-fl {
-  display: flex;
-  flex-direction: column;
-}
-.rs-fl-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 2px var(--sp-12);
-  padding: 6px 0;
-  border-top: var(--hair-w) solid var(--color-border);
-  font-size: 12.5px;
-}
-.rs-fl-row:first-child {
-  border-top: 0;
-}
-.rs-fl-path {
-  font-family: var(--font-mono);
-  overflow-wrap: anywhere;
-}
-.rs-fl-tags {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.rs-fl-size {
-  font-family: var(--font-mono);
-  color: var(--color-text-2);
-  text-align: right;
-  min-width: 64px;
-}
-.rs-fl-why {
-  grid-column: 1 / -1;
-  font-size: 12px;
-  color: var(--color-text-2);
-}
-.rs-fl-row.is-stays .rs-fl-path {
-  color: var(--color-text-2);
-}
-.rs-files > .rs-fl {
+.rs-files > .bk-fl {
   padding: 0 var(--sp-16);
+}
+.rs-files > .bk-fl > .bk-fl-row:first-child,
+.rs-filelist .bk-fl-row:first-child {
+  border-top: 0;
 }
 .rs-files-foot {
   border-top: var(--hair-w) solid var(--color-border);
 }
-.rs-filelist .rs-fl {
+.rs-filelist .bk-fl {
   padding: 0 var(--sp-14) var(--sp-6);
 }
 .ulist-meta {

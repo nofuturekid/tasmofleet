@@ -68,9 +68,11 @@ type RestoreStore interface {
 	UpdateRestore(ctx context.Context, j RestoreJob) error
 	// ListRestores returns the newest jobs of a device first; limit <= 0 means all.
 	ListRestores(ctx context.Context, device model.DeviceID, limit int) ([]RestoreJob, error)
-	// FailActiveRestores marks every unfinished job failed with reason (start-up
-	// recovery: the process that ran them is gone) and returns the count.
-	FailActiveRestores(ctx context.Context, reason string) (int64, error)
+	// FailActiveRestores marks every unfinished job failed (start-up recovery: the process that ran
+	// them is gone) and returns the count. A job gets byState[its state] when that has an entry (an
+	// interrupted files step has probably changed files, which the generic text would not say),
+	// reason otherwise.
+	FailActiveRestores(ctx context.Context, reason string, byState map[string]string) (int64, error)
 }
 
 const restoreCols = "id, device_id, backup_id, pre_backup_id, state, detail, verified, changes, actor, created_at, updated_at, kind, new_mac, new_address, new_port, transport"
@@ -141,7 +143,16 @@ func (s *SQLite) ListRestores(ctx context.Context, device model.DeviceID, limit 
 	return out, rows.Err()
 }
 
-func (s *SQLite) FailActiveRestores(ctx context.Context, reason string) (int64, error) {
-	return rowsDeleted(s.db.ExecContext(ctx, `UPDATE restore_jobs SET state=?, detail=?, updated_at=? WHERE state NOT IN ('done','failed')`,
-		RestoreFailed, reason, toMS(s.now())))
+func (s *SQLite) FailActiveRestores(ctx context.Context, reason string, byState map[string]string) (int64, error) {
+	now := toMS(s.now())
+	var n int64
+	for state, text := range byState {
+		c, err := rowsDeleted(s.db.ExecContext(ctx, `UPDATE restore_jobs SET state=?, detail=?, updated_at=? WHERE state=?`, RestoreFailed, text, now, state))
+		if err != nil {
+			return n, err
+		}
+		n += c
+	}
+	c, err := rowsDeleted(s.db.ExecContext(ctx, `UPDATE restore_jobs SET state=?, detail=?, updated_at=? WHERE state NOT IN ('done','failed')`, RestoreFailed, reason, now))
+	return n + c, err
 }

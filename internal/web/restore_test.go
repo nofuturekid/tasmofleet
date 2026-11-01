@@ -616,3 +616,63 @@ func TestFilesFailureOffersRollbackOnlyAfterAWrite(t *testing.T) {
 		t.Errorf("an unchanged device must not offer a rollback:\n%s", none)
 	}
 }
+
+// Why (M3): the confirmation carries the plan it showed (the number of files written first) and
+// the start passes exactly that on; a form without it restores the settings only.
+func TestRestoreConfirmationIsBoundToTheShownFilePlan(t *testing.T) {
+	e, _, rs := newDiffEnv(t)
+	rs.assess = filesAssess()
+	_, body := e.do(t, "GET", "/backups/1/restore", "admin", nil)
+	if !strings.Contains(body, `name="files" value="3"`) {
+		t.Errorf("the form must carry the file count the page showed:\n%s", body)
+	}
+	e.do(t, "POST", "/backups/1/restore", "admin", url.Values{"confirm": {"1"}, "files": {"3"}})
+	e.do(t, "POST", "/backups/1/restore", "admin", url.Values{"confirm": {"1"}})
+	if len(rs.opts) != 2 || rs.opts[0].ConfirmedFiles != 3 || rs.opts[1].ConfirmedFiles != 0 {
+		t.Errorf("options: %+v", rs.opts)
+	}
+	a := filesAssess()
+	a.Files.Why = "files need HTTP, and this restore goes over MQTT, so only the settings are restored"
+	rs.assess = a
+	_, body = e.do(t, "GET", "/backups/1/restore", "admin", nil)
+	if !strings.Contains(body, `name="files" value="0"`) {
+		t.Errorf("a plan that does not write files confirms 0:\n%s", body)
+	}
+}
+
+// Why (M3): a reason that stops the files must be on the page even when the file list itself is
+// unknown (a damaged archive has no list): the person is told, not left to guess.
+func TestRestoreConfirmShowsTheReasonWhenThereIsNoFileList(t *testing.T) {
+	e, _, rs := newDiffEnv(t)
+	rs.assess = restore.Assessment{Files: restore.FilesPlan{Why: "the files archive of this backup is damaged or missing, so only the settings are restored"}}
+	_, body := e.do(t, "GET", "/backups/1/restore", "admin", nil)
+	if !strings.Contains(body, "The files archive of this backup is damaged or missing") {
+		t.Errorf("missing the reason:\n%s", body)
+	}
+}
+
+// Why (H2): "so you can undo this" must not promise more than the safety backup holds: files it
+// cannot hold are not overwritten, and the page says so.
+func TestRestoreConfirmDoesNotPromiseMoreThanTheSafetyBackupHolds(t *testing.T) {
+	e, _, rs := newDiffEnv(t)
+	rs.assess = filesAssess()
+	_, body := e.do(t, "GET", "/backups/1/restore", "admin", nil)
+	if !strings.Contains(body, "a file that backup cannot hold is not overwritten") {
+		t.Errorf("the undo sentence must be conditional:\n%s", body)
+	}
+}
+
+// Why (M4): while the later steps run, Detail holds their status text; the files line comes from
+// the progress, so a finished files step does not read "No files in this backup".
+func TestFilesLineStaysWhileLaterStepsRun(t *testing.T) {
+	e, _, rs := newDiffEnv(t)
+	rs.jobs = map[store.RestoreID]restore.Job{
+		1: {ID: 1, DeviceID: 1, BackupID: 1, Actor: "a", State: store.RestoreWaiting, Detail: "waiting for the download and the reboot", PreBackupID: 4, CreatedAt: time.Now()},
+	}
+	rs.progress = map[store.RestoreID]restore.FilesProgress{1: {Summary: "3 files written (3 flash writes)", Files: []restore.FileProgress{
+		{PlannedFile: restore.PlannedFile{Path: "/autoexec.be", Size: 1}, State: restore.FileWritten}}}}
+	_, body := e.do(t, "GET", "/restores/1/status", "admin", nil)
+	if !strings.Contains(body, "3 files written (3 flash writes)") || strings.Contains(body, "No files in this backup") {
+		t.Errorf("files line lost:\n%s", body)
+	}
+}

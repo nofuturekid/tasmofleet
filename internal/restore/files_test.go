@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -105,7 +106,7 @@ func TestRestoreWritesTheFilesBeforeTheSettings(t *testing.T) {
 	e, a := filesFlow(t)
 	e.setDevFile(t, "/tlskey", backupFiles["/tlskey"]) // the key is already right: no write needed
 
-	job, err := e.m.Start(t.Context(), "alice", a.ID)
+	job, err := e.m.StartWith(t.Context(), "alice", a.ID, StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func TestFailedUploadPutsTheOldFileBack(t *testing.T) {
 		}
 		return nil
 	}
-	job, err := e.m.Start(t.Context(), "alice", a.ID)
+	job, err := e.m.StartWith(t.Context(), "alice", a.ID, StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestFileThatCannotBePutBackIsReportedAsLost(t *testing.T) {
 		}
 		return errors.New("device refuses")
 	}
-	job, err := e.m.Start(t.Context(), "alice", a.ID)
+	job, err := e.m.StartWith(t.Context(), "alice", a.ID, StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +256,7 @@ func TestDeviceWithoutAFileSystemRestoresSettingsOnly(t *testing.T) {
 	if err != nil || as.Files.Restores() || as.Files.Note == "" {
 		t.Fatalf("assessment %+v %v: want no files and the reason", as.Files, err)
 	}
-	job, err := e.m.Start(t.Context(), "alice", a.ID)
+	job, err := e.m.StartWith(t.Context(), "alice", a.ID, StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +282,7 @@ func TestRestoreOverMQTTPutsBackSettingsOnlyAndSaysSo(t *testing.T) {
 	if as.Files.Restores() || !strings.Contains(as.Files.Why, "HTTP") || len(as.Files.Files) != 3 {
 		t.Fatalf("assessment: %+v", as.Files)
 	}
-	job, err := m.Start(t.Context(), "alice", a.ID)
+	job, err := m.StartWith(t.Context(), "alice", a.ID, StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +326,7 @@ func TestReplaceOntoAFreshDeviceWritesFilesAndReportsMissingFolders(t *testing.T
 	e.breakOld(t)
 	newTarget := tasmota.TargetFor(model.Device{Address: e.newHost, Port: e.newPort})
 
-	job, err := e.m.StartReplace(t.Context(), "alice", e.req(a.ID), StartOptions{})
+	job, err := e.m.StartReplace(t.Context(), "alice", e.req(a.ID), StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +367,7 @@ func TestReplaceFilesFailureLeavesTheEntryAlone(t *testing.T) {
 		}
 		return nil
 	}
-	job, err := e.m.StartReplace(t.Context(), "alice", e.req(a.ID), StartOptions{})
+	job, err := e.m.StartReplace(t.Context(), "alice", e.req(a.ID), StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +395,7 @@ func TestFilesAreNotWrittenToAnotherDeviceAtTheAddress(t *testing.T) {
 			e.cl.mu.Unlock()
 		}
 	}
-	job, err := e.m.Start(t.Context(), "alice", a.ID)
+	job, err := e.m.StartWith(t.Context(), "alice", a.ID, StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +424,7 @@ func TestDamagedFilesArchiveRestoresSettingsOnly(t *testing.T) {
 	if err != nil || as.Files.Restores() || !strings.Contains(as.Files.Why, "damaged") {
 		t.Fatalf("assessment %+v %v", as.Files, err)
 	}
-	job, err := e.m.Start(t.Context(), "alice", a.ID)
+	job, err := e.m.StartWith(t.Context(), "alice", a.ID, StartOptions{ConfirmedFiles: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,5 +434,247 @@ func TestDamagedFilesArchiveRestoresSettingsOnly(t *testing.T) {
 	}
 	if files, _ := SplitDetail(done.Detail); !strings.Contains(files, "damaged") {
 		t.Errorf("summary %q", files)
+	}
+}
+
+// --- review of #427 ---------------------------------------------------------------------------
+
+func (e *flowEnv) startFiles(t *testing.T, id model.BackupID, confirmed int) Job {
+	t.Helper()
+	job, err := e.m.StartWith(t.Context(), "alice", id, StartOptions{ConfirmedFiles: confirmed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return job
+}
+
+// Why (H1): once a file was written the device is not "unchanged". A later failure before the
+// settings go over (here: the address changed hands after the files) must say so, keep the step,
+// and offer the rollback to the backup taken first, which also puts the old files back.
+func TestFailureAfterTheFilesWereWrittenDoesNotClaimNothingChanged(t *testing.T) {
+	e, a := filesFlow(t)
+	e.cl.uploadHook = func(p string, _ int) error {
+		if p == "/lib/a.be" { // the second file: from now on another host answers at the address
+			e.cl.mu.Lock()
+			e.cl.status5 = "aa:bb:cc:99:99:99"
+			e.cl.mu.Unlock()
+		}
+		return nil
+	}
+	done := e.finish(t, e.startFiles(t, a.ID, 3).ID)
+	if done.State != store.RestoreFailed || !FilesChanged(done.Detail) || FailedStep(done.Detail) != StepUpload {
+		t.Fatalf("job: %+v", done)
+	}
+	if strings.Contains(done.Detail, "nothing was changed") || !strings.HasPrefix(done.Detail, failFilesWritten) {
+		t.Errorf("a device with written files is not unchanged: %q", done.Detail)
+	}
+	if got := e.cl.sent("WebGetConfig"); len(got) != 0 {
+		t.Errorf("settings sent: %v", got)
+	}
+}
+
+// Why (H2): a restore must be undoable. A file is overwritten only when the backup taken just
+// before holds exactly its current content; the safety backup caps files at 1 MiB, so a bigger
+// file on the device is not in it, and overwriting it would lose it for good. It is skipped and
+// said loudly, and the job is not "verified".
+func TestFileThePreBackupCannotHoldIsNotOverwritten(t *testing.T) {
+	files := fsFiles(backupFiles)
+	e := newFlowSpec(t, "16.0.0", esp32Decoder{}, simulator.DeviceSpec{Profile: simulator.ProfileESP32, Files: files, FSSizeKB: 4096})
+	a := e.dumpBackup(t, e.dumpA)
+	e.sim.SetConfigDump(e.dumpB)
+	big := strings.Repeat("B", 1100*1024) // over the 1 MiB cap of a backup
+	e.setDevFile(t, "/lib/a.be", big)
+	e.setDevFile(t, "/autoexec.be", "drifted")
+	e.setDevFile(t, "/tlskey", backupFiles["/tlskey"])
+
+	job := e.startFiles(t, a.ID, 3)
+	done := e.finish(t, job.ID)
+	if done.State != store.RestoreDone || done.Verified {
+		t.Fatalf("job: %+v (a restore that left a file out is not verified)", done)
+	}
+	if got, err := e.cl.fs.DownloadFile(t.Context(), e.target(), "/lib/a.be", 2<<20); err != nil || string(got) != big {
+		t.Errorf("a file the backup taken before cannot hold was overwritten (%v)", err)
+	}
+	if got := e.devFile(t, "/autoexec.be"); got != backupFiles["/autoexec.be"] {
+		t.Errorf("a file that can be undone must still be written: %q", got)
+	}
+	pr := progressOf(t, e, job.ID)
+	if stateOf(pr, "lib/a.be") != FileSkipped || len(pr.NotUndone) != 1 {
+		t.Errorf("progress: %+v", pr)
+	}
+	files2, rest := SplitDetail(done.Detail)
+	if !strings.Contains(files2, "could not be undone") || !strings.Contains(rest, "not written") || !strings.Contains(rest, "lib/a.be") {
+		t.Errorf("must be said loudly: %q | %q", files2, rest)
+	}
+}
+
+// Why (M1): an upload that never reached its POST (link down while the folder was selected)
+// left the old file untouched: no put-back, no flash write counted, and the text says it was not
+// written instead of "partly written".
+func TestUploadThatNeverStartedIsNotCountedOrPutBack(t *testing.T) {
+	e, a := filesFlow(t)
+	e.cl.uploadHook = func(p string, _ int) error {
+		if p == "/lib/a.be" {
+			return fmt.Errorf("%w: link down: %w", tasmota.ErrNotSent, tasmota.ErrUnreachable)
+		}
+		return nil
+	}
+	job := e.startFiles(t, a.ID, 3)
+	done := e.finish(t, job.ID)
+	if done.State != store.RestoreFailed || FailedStep(done.Detail) != StepFiles || !strings.Contains(done.Detail, "was not written") || !strings.Contains(done.Detail, "untouched") {
+		t.Fatalf("job: %+v", done)
+	}
+	if up := e.cl.uploads(); strings.Join(up, " ") != "/autoexec.be /lib/a.be" {
+		t.Errorf("uploads %v: no put-back for a file that was never touched", up)
+	}
+	if pr := progressOf(t, e, job.ID); pr.Writes != 1 {
+		t.Errorf("writes %d: only the first file reached the device", pr.Writes)
+	}
+	if got := e.devFile(t, "/lib/a.be"); got != "drifted /lib/a.be" {
+		t.Errorf("file changed: %q", got)
+	}
+}
+
+// Why (M1): the device cuts folder, slash and name at 49 bytes. The longest root file name is 47
+// bytes; a 48 byte name must not be read or written (it would hit another file) and is skipped
+// with the reason, while the 47 byte one is restored.
+func TestNamesTheDeviceWouldCutAreSkipped(t *testing.T) {
+	ok47, bad48 := "/"+strings.Repeat("a", 47), "/"+strings.Repeat("b", 48)
+	e := newFlowSpec(t, "16.0.0", esp32Decoder{}, simulator.DeviceSpec{Profile: simulator.ProfileESP32, Files: fsFiles(map[string]string{ok47: "backup", bad48: "backup"})})
+	a := e.dumpBackup(t, e.dumpA)
+	e.sim.SetConfigDump(e.dumpB)
+	e.setDevFile(t, ok47, "drifted")
+	if err := e.cl.fs.UploadFile(t.Context(), e.target(), bad48, []byte("drifted")); err == nil {
+		t.Fatal("the client must refuse a 49 byte root path itself")
+	}
+	job := e.startFiles(t, a.ID, 2)
+	done := e.finish(t, job.ID)
+	if done.State != store.RestoreDone {
+		t.Fatalf("job: %+v", done)
+	}
+	if got := e.devFile(t, ok47); got != "backup" {
+		t.Errorf("the 47 byte name: %q", got)
+	}
+	pr := progressOf(t, e, job.ID)
+	if stateOf(pr, bad48[1:]) != FileSkipped || len(e.cl.uploads()) != 1 {
+		t.Errorf("progress %+v uploads %v", pr, e.cl.uploads())
+	}
+}
+
+// Why (M2): a restore cancelled in the middle of an upload (shutdown) must still put the old file
+// back; a half-written file is worse than a slow shutdown.
+func TestPutBackSurvivesACancelledRestore(t *testing.T) {
+	e, a := filesFlow(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	e.m.o.Context = ctx
+	e.cl.uploadHook = func(p string, attempt int) error {
+		if p == "/lib/a.be" && attempt == 1 {
+			_ = e.cl.fs.UploadFile(t.Context(), e.target(), p, []byte("PARTIAL"))
+			cancel() // the shutdown arrives while this upload is in flight
+			return context.Canceled
+		}
+		return nil
+	}
+	done := e.finish(t, e.startFiles(t, a.ID, 3).ID)
+	if done.State != store.RestoreFailed || FailedStep(done.Detail) != StepFiles {
+		t.Fatalf("job: %+v", done)
+	}
+	if got := e.devFile(t, "/lib/a.be"); got != "drifted /lib/a.be" {
+		t.Errorf("the old file was not put back after the cancel: %q", got)
+	}
+}
+
+// Why (M3): the person confirms a plan. If the page showed no files (or MQTT) and the run then
+// finds HTTP and files, nothing but the settings may be written; the same when the count differs.
+func TestFilesAreWrittenOnlyForThePlanThatWasConfirmed(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		confirmed int
+	}{{"page showed no files", 0}, {"page showed another list", 2}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, a := filesFlow(t)
+			done := e.finish(t, e.startFiles(t, a.ID, tc.confirmed).ID)
+			if done.State != store.RestoreDone || len(e.cl.uploads()) != 0 {
+				t.Fatalf("job %+v uploads %v", done, e.cl.uploads())
+			}
+			if files, _ := SplitDetail(done.Detail); !strings.Contains(files, "only the settings are restored") {
+				t.Errorf("summary %q", files)
+			}
+			if got := e.devFile(t, "/autoexec.be"); got != "drifted /autoexec.be" {
+				t.Errorf("a file was written: %q", got)
+			}
+		})
+	}
+}
+
+// Why (M4): the files line must stay while the later steps run (Detail is overwritten by each
+// step), so the summary lives with the progress.
+func TestFilesSummaryStaysAvailableForTheLaterSteps(t *testing.T) {
+	e, a := filesFlow(t)
+	done := e.finish(t, e.startFiles(t, a.ID, 3).ID)
+	pr := progressOf(t, e, done.ID)
+	if !strings.Contains(pr.Summary, "3 files written") {
+		t.Errorf("summary %q", pr.Summary)
+	}
+}
+
+// Why (L2): "differs" and "could not be read back" are different statements: the first says the
+// device holds other content, the second only that the check could not look.
+func TestVerificationSeparatesDifferingFromUnreadableFiles(t *testing.T) {
+	files := fsFiles(backupFiles)
+	e := newFlowSpec(t, "16.0.0", esp32Decoder{}, simulator.DeviceSpec{Profile: simulator.ProfileESP32, Files: files, FSSizeKB: 4096})
+	a := e.dumpBackup(t, e.dumpA)
+	e.sim.SetConfigDump(e.dumpB)
+	e.setDevFile(t, "/autoexec.be", "drifted")
+	e.hb.hook = func(call int) {
+		if call == 2 { // the verification backup: the device rewrote one file and grew another past the cap
+			e.setDevFile(t, "/lib/a.be", strings.Repeat("G", 1100*1024))
+			e.setDevFile(t, "/autoexec.be", "rewritten by the device")
+		}
+	}
+	done := e.finish(t, e.startFiles(t, a.ID, 3).ID)
+	_, rest := SplitDetail(done.Detail)
+	if done.State != store.RestoreDone || done.Verified || !strings.Contains(rest, "1 file differ from the backup: autoexec.be") || !strings.Contains(rest, "1 file could not be read back to compare: lib/a.be") {
+		t.Errorf("job %+v", done)
+	}
+}
+
+// Why (L1): a job interrupted while it wrote files has probably changed files; the generic
+// "interrupted" text would not say so and the page would hide the rollback.
+func TestInterruptedFilesStepSaysFilesMayBeWritten(t *testing.T) {
+	d := InterruptedDetails()[store.RestoreFiles]
+	if !FilesChanged(d) || FailedStep(d) != StepFiles || !strings.Contains(d, "restart") {
+		t.Errorf("%q", d)
+	}
+}
+
+// emptyPre answers "no files" for every run but one: a safety backup whose files step failed.
+type emptyPre struct {
+	FileArchives
+	keep model.BackupID
+}
+
+func (p emptyPre) RunFiles(ctx context.Context, id model.BackupID) (backup.RunFiles, error) {
+	if id == p.keep {
+		return p.FileArchives.RunFiles(ctx, id)
+	}
+	return backup.RunFiles{Note: "the device took too long to answer"}, nil
+}
+
+// Why (H2): when the backup taken before holds no files at all (its files step failed), no file
+// that differs may be overwritten, because nothing could be undone; files the device does not
+// have yet are still written.
+func TestNoFileIsOverwrittenWhenThePreBackupHasNoFiles(t *testing.T) {
+	e, a := filesFlow(t)
+	e.m.o.Files = emptyPre{e.bk, a.ID}
+	done := e.finish(t, e.startFiles(t, a.ID, 3).ID)
+	if done.State != store.RestoreDone || done.Verified || len(e.cl.uploads()) != 0 {
+		t.Fatalf("job %+v uploads %v", done, e.cl.uploads())
+	}
+	if got := e.devFile(t, "/autoexec.be"); got != "drifted /autoexec.be" {
+		t.Errorf("overwritten without a way back: %q", got)
+	}
+	if pr := progressOf(t, e, done.ID); len(pr.NotUndone) != 3 {
+		t.Errorf("not undone: %v", pr.NotUndone)
 	}
 }

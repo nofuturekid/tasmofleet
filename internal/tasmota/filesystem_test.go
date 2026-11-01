@@ -752,3 +752,62 @@ func TestDownloadFile_LimitBoundary(t *testing.T) {
 		t.Errorf("max+1: %d bytes, %v", len(got), err)
 	}
 }
+
+// Why (review of #427): a restore must know whether a failed upload can have cost the file. An
+// error before the POST (folder missing, link down while selecting the folder, a path the device
+// would cut) leaves the old file untouched and needs no put-back and no flash write count; a
+// refusal after the POST started does not.
+func TestUploadFile_ErrorsBeforeThePostSayNothingWasSent(t *testing.T) {
+	fs, tg, c := fsSim(t, simulator.DeviceSpec{}, Options{})
+	if err := fs.UploadFile(ctxS(t), tg, "/newdir/x.be", []byte("abc")); !errors.Is(err, ErrNotSent) || !errors.Is(err, ErrFolderNotFound) {
+		t.Errorf("missing folder: %v", err)
+	}
+	if err := fs.UploadFile(ctxS(t), tg, "/autoexec.be/x", []byte("a")); !errors.Is(err, ErrNotSent) || !errors.Is(err, ErrNotAFolder) {
+		t.Errorf("folder is a file: %v", err)
+	}
+	long := "/" + strings.Repeat("a", 48) // 49 bytes: the device would cut it to another file
+	if err := fs.UploadFile(ctxS(t), tg, long, []byte("a")); !errors.Is(err, ErrNotSent) || !errors.Is(err, ErrBadPath) {
+		t.Errorf("49 byte root name: %v", err)
+	}
+	for _, cmd := range c.Commands() {
+		if strings.HasPrefix(cmd, "POST") {
+			t.Errorf("a POST was sent: %v", c.Commands())
+		}
+	}
+	// a device that refuses after the POST started is not "not sent": the old file may be gone
+	fs, tg, _ = fsSim(t, simulator.DeviceSpec{Faults: []simulator.Fault{{Kind: simulator.FaultUfsUploadError}}}, Options{})
+	if err := fs.UploadFile(ctxS(t), tg, "/a.txt", []byte("x")); !errors.Is(err, ErrUploadRefused) || errors.Is(err, ErrNotSent) {
+		t.Errorf("refused upload: %v", err)
+	}
+}
+
+// Why: the link going down while the GET selects the folder happens before any byte of the file
+// is sent, so it must read as "not sent" too (the old file is intact).
+func TestUploadFile_UnreachableDuringTheGetIsNotSent(t *testing.T) {
+	fs, tg, c := fsSim(t, simulator.DeviceSpec{}, Options{})
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err := fs.UploadFile(ctxS(t), tg, "/a.txt", []byte("x"))
+	if !errors.Is(err, ErrNotSent) || err == nil {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// Why: the restore reads the old file before it writes, and must not read (or write) a path the
+// device would cut. The longest root file name is 47 bytes (path of 48), in a folder the folder
+// path, a slash and the name must fit 49 bytes.
+func TestCheckUploadPath(t *testing.T) {
+	ok := []string{"/" + strings.Repeat("a", 47), "/lib/" + strings.Repeat("b", 43), "/autoexec.be"}
+	bad := []string{"/" + strings.Repeat("a", 48), "/lib/" + strings.Repeat("b", 45), "/../x", "/.settings"}
+	for _, p := range ok {
+		if err := CheckUploadPath(p); err != nil {
+			t.Errorf("%q: %v", p, err)
+		}
+	}
+	for _, p := range bad {
+		if err := CheckUploadPath(p); !errors.Is(err, ErrBadPath) {
+			t.Errorf("%q: %v, want ErrBadPath", p, err)
+		}
+	}
+}

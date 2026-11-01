@@ -195,7 +195,7 @@ func (h *handler) restoreStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	opt := restore.StartOptions{AllowMajorChange: r.PostFormValue("major_ok") == "1", AllowUnknownFamily: r.PostFormValue("family_ok") == "1", AllowMQTTLockout: r.PostFormValue("lockout_ok") == "1",
-		ExpectMAC: r.PostFormValue("expect_mac")}
+		ExpectMAC: r.PostFormValue("expect_mac"), ConfirmedFiles: formCount(r.PostFormValue("files"))}
 	job, err := h.d.Restore.StartWith(r.Context(), actor(r), b.ID, opt)
 	var need *restore.OverrideError
 	switch {
@@ -307,4 +307,13 @@ func (h *handler) filesProgress(id store.RestoreID) *restore.FilesProgress {
 		return &p
 	}
 	return nil
+}
+
+// formCount reads the file count of a confirmation form; anything but a positive number is 0 (settings only).
+func formCount(v string) int {
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }

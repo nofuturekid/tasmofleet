@@ -58,10 +58,20 @@ var (
 	ErrNotAFile = errors.New("tasmota: path is not a file")
 	// ErrNotAFolder: the folder of an upload is a file on the device.
 	ErrNotAFolder = errors.New("tasmota: path is not a folder")
+	// ErrNotSent: an UploadFile failed before its POST was sent, so nothing was written and the
+	// device's file is untouched (the GET that selects the folder failed, the folder is missing, the
+	// link was down). errors.Is also matches the underlying cause.
+	ErrNotSent = errors.New("tasmota: nothing was written to the device")
 	// ErrFileTooLarge: the file is larger than the cap the caller gave.
 	// Nothing was read.
 	ErrFileTooLarge = errors.New("tasmota: file larger than the limit")
 )
+
+// notSentError carries the cause of an upload that never reached its POST; the text is the cause's.
+type notSentError struct{ err error }
+
+func (e *notSentError) Error() string   { return e.err.Error() }
+func (e *notSentError) Unwrap() []error { return []error{ErrNotSent, e.err} }
 
 // SkippedNamesError is the error of a ListFiles that dropped entries. The
 // slice returned with it holds every other entry, so a caller that backs up
@@ -142,6 +152,9 @@ type FileSystem interface {
 	// the old file may already be deleted and the new content partial. The
 	// device also says "Successful" after a short write, so after a nil error
 	// the caller must verify the size with ListFiles.
+	//
+	// An error that satisfies errors.Is(err, ErrNotSent) means the POST was never sent: the old
+	// file is untouched.
 	UploadFile(ctx context.Context, t Target, path string, data []byte) error
 }
 
@@ -544,7 +557,12 @@ func (c *httpClient) DownloadFile(ctx context.Context, t Target, p string, max i
 	return body, nil
 }
 
-func (c *httpClient) UploadFile(ctx context.Context, t Target, p string, data []byte) error {
+// CheckUploadPath is CheckFSPath plus the rule of an upload: the device formats "%s/%s" of the
+// folder and the file name into 50 bytes (49 characters) and cuts the rest, so a long name would
+// silently hit another file. For the root the folder is "/", which gives "//name": a root name has
+// at most 47 bytes. Callers that must decide before touching the device (reading the old file)
+// use it; UploadFile applies it itself.
+func CheckUploadPath(p string) error {
 	if err := CheckFSPath(p); err != nil {
 		return err
 	}
@@ -552,17 +570,26 @@ func (c *httpClient) UploadFile(ctx context.Context, t Target, p string, data []
 	if folder != "/" {
 		folder = strings.TrimSuffix(folder, "/")
 	}
-	// The device formats "%s/%s" of the folder and the name into 50 bytes (49
-	// characters) and cuts the rest, so a long name would silently hit another
-	// file. For the root the folder is "/", which gives "//name".
 	if len(folder)+1+len(name) > maxFSPath {
 		return badPath("folder, slash and file name are longer than 49 bytes")
 	}
+	return nil
+}
+
+func (c *httpClient) UploadFile(ctx context.Context, t Target, p string, data []byte) error {
+	if err := CheckUploadPath(p); err != nil {
+		return &notSentError{err}
+	}
+	folder, _ := path.Split(p)
+	if folder != "/" {
+		folder = strings.TrimSuffix(folder, "/")
+	}
+	_, name := path.Split(p)
 	// One slot for both requests: the target folder and file system are global
 	// device state set by the GET, so nothing may come between it and the POST.
 	release, err := c.acquire(ctx, t.hostPort())
 	if err != nil {
-		return err
+		return &notSentError{err}
 	}
 	defer release()
 	rctx, cancel := context.WithTimeout(ctx, c.timeout(uploadTimeout))
@@ -587,17 +614,17 @@ func (c *httpClient) UploadFile(ctx context.Context, t Target, p string, data []
 	}
 	gcancel()
 	if err != nil {
-		return err
+		return &notSentError{err}
 	}
 
 	var head bytes.Buffer
 	mw := multipart.NewWriter(&head)
 	if _, err := mw.CreateFormFile("ufsu", name); err != nil {
-		return &deviceError{ErrBadResponse, "invalid file name"}
+		return &notSentError{&deviceError{ErrBadResponse, "invalid file name"}}
 	}
 	headLen := head.Len()
 	if err := mw.Close(); err != nil {
-		return &deviceError{ErrBadResponse, "invalid multipart body"}
+		return &notSentError{&deviceError{ErrBadResponse, "invalid multipart body"}}
 	}
 	body := io.MultiReader(bytes.NewReader(head.Bytes()[:headLen]), bytes.NewReader(data), bytes.NewReader(head.Bytes()[headLen:]))
 	total := int64(head.Len() + len(data))

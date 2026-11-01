@@ -142,8 +142,12 @@ func (h *handler) renderReplace(w http.ResponseWriter, r *http.Request, status i
 				rv.Files.Names = append(rv.Files.Names, fileRowView{Name: f.Name(), PrivateKey: f.PrivateKey})
 			}
 			rv.Checks = append(rv.Checks[:3:3], "Copy the files of its filesystem (autoexec.be, Berry scripts, display.ini, Zigbee data, TLS key)", rv.Checks[3])
-		} else if nFiles > 0 {
-			rv.NotCopied = append(rv.NotCopied, ui.KVRow{Key: fmt.Sprintf("Files (%d)", nFiles), Value: sentence(pv.Files.Why)})
+		} else if pv.Files.Why != "" {
+			key := "Files"
+			if nFiles > 0 {
+				key = fmt.Sprintf("Files (%d)", nFiles)
+			}
+			rv.NotCopied = append(rv.NotCopied, ui.KVRow{Key: key, Value: sentence(pv.Files.Why)})
 		}
 		for _, n := range pv.Files.NotStored {
 			why := "Listed in the backup, not stored (" + strings.ToLower(n.Reason) + "). Copy it in the device's file manager if you need it."
@@ -159,7 +163,7 @@ func (h *handler) renderReplace(w http.ResponseWriter, r *http.Request, status i
 		if pv.Detail != "" {
 			rv.Warnings = append(rv.Warnings, sentence(pv.Detail))
 		}
-		rv.Hidden = []ui.KVRow{{Key: "address", Value: p.Address}, {Key: "port", Value: p.Port}, {Key: "backup", Value: bkStr(pv.Backup.ID)}}
+		rv.Hidden = []ui.KVRow{{Key: "address", Value: p.Address}, {Key: "port", Value: p.Port}, {Key: "backup", Value: bkStr(pv.Backup.ID)}, {Key: "files", Value: strconv.Itoa(confirmedFiles(pv.Files))}}
 		if pv.Major {
 			rv.Hidden = append(rv.Hidden, ui.KVRow{Key: "major_ok", Value: "1"})
 		}

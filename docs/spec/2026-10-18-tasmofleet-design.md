@@ -1467,26 +1467,41 @@ shows the decoded secrets. The diff/drift view redacts keys matching
     archive lacks, and files over the size limits (listed in the manifest, not stored), stay as they are.
   - The identity (Status 5) is checked right before the first file, as before the token: files of this
     device never go to another one.
-  - Per file, one after the other: read the device's current file first (`GET /ufsd?download=`, at most
-    1 MiB; a file that cannot be read is not overwritten and ends the step); a file whose content already
-    equals the archive's is not written (no flash write); otherwise `UploadFile` (GET `/ufsd` and POST
+  - Per file, one after the other: a name the device would cut (`tasmota.CheckUploadPath`: folder, slash
+    and name within 49 bytes, so a root name has at most 47) is skipped before anything is read; read the
+    device's current file first (`GET /ufsd?download=`, at most 1 MiB; a file that cannot be read for another
+    reason is not overwritten and ends the step); a file whose content already equals the archive's is not
+    written (no flash write). **A file whose current content differs is overwritten only when the backup
+    taken just before holds exactly that content** (its manifest has the path with the same SHA-256): the
+    safety backup caps files at 1 MiB, can be incomplete or have no files, and a restore must be undoable.
+    Otherwise the file is skipped with "not in the backup taken before, so overwriting it could not be
+    undone", counted in the summary, and the job is not "verified". Then `UploadFile` (GET `/ufsd` and POST
     `/ufsu` under one lock hold), then the file's size is checked with `UfsList` (the device says
-    "Successful" after a short write). Every upload is a flash write on the device (`SettingsSave`): the
-    uploads are never repeated in a loop, and the job counts them (put-backs included) in its summary.
+    "Successful" after a short write). An error with `tasmota.ErrNotSent` (the POST never started: folder
+    missing, link down while the folder was selected) leaves the old file untouched: no put-back, no flash
+    write counted. Every other upload is a flash write on the device (`SettingsSave`): the uploads are never
+    repeated in a loop, and the job counts them (put-backs included) in its summary.
+  - The confirmation is bound to the plan it showed: the form carries the number of files written first
+    (`files`, `StartOptions.ConfirmedFiles`); files are written only when the plan at run time has exactly
+    that many, so a page that showed no files (or MQTT) can never become a restore that writes files.
   - A folder that does not exist on the device (a fresh replacement has no `/lib`) is provable only by the
     upload's GET (`ErrFolderNotFound`; a listing answers "Done" for it): the file is skipped with
     "folder missing on the device; create it in the device's file manager", the restore goes on. No
     binary-safe folder creation exists (`/ufse` rewrites CR/LF).
   - A failed upload (or a wrong size afterwards) can have cost the file, because the device deletes the old
-    one first. The old file read before is uploaded again, once; if that fails too the job says
+    one first. The old file read before is uploaded again, once, and that put-back survives a cancelled
+    restore (it runs on a context that is not cancelled, bounded to 2 minutes); if it fails too the job says
     "FILE LOST: <name>" and names the automatic backup taken before. A file that did not exist before may be
     left partly written (reported, not deleted). Any failure ends the restore as "files partly written,
     settings unchanged" (`failFilesPartly`; "the files could not be written, the device is unchanged" before
     the first write): files already written keep the backup's content, the settings are not sent, the page
-    offers the rollback to the backup taken first only after a write.
+    offers the rollback to the backup taken first only after a write. A failure of a later step before the
+    settings go over (identity, unreachable, token, WebGetConfig) after files were written says "files
+    written, settings unchanged" (`fo.afterFiles`), never "nothing was changed", and offers the rollback too.
   - Verification adds the files: the fresh backup's manifest must hold the written (or already identical)
-    files with the archive's SHA-256. A file the device rewrote itself (Zigbee data) is named as differing
-    and makes the job "not verified"; contents are never shown.
+    files with the archive's SHA-256. A file the device rewrote itself (Zigbee data) is named as differing,
+    a file the fresh backup could not read back (over the size limit, unreadable) is named separately as
+    "could not be read back"; both make the job "not verified"; contents are never shown.
   - The finished job keeps what the files step did as the first line of its Detail, separated from the
     verification sentence by a newline (`restore.SplitDetail`); the per-file progress is held in memory for
     the latest jobs only (`Manager.FilesProgress`) and is gone after a restart of TasmoFleet. A job that is

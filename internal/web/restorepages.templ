@@ -161,11 +161,11 @@ templ restoreStatusBody(v restoreJobView) {
 // restoreFileList is a list of files with size, state and a second line (the same pattern as the
 // device's Backups tab: names left, size right, badges next to the name).
 templ restoreFileList(rows []fileRowView) {
-	<div class="rs-fl">
+	<div class="bk-fl">
 		for _, r := range rows {
-			<div class={ "rs-fl-row", templ.KV("is-stays", r.Stays) }>
-				<span class="rs-fl-path">{ r.Name }</span>
-				<span class="rs-fl-tags">
+			<div class={ "bk-fl-row", templ.KV("is-skipped", r.Stays) }>
+				<span class="bk-fl-path">{ r.Name }</span>
+				<span class="bk-fl-tags">
 					if r.PrivateKey {
 						<span class="bdg t-warn" title={ privateKeyTip }>Private key</span>
 					}
@@ -173,9 +173,9 @@ templ restoreFileList(rows []fileRowView) {
 						@ui.Badge(r.Tone, r.State)
 					}
 				</span>
-				<span class="rs-fl-size">{ r.Size }</span>
+				<span class="bk-fl-size">{ r.Size }</span>
 				if r.Why != "" {
-					<span class="rs-fl-why">{ r.Why }</span>
+					<span class="bk-fl-why">{ r.Why }</span>
 				}
 			</div>
 		}

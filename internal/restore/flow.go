@@ -24,7 +24,8 @@ import (
 // step stores a state change; a failure to store is logged, the run goes on.
 func (m *Manager) step(ctx context.Context, j *Job, state, detail string) {
 	j.State, j.Detail = state, detail
-	if err := m.o.Store.UpdateRestore(ctx, *j); err != nil {
+	// A restore cancelled by a shutdown must still record how it ended: the store write outlives the run's context.
+	if err := m.o.Store.UpdateRestore(context.WithoutCancel(ctx), *j); err != nil {
 		m.o.Log.Error("restore: store state", "component", "restore", "job", j.ID, "err", err)
 	}
 }
@@ -37,7 +38,7 @@ func (m *Manager) fail(ctx context.Context, j *Job, why string) {
 // run is the whole restore of one job. Order matters: the safety backup comes
 // first and a failure there stops everything, because without it a bad
 // restore cannot be undone.
-func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, ips []netip.Addr) {
+func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, ips []netip.Addr, confirmedFiles int) {
 	target := tasmota.TargetFor(dev)
 	ctx = backup.WithRun(ctx, backup.Run{Trigger: model.TriggerRestore})
 	if j.Transport == model.TransportMQTT {
@@ -60,7 +61,7 @@ func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, 
 
 	viaMQTT := j.Transport == model.TransportMQTT
 	fo, err := m.filesStep(ctx, &j, target, func(c context.Context) (string, error) { return m.liveVersion(c, dev) }, viaMQTT,
-		func() error { return m.checkIdentity(ctx, dev) })
+		func() error { return m.checkIdentity(ctx, dev) }, confirmedFiles)
 	if err != nil {
 		m.failFiles(ctx, &j, err)
 		return
@@ -73,17 +74,17 @@ func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, 
 	// The address may have changed hands since Start (DHCP): the dump of this
 	// device must never go to another one.
 	if err := m.checkIdentity(ctx, dev); err != nil {
-		m.fail(ctx, &j, failUnchanged+err.Error())
+		m.fail(ctx, &j, fo.afterFiles(failUnchanged+err.Error()))
 		return
 	}
 	before, err := m.uptime(ctx, target)
 	if err != nil {
-		m.fail(ctx, &j, failUnreachable+err.Error())
+		m.fail(ctx, &j, fo.afterFiles(failUnreachable+err.Error()))
 		return
 	}
 	tok, err := m.issue(j, dmp, ips)
 	if err != nil {
-		m.fail(ctx, &j, failToken+err.Error())
+		m.fail(ctx, &j, fo.afterFiles(failToken+err.Error()))
 		return
 	}
 	defer m.revoke(tok)
@@ -96,7 +97,7 @@ func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, 
 		unknown := m.consumed(tok) || errors.Is(err, tasmota.ErrTimeout) || errors.Is(err, tasmota.ErrBadResponse)
 		if !unknown {
 			m.revoke(tok) // before the job reads failed: whoever sees "failed" must find the token dead
-			m.fail(ctx, &j, failWebGetConfig+redactToken(err.Error(), tok))
+			m.fail(ctx, &j, fo.afterFiles(failWebGetConfig+redactToken(err.Error(), tok)))
 			return
 		}
 		m.o.Log.Warn("restore: WebGetConfig outcome unknown, checking the device", "component", "restore", "job", j.ID, "err", redactToken(err.Error(), tok))
@@ -118,19 +119,19 @@ func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, 
 func (m *Manager) sendMQTT(ctx context.Context, j *Job, dev model.Device, target tasmota.Target, dmp []byte, fo *filesOutcome) {
 	m.step(ctx, j, store.RestoreSending, "uploading the configuration over MQTT")
 	if err := m.checkIdentity(ctx, dev); err != nil {
-		m.fail(ctx, j, failUnchanged+err.Error())
+		m.fail(ctx, j, fo.afterFiles(failUnchanged+err.Error()))
 		return
 	}
 	before, err := m.bootCount(ctx, target)
 	if err != nil {
-		m.fail(ctx, j, failUnreachable+err.Error())
+		m.fail(ctx, j, fo.afterFiles(failUnreachable+err.Error()))
 		return
 	}
 	if err := m.o.Uploader.UploadConfig(ctx, target, dmp, transport.BindingOf(dev)); err != nil {
 		// A lost "Done" is an unknown outcome: the device may have applied the dump and be
 		// restarting. Look at the device (BootCount) instead of failing; the upload is never repeated.
 		if !errors.Is(err, mqttcmd.ErrOutcomeUnknown) {
-			m.fail(ctx, j, failUpload+err.Error())
+			m.fail(ctx, j, fo.afterFiles(failUpload+err.Error()))
 			return
 		}
 		m.o.Log.Warn("restore: FileUpload outcome unknown, checking the device", "component", "restore", "job", j.ID)
