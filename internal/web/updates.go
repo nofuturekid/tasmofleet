@@ -1512,8 +1512,10 @@ func adminOnlyKind(k model.JobKind) bool {
 	switch k {
 	case "", "update", model.KindPolicy, model.KindCommand, model.KindBackup:
 		return false
+	case model.KindTemplate:
+		return true
 	}
-	return true
+	return true // a kind this build does not know
 }
 
 // needAdminFor refuses (403) an operator who cancels or retries a transaction of an admin-only kind.
