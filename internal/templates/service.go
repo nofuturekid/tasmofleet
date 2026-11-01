@@ -414,7 +414,7 @@ func (m *Manager) Apply(ctx context.Context, actor string, req Request, want str
 	}
 	reqs := make([]ota.TemplateRequest, 0, len(pv.Rows))
 	for _, r := range pv.Rows {
-		reqs = append(reqs, ota.TemplateRequest{DeviceID: r.Device.ID, Command: r.Plan.Commands[0],
+		reqs = append(reqs, ota.TemplateRequest{DeviceID: r.Device.ID, Command: r.Plan.Commands[0], Name: pv.ReferenceTemplate.Name,
 			Have: r.Device.Reading.Template.Fingerprint(), Want: pv.ReferenceTemplate.Fingerprint()})
 	}
 	how := string(policy.RefMostCommon)

@@ -351,18 +351,29 @@ func TestStrictTemplateReadIgnoresEveryOtherResult(t *testing.T) {
 	}
 }
 
-// Why: only the read is matched by shape. A Template WRITE is answered under its own key; a reply with
-// the shape of a read must not confirm a write (it would be another poller's read).
-func TestTemplateWriteIsNotAnsweredByTheReadShape(t *testing.T) {
-	b := &fakeBus{}
-	b.onPub = func(b *fakeBus, p pub) { b.result(p.topic, `{"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`) }
-	if _, err := newChan(b).Do(t.Context(), plug(), `Template {"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`); !errors.Is(err, tasmota.ErrTimeout) {
-		t.Fatalf("err = %v, want ErrTimeout", err)
+// Why (M1): Tasmota answers a Template WRITE with the stored template (TemplateJson, support_command.ino:2256),
+// never with {"Template":"Done"}: success is the NAME/GPIO shape, refusal is {"Template":"Invalid JSON or Bad
+// Chip Type"} under the command's own key. Both must reach the caller, or an MQTT-only device could never
+// be changed (the reply would time out) and a refusal would look like a lost reply.
+func TestTemplateWriteIsAnsweredByTheShapeOrTheRefusal(t *testing.T) {
+	const write = `Template {"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`
+	for name, reply := range map[string]string{
+		"success": `{"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`,
+		"refusal": `{"Template":"Invalid JSON or Bad Chip Type"}`,
+	} {
+		b := &fakeBus{}
+		b.onPub = func(b *fakeBus, p pub) { b.result(p.topic, reply) }
+		if got, err := newChan(b).Do(t.Context(), plug(), write); err != nil || string(got) != reply {
+			t.Errorf("%s: %s, %v", name, got, err)
+		}
 	}
-	b2 := &fakeBus{}
-	b2.onPub = func(b *fakeBus, p pub) { b.result(p.topic, `{"Template":"Done"}`) }
-	if _, err := newChan(b2).Do(t.Context(), plug(), `Template {"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`); err != nil {
-		t.Fatalf("write answer: %v", err)
+	// other results are still not its answer
+	for _, other := range []string{`{"POWER":"ON"}`, `{"Module":{"0":"x"}}`, `{"NAME":"x"}`} {
+		b := &fakeBus{}
+		b.onPub = func(b *fakeBus, p pub) { b.result(p.topic, other) }
+		if _, err := newChan(b).Do(t.Context(), plug(), write); !errors.Is(err, tasmota.ErrTimeout) {
+			t.Errorf("%s answered a Template write: err = %v", other, err)
+		}
 	}
 }
 

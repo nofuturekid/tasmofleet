@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/model"
@@ -31,15 +31,6 @@ type Applier struct {
 	// OnRead is told about every successful reading (the Manager's cache); optional.
 	OnRead func(id model.DeviceID, r reading)
 	Now    func() time.Time
-
-	mu      sync.Mutex
-	pending map[model.DeviceID]beforeSend // devices a Template command was sent to by this process
-}
-
-// beforeSend is what the device reported just before the command: its boot count, and when.
-type beforeSend struct {
-	boot int
-	at   time.Time
 }
 
 var _ ota.TemplateApplier = (*Applier)(nil)
@@ -75,6 +66,7 @@ func (a *Applier) read(ctx context.Context, d model.Device) (ota.TemplateReading
 	}
 	out := ota.TemplateReading{Module: r.Module.Number}
 	if r.Template != nil {
+		out.Name = r.Template.Name
 		out.Layout = r.Template.Fingerprint()
 		out.JSON = compactTemplate(*r.Template)
 	}
@@ -123,47 +115,61 @@ func (a *Applier) uptimeSec(ctx context.Context, d model.Device) (int64, error) 
 	return st.UptimeSec, nil
 }
 
-// Send implements ota.TemplateApplier. The boot count is read first and nothing is sent when it cannot
-// be: without it the restart could not be proven (the same rule as restore, R26 in docs/security/restore.md).
-func (a *Applier) Send(ctx context.Context, d model.Device, command string) error {
+// Baseline implements ota.TemplateApplier: the boot count now and the time, as the token "boot=<n> at=<unix
+// nanoseconds>". The engine stores it with the job before the send, so a restart of this server cannot lose
+// it. Reading it is part of the rule of restore (R26, docs/security/restore.md).
+func (a *Applier) Baseline(ctx context.Context, d model.Device) (string, error) {
 	boot, err := a.bootCount(ctx, d)
 	if err != nil {
-		return fmt.Errorf("could not read the boot count, nothing was sent: %w", err)
+		return "", fmt.Errorf("could not read the boot count: %w", err)
 	}
-	a.mu.Lock()
-	if a.pending == nil {
-		a.pending = map[model.DeviceID]beforeSend{}
-	}
-	a.pending[d.ID] = beforeSend{boot: boot, at: a.now()}
-	a.mu.Unlock()
-	_, err = a.Client.Command(ctx, tasmota.TargetFor(d), command)
-	return err
+	return fmt.Sprintf("boot=%d at=%d", boot, a.now().UnixNano()), nil
 }
 
-// restarted proves that the device restarted since Send, the way restore does (R26): a larger BootCount
-// than before the send and an uptime not longer than the time since the send (plus two seconds of slack),
-// so neither a count that rose for another reason nor a reboot that happened before the send passes. The
-// firmware counts a boot at 10 s of uptime, so the count rises a few polls after the device answers
-// again. Without a note (this process did not send: a job resumed after a server restart, or a device
-// that needed no send) nothing can be proven and the layout alone decides.
-func (a *Applier) restarted(ctx context.Context, d model.Device) bool {
-	a.mu.Lock()
-	b, sent := a.pending[d.ID]
-	a.mu.Unlock()
-	if !sent {
-		return true
+// parseBaseline reads a Baseline token; ok is false for an empty or unusable one.
+func parseBaseline(tok string) (boot int, at time.Time, ok bool) {
+	var ns int64
+	if n, err := fmt.Sscanf(tok, "boot=%d at=%d", &boot, &ns); err != nil || n != 2 || boot < 0 {
+		return 0, time.Time{}, false
 	}
+	return boot, time.Unix(0, ns), true
+}
+
+// Send implements ota.TemplateApplier. A device answers a Template it takes with the stored template and
+// one it refuses with {"Template":"Invalid JSON or Bad Chip Type"} (CmndTemplate): that reply, a string
+// under "Template", means nothing was applied and no restart follows.
+func (a *Applier) Send(ctx context.Context, d model.Device, command string) error {
+	raw, err := a.Client.Command(ctx, tasmota.TargetFor(d), command)
+	if err != nil {
+		return err
+	}
+	var v struct {
+		Template *string `json:"Template"`
+	}
+	if json.Unmarshal(raw, &v) == nil && v.Template != nil {
+		return fmt.Errorf("%w: %s", ota.ErrTemplateRefused, strings.TrimSpace(*v.Template))
+	}
+	return nil
+}
+
+// restarted proves that the device restarted since the baseline, the way restore does (R26): a larger
+// BootCount than before and an uptime not longer than the time since the baseline (plus two seconds of
+// slack), so neither a count that rose for another reason nor a reboot that happened before the command
+// passes. The firmware counts a boot at 10 s of uptime, so the count rises a few polls after the device
+// answers again.
+func (a *Applier) restarted(ctx context.Context, d model.Device, boot int, at time.Time) bool {
 	n, err := a.bootCount(ctx, d)
-	if err != nil || n <= b.boot {
+	if err != nil || n <= boot {
 		return false
 	}
 	up, err := a.uptimeSec(ctx, d)
-	return err == nil && time.Duration(up)*time.Second <= a.now().Sub(b.at)+2*time.Second
+	return err == nil && time.Duration(up)*time.Second <= a.now().Sub(at)+2*time.Second
 }
 
 // Verify implements ota.TemplateApplier: wait for the restart, then read until the device shows the
-// planned layout. It returns the last reading it got, with an error when the device never showed it.
-func (a *Applier) Verify(ctx context.Context, d model.Device, wantLayout string) (ota.TemplateReading, error) {
+// planned layout and, given a usable baseline, until the restart is proven. It returns the last reading it got, with an error when the device never showed it.
+func (a *Applier) Verify(ctx context.Context, d model.Device, wantLayout, baseline string) (ota.TemplateReading, error) {
+	boot, at, proof := parseBaseline(baseline)
 	attempts, pause := a.Attempts, a.Pause
 	if attempts <= 0 {
 		attempts = 12
@@ -184,7 +190,7 @@ func (a *Applier) Verify(ctx context.Context, d model.Device, wantLayout string)
 		}
 		rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		r, err := a.read(rctx, d)
-		if err == nil && r.Module == 0 && r.Layout == wantLayout && !a.restarted(rctx, d) {
+		if err == nil && r.Module == 0 && r.Layout == wantLayout && proof && !a.restarted(rctx, d, boot, at) {
 			err = errNoRestart
 		}
 		cancel()
@@ -198,9 +204,7 @@ func (a *Applier) Verify(ctx context.Context, d model.Device, wantLayout string)
 		}
 		last = r
 		if err == nil && r.Module == 0 && r.Layout == wantLayout {
-			a.mu.Lock()
-			delete(a.pending, d.ID)
-			a.mu.Unlock()
+			r.RestartProven = proof
 			return r, nil
 		}
 	}

@@ -15,7 +15,7 @@ import (
 // otherKeys lists the commands whose RESULT does not carry the command's name as a key. Checked
 // against Tasmota v16 (support_command.ino): Template answers {"NAME":..,"GPIO":..,"FLAG":..,
 // "BASE":..} (CmndTemplate -> TemplateJson), which a bare Template read matches by shape (templateShape,
-// E3 of #327); a Template with an argument answers {"Template":"Done"}; Gpios publishes its lines itself (ShowGpios) and
+// E3 of #327); a Template write answers the same shape, or {"Template":"Invalid JSON or Bad Chip Type"} when refused; Gpios publishes its lines itself (ShowGpios) and
 // clears the response. Module, Modules and Gpio do carry their name (S_JSON_COMMAND_NVALUE_SVALUE,
 // "Modules", "GPIOn"/"GPIO"), so they are matched like any other command. Only DoLoose, the
 // console, takes the first RESULT for these; an automated read needs a key match.
@@ -196,13 +196,17 @@ func (r *request) match(m mqttbus.Message, loose bool) (v verdict, ok bool) {
 	if r.status != "" {
 		return verdict{}, false // a Status answers on STATUSn; any other RESULT is noise
 	}
-	if r.base == "template" && r.args == "" {
-		// The bare Template (a read) answers with no "Template" key (see otherKeys). It is recognised by
-		// its shape, and by nothing else: a "Template" key here would be the answer to a write.
+	if r.base == "template" {
+		// Template answers with the stored template (TemplateJson) and no "Template" key, for the bare read
+		// and for a successful write alike (support_command.ino, CmndTemplate); only the refusal of a write
+		// is {"Template":"Invalid JSON or Bad Chip Type"} under the command's key. So the shape answers
+		// both, and a bare read takes nothing else: a "Template" key there would be someone else's write.
 		if templateShape(values) {
 			return verdict{reply: m.Payload}, true
 		}
-		return verdict{}, false
+		if r.args == "" {
+			return verdict{}, false
+		}
 	}
 	for _, k := range keys {
 		if keyNames(k, r.name, r.base) {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/model"
+	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/policy"
 )
 
@@ -43,7 +44,7 @@ func TestVerifyWaitsThroughTheRestartUntilTheNewLayoutShows(t *testing.T) {
 		}
 	}}, Settle: 6 * time.Second, Pause: 5 * time.Second,
 		Wait: func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }}
-	r, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52))
+	r, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52), "")
 	if err != nil || r.Module != 0 || r.Layout != wantLayout(t, "NOUS A1T", 52) {
 		t.Fatalf("%+v %v", r, err)
 	}
@@ -58,12 +59,12 @@ func TestVerifyFailsWhenTheLayoutNeverShows(t *testing.T) {
 	id := f.add("a", "NOUS A1T", 21)
 	d, _ := f.GetDevice(context.Background(), id)
 	a := &Applier{Client: f, Attempts: 3, Wait: func(context.Context, time.Duration) error { return nil }}
-	_, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52))
+	_, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52), "")
 	if err == nil || !strings.Contains(err.Error(), "still reports") {
 		t.Fatalf("err %v", err)
 	}
 	f.failRead[id] = true
-	if _, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52)); err == nil || !strings.Contains(err.Error(), "did not answer") {
+	if _, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52), ""); err == nil || !strings.Contains(err.Error(), "did not answer") {
 		t.Fatalf("err %v", err)
 	}
 }
@@ -74,7 +75,7 @@ func TestVerifyStopsWhenTheContextEnds(t *testing.T) {
 	id := f.add("a", "NOUS A1T", 21)
 	d, _ := f.GetDevice(context.Background(), id)
 	a := &Applier{Client: f, Wait: func(context.Context, time.Duration) error { return errors.New("canceled") }}
-	if _, err := a.Verify(context.Background(), d, "x"); err == nil {
+	if _, err := a.Verify(context.Background(), d, "x", ""); err == nil {
 		t.Fatal("no error")
 	}
 }
@@ -125,12 +126,22 @@ func newRestartRig(t *testing.T) *restartRig {
 	return r
 }
 
+func (r *restartRig) baseline(t *testing.T) string {
+	t.Helper()
+	b, err := r.a.Baseline(context.Background(), r.d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // Why (restore's rule R26): the stored template changes at once, long before the device restarts. A
-// read-back of the layout alone would call the change done while the old pin map still runs. After a
-// send from this process the verify waits until the boot count rose AND the uptime is shorter than the time
-// since the send. The firmware counts the boot at 10 s of uptime, so the count rises after the device is back.
+// read-back of the layout alone would call the change done while the old pin map still runs. After the
+// baseline the verify waits until the boot count rose AND the uptime is shorter than the time since the
+// baseline. The firmware counts the boot at 10 s of uptime, so the count rises after the device is back.
 func TestVerifyWaitsForTheBootCountAndAShortUptime(t *testing.T) {
 	r := newRestartRig(t)
+	base := r.baseline(t)
 	r.a.Wait = func(_ context.Context, d time.Duration) error {
 		r.now = r.now.Add(d)
 		if r.now.After(t0.Add(8*time.Second)) && r.bootAt.Before(t0) {
@@ -141,11 +152,9 @@ func TestVerifyWaitsForTheBootCountAndAShortUptime(t *testing.T) {
 		}
 		return nil
 	}
-	if err := r.a.Send(context.Background(), r.d, "Template {}"); err == nil {
-		t.Fatal("the fake refuses writes, as expected")
-	}
-	if _, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52)); err != nil {
-		t.Fatal(err)
+	got, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52), base)
+	if err != nil || !got.RestartProven {
+		t.Fatalf("%+v %v", got, err)
 	}
 	if r.now.Before(t0.Add(19 * time.Second)) {
 		t.Fatalf("verify returned at +%v, before the boot count rose", r.now.Sub(t0))
@@ -156,49 +165,76 @@ func TestVerifyWaitsForTheBootCountAndAShortUptime(t *testing.T) {
 // short uptime too, and the count may not have moved yet. "Uptime short but BootCount unchanged" is not verified.
 func TestVerifyRefusesAShortUptimeWithTheSameBootCount(t *testing.T) {
 	r := newRestartRig(t)
-	r.bootAt = t0.Add(-3 * time.Second) // rebooted just before the send
+	r.bootAt = t0.Add(-3 * time.Second) // rebooted just before the baseline
+	base := r.baseline(t)
 	r.a.Wait = func(_ context.Context, d time.Duration) error { r.now = r.now.Add(d); return nil }
-	_ = r.a.Send(context.Background(), r.d, "Template {}")
-	_, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52))
+	_, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52), base)
 	if err == nil || !strings.Contains(err.Error(), "boot count did not rise") {
 		t.Fatalf("err %v", err)
 	}
 }
 
-// Why: and the count alone proves nothing either: it can rise for another reason (a reboot before the
-// send that the first read missed). An uptime longer than the time since the send cannot be a restart caused by it.
+// Why: and the count alone proves nothing either: it can rise for another reason. An uptime longer than
+// the time since the baseline cannot be a restart caused by the send.
 func TestVerifyRefusesARisenBootCountWithALongUptime(t *testing.T) {
 	r := newRestartRig(t)
+	base := r.baseline(t)
 	r.a.Wait = func(_ context.Context, d time.Duration) error { r.now = r.now.Add(d); r.boot = 41; return nil }
-	_ = r.a.Send(context.Background(), r.d, "Template {}")
-	if _, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52)); err == nil {
+	if _, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52), base); err == nil {
 		t.Fatal("a long uptime passed as a restart")
 	}
 }
 
-// Why: no boot count, no send. Without it the restart could not be proven, and a template written
-// without a way to confirm it is exactly the case to avoid.
-func TestSendSendsNothingWhenTheBootCountCannotBeRead(t *testing.T) {
+// Why: no boot count, no baseline, and the engine sends nothing.
+func TestBaselineFailsWhenTheBootCountCannotBeRead(t *testing.T) {
 	r := newRestartRig(t)
 	r.f.status = nil
-	if err := r.a.Send(context.Background(), r.d, "Template {}"); err == nil || !strings.Contains(err.Error(), "nothing was sent") {
-		t.Fatalf("err %v", err)
-	}
-	for _, c := range r.f.cmds {
-		if strings.Contains(c, "Template {") {
-			t.Fatalf("a Template command was sent: %v", r.f.cmds)
-		}
+	if _, err := r.a.Baseline(context.Background(), r.d); err == nil {
+		t.Fatal("a baseline without a boot count")
 	}
 }
 
-// Why: after a server restart a job resumed in verify has no note of the send, and a device whose layout
-// already matched needed no send: there the layout alone decides, or those jobs could never finish.
-func TestVerifyWithoutASendOfThisProcessChecksTheLayoutOnly(t *testing.T) {
+// Why (M3): the baseline is a token the engine stores and hands back after a server restart, so it must
+// survive that: a second Applier (a new process) proves the restart from the token alone.
+func TestVerifyProvesTheRestartFromAStoredBaselineInAnotherProcess(t *testing.T) {
+	r := newRestartRig(t)
+	base := r.baseline(t)
+	r.bootAt, r.boot = t0.Add(2*time.Second), 41
+	r.now = t0.Add(30 * time.Second)
+	again := &Applier{Client: r.f, Now: func() time.Time { return r.now }, Wait: func(context.Context, time.Duration) error { return nil }}
+	got, err := again.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52), base)
+	if err != nil || !got.RestartProven {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+// Why: with no usable baseline (none stored, or a token nobody can read) the layout alone decides, and the
+// reading says the restart was not proven so the job can say so.
+func TestVerifyWithoutAUsableBaselineChecksTheLayoutOnly(t *testing.T) {
 	f := newFleet()
 	id := f.add("a", "NOUS A1T", 52)
 	d, _ := f.GetDevice(context.Background(), id)
 	a := &Applier{Client: f, Wait: func(context.Context, time.Duration) error { return nil }}
-	if _, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52)); err != nil {
-		t.Fatal(err)
+	for _, tok := range []string{"", "garbage"} {
+		got, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52), tok)
+		if err != nil || got.RestartProven {
+			t.Fatalf("token %q: %+v %v", tok, got, err)
+		}
+	}
+}
+
+// Why (M1): the device answers a refused Template with {"Template":"Invalid JSON or Bad Chip Type"} and
+// does not restart. That must fail the job at once as "nothing applied", not wait out a restart that never
+// comes. A successful write is answered with the template itself.
+func TestSendTreatsAStringTemplateAnswerAsRefused(t *testing.T) {
+	r := newRestartRig(t)
+	r.f.writeReply = `{"Template":"Invalid JSON or Bad Chip Type"}`
+	err := r.a.Send(context.Background(), r.d, "Template {}")
+	if !errors.Is(err, ota.ErrTemplateRefused) || !strings.Contains(err.Error(), "Bad Chip Type") {
+		t.Fatalf("refusal: %v", err)
+	}
+	r.f.writeReply = tplJSON("NOUS A1T", 52)
+	if err := r.a.Send(context.Background(), r.d, "Template {}"); err != nil {
+		t.Fatalf("success answer: %v", err)
 	}
 }

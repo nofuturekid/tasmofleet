@@ -30,15 +30,16 @@ func tplJSON(name string, code int) string {
 
 // fakeFleet is the devices and what they answer.
 type fakeFleet struct {
-	mu       sync.Mutex
-	devs     []model.Device
-	module   map[model.DeviceID]string // Module reply
-	template map[model.DeviceID]string // Template reply
-	failRead map[model.DeviceID]bool
-	cmds     []string
-	snap     map[model.DeviceID][]byte // newest snapshot
-	powerOn  string
-	status   func(model.DeviceID) (boot int, uptime time.Duration) // nil: Status 1 and 11 fail
+	mu         sync.Mutex
+	devs       []model.Device
+	module     map[model.DeviceID]string // Module reply
+	template   map[model.DeviceID]string // Template reply
+	failRead   map[model.DeviceID]bool
+	cmds       []string
+	snap       map[model.DeviceID][]byte // newest snapshot
+	powerOn    string
+	writeReply string                                                // the answer to a Template write; "" fails the write
+	status     func(model.DeviceID) (boot int, uptime time.Duration) // nil: Status 1 and 11 fail
 }
 
 func newFleet() *fakeFleet {
@@ -71,6 +72,12 @@ func (f *fakeFleet) Command(_ context.Context, t tasmota.Target, cmnd string) (j
 	f.cmds = append(f.cmds, fmt.Sprintf("%d %s", id, cmnd))
 	if f.failRead[id] {
 		return nil, errors.New("timeout")
+	}
+	if strings.HasPrefix(cmnd, "Template {") {
+		if f.writeReply == "" {
+			return nil, errors.New("the fake accepts no writes")
+		}
+		return json.RawMessage(f.writeReply), nil
 	}
 	switch cmnd {
 	case "Module":
@@ -305,7 +312,7 @@ func TestApplyHandsThePlanToTheEngine(t *testing.T) {
 	}
 	r := eng.reqs[0]
 	if r.DeviceID != 2 || r.Command != pv.Rows[0].Plan.Commands[0] || r.Have != pv.Rows[0].Device.Reading.Template.Fingerprint() ||
-		r.Want != pv.ReferenceTemplate.Fingerprint() || r.Have == r.Want {
+		r.Want != pv.ReferenceTemplate.Fingerprint() || r.Have == r.Want || r.Name != "NOUS A1T" {
 		t.Fatalf("request %+v", r)
 	}
 	if eng.start.Reference != 1 || eng.start.How != "chosen" || !strings.Contains(eng.start.Group, "NOUS A1T") {
