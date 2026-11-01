@@ -18,3 +18,19 @@ func TestJobTargetShowsTheChosenBuild(t *testing.T) {
 		}
 	}
 }
+
+// Why: IsUpdate() is the fall-through of every job-kind switch ("not policy, command or backup").
+// A GPIO template job that fell into it would be handed to the OTA state machine and flashed like
+// firmware, so the new kind must be excluded explicitly.
+func TestTemplateJobIsNotAnUpdate(t *testing.T) {
+	j := Job{Kind: KindTemplate}
+	if !j.IsTemplate() || j.IsUpdate() || j.IsPolicy() || j.IsCommand() || j.IsBackup() {
+		t.Fatalf("template job misclassified: template=%v update=%v", j.IsTemplate(), j.IsUpdate())
+	}
+	if got := j.Target(); got != "GPIO template" {
+		t.Fatalf("Target() = %q", got)
+	}
+	if !(Job{}).IsUpdate() {
+		t.Fatal("the zero kind must stay a firmware update")
+	}
+}

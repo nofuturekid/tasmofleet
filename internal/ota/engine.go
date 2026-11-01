@@ -114,6 +114,8 @@ type Options struct {
 	Audit audit.Recorder
 	// Policy runs "Make compliant" jobs; nil makes them fail with a clear message.
 	Policy PolicyApplier
+	// Templates reads, sends and verifies GPIO templates (#327); nil makes such jobs fail with a clear message.
+	Templates TemplateApplier
 	// Commands sends the free-form command of a "Send command" job through the
 	// command policy (devicecmd.Service); nil makes such jobs fail with a clear message.
 	Commands CommandRunner
@@ -986,6 +988,9 @@ func (e *Engine) startWorker(ctx context.Context, wg *sync.WaitGroup, j model.Jo
 			return
 		case j.IsBackup():
 			e.workBackup(ctx, j)
+			return
+		case j.IsTemplate():
+			e.workTemplate(ctx, j)
 			return
 		}
 		e.work(ctx, j, first, inbox)

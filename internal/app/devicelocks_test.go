@@ -225,7 +225,7 @@ func TestEveryRunningJobStateExcludesOtherWriters(t *testing.T) {
 // Why: the specific text names an UPDATE job. A command, backup or policy job holding the device is not
 // one, so it must keep the generic busy text; otherwise the message would blame an update that is not there.
 func TestFirmwareCommandDuringANonUpdateJobKeepsTheGenericBusyText(t *testing.T) {
-	for _, k := range []model.JobKind{model.KindCommand, model.KindBackup} {
+	for _, k := range []model.JobKind{model.KindCommand, model.KindBackup, model.KindTemplate} {
 		jobs := kindJobs{kind: k}
 		g := deviceGuard{locks: devlock.New(), jobs: jobs}
 		_, err := (lockedDeviceCmd{DeviceCmd: &countingCmd{}, g: g}).Run(context.Background(), model.Principal{Role: model.RoleAdmin}, 1, "Upgrade 1")
@@ -243,4 +243,14 @@ type kindJobs struct {
 
 func (k kindJobs) ListJobs(_ context.Context, fl store.JobFilter) ([]model.Job, error) {
 	return []model.Job{{DeviceID: fl.DeviceID, Kind: k.kind, State: model.JobQueued}}, nil
+}
+
+// Why: a GPIO template job rewrites the pin map and restarts the device. A console command
+// arriving meanwhile must be refused as "template", not blamed on a firmware update.
+func TestActiveTemplateJobBlocksWritersAsTemplate(t *testing.T) {
+	g := deviceGuard{locks: devlock.New(), jobs: kindJobs{kind: model.KindTemplate}}
+	_, err := (lockedDeviceCmd{DeviceCmd: &countingCmd{}, g: g}).Power(context.Background(), "u", 1, 1, "TOGGLE")
+	if busyHolderOf(t, err) != "template" {
+		t.Fatalf("holder = %v", err)
+	}
 }

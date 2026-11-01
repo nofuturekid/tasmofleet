@@ -153,6 +153,8 @@ func updatingTitle(j model.Job) string {
 		return "A backup is running:"
 	case j.IsPolicy():
 		return "This device is being made compliant with the policy:"
+	case j.IsTemplate():
+		return "A GPIO template is being applied to this device:"
 	}
 	return "This device is being updated:"
 }
@@ -161,7 +163,7 @@ func updatingText(j model.Job) string {
 	switch {
 	case j.IsCommand(), j.IsBackup():
 		return "Other commands are paused until it has finished."
-	case j.IsPolicy():
+	case j.IsPolicy(), j.IsTemplate():
 		return "Commands are paused until it has finished."
 	}
 	return "It does not answer while it downloads and reboots, so this is not a failure. Commands are paused until the update finishes."

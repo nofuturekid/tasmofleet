@@ -958,7 +958,7 @@ gave no answer is asked again after 10 s, 30 s, 2 min, then every 15 min, but at
 
 The same engine, batch and transaction pages also run the other multi-device operations as job
 kinds (`model.JobKind`): `policy` (Make compliant), `command` (bulk Send command and Restart) and
-`backup` (bulk Back up). They reuse persistence, per-device locking (`devlock`), cancel and "Retry
+`backup` (bulk Back up) and `template` (apply a GPIO template, #327: backup, re-read, one `Template` command, wait for the restart, read back; Parallel 1, the rest of the transaction is cancelled after the first failure). They reuse persistence, per-device locking (`devlock`), cancel and "Retry
 failed"; none of them touches firmware, so the Guard and the states below concern `update` jobs.
 
 ### 9.2 States

@@ -115,6 +115,8 @@ func statusKind(j model.Job) string {
 		return "Command"
 	case j.IsBackup():
 		return "Backup"
+	case j.IsTemplate():
+		return "GPIO template"
 	}
 	return "Update"
 }

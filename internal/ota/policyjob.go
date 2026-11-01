@@ -332,7 +332,7 @@ func (e *Engine) policyMove(ctx context.Context, j model.Job, to model.JobState,
 	now := e.clk.Now()
 	next := j
 	next.State, next.UpdatedAt = to, now
-	if to == model.JobFailed {
+	if to == model.JobFailed || to == model.JobCancelled {
 		next.LastError = detail
 	}
 	jev := model.JobEvent{JobID: j.ID, At: now, From: j.State, To: to, Event: event, Detail: detail}

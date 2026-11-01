@@ -488,7 +488,7 @@ func (h *handler) overviewOf(r *http.Request, v view, d model.Device, just *rela
 			uv := jobView{Job: j, Base: v.Base}
 			uv.Step, uv.StepLabel = jobStep(j.State, j.Stage)
 			switch {
-			case j.IsPolicy():
+			case j.IsPolicy(), j.IsTemplate():
 				uv.Step, uv.StepLabel = policyStep(j.State)
 			case j.IsCommand():
 				uv.Step, uv.StepLabel = commandStep(j.State)

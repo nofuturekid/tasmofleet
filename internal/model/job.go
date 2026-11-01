@@ -99,6 +99,10 @@ const KindCommand JobKind = "command"
 // service's, not a device command.
 const KindBackup JobKind = "backup"
 
+// KindTemplate is "Apply GPIO template" (#327): back up, re-read Module and Template, send the one
+// Template command, wait for the restart and read it back. Commands holds that command line.
+const KindTemplate JobKind = "template"
+
 // BackupMarker is stored in Commands of a backup job (a job without work is not
 // created, and a retry keeps the field as it is).
 const BackupMarker = "backup"
@@ -116,6 +120,9 @@ func (j Job) Target() string {
 	if j.IsBackup() {
 		return "Back up"
 	}
+	if j.IsTemplate() {
+		return "GPIO template"
+	}
 	t := strings.TrimSpace(j.TargetRelease + " " + j.TargetVariant)
 	if j.TargetBuild != "" {
 		t += " (" + j.TargetBuild + ")"
@@ -132,8 +139,11 @@ func (j Job) IsCommand() bool { return j.Kind == KindCommand }
 // IsBackup reports whether the job takes a backup of the device.
 func (j Job) IsBackup() bool { return j.Kind == KindBackup }
 
+// IsTemplate reports whether the job applies a GPIO template.
+func (j Job) IsTemplate() bool { return j.Kind == KindTemplate }
+
 // IsUpdate reports whether the job is a firmware update (the OTA state machine).
-func (j Job) IsUpdate() bool { return !j.IsPolicy() && !j.IsCommand() && !j.IsBackup() }
+func (j Job) IsUpdate() bool { return !j.IsPolicy() && !j.IsCommand() && !j.IsBackup() && !j.IsTemplate() }
 
 // Delivery is how a job gets the firmware onto the device.
 type Delivery string

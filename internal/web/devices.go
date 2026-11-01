@@ -379,6 +379,8 @@ func runningPhrase(j model.Job) string {
 		return "a backup of the device is running"
 	case j.IsPolicy():
 		return "the device is being made compliant with the policy"
+	case j.IsTemplate():
+		return "a GPIO template is being applied to the device"
 	}
 	return "the device is being updated"
 }

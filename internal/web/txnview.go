@@ -32,6 +32,8 @@ func txTitle(j model.Job, devices int) string {
 		return txTarget(j)
 	case j.IsBackup():
 		return "Back up " + plural(devices, "device")
+	case j.IsTemplate():
+		return "Apply GPIO template to " + plural(devices, "device")
 	case j.TargetCustom != "":
 		return "Update to custom firmware " + j.TargetRelease
 	}
