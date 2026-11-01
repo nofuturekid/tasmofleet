@@ -12,12 +12,7 @@ always upgrade automatically.
 - Home Assistant app, phase 1 follow-up (#442): a scripted run of the app in a real Supervisor (`tools/ha-app-devcontainer-test.sh`, workflow `ha-app`, nightly and on demand, never on pull requests) installs the app in the Home Assistant devcontainer, starts it, checks `/readyz` and the backup/restore round trip. `tasmofleet-devenv` has a new flag `-allow-download-host` so simulated devices on a non-loopback address can download from a firmware server that is not on loopback (development only)
 
 - Home Assistant app, phase 1 (#442, part of #209): `deploy/homeassistant/tasmofleet/` holds the app (config, documentation, icon) with the web interface on `8080/tcp` (HTTPS, self-signed certificate, local sign-in) and the firmware server on `80/tcp` mapped to host port 8081. It is experimental and not published yet; there is no ingress, no Home Assistant sign-in and no automatic MQTT setup until the later phases. Inside an app (`SUPERVISOR_TOKEN` set) TasmoFleet reads the Supervisor's `/data/options.json` (option `initial_admin_password`) and logs plain text; a missing or malformed options file stops the start. Docker and Unraid installs are unchanged. The Dockerfile has a new target `ha` (root user and Home Assistant labels) that CI builds and smoke-tests; the default image is the same as before
-
 - GPIO templates tab on the Policy page (#327): devices are grouped by template name and chip family and compared with the most common template or one you choose (not stored); each group shows who matches, who differs (pin by pin) and who cannot be changed and why. An admin ticks the devices and opens a preview with the exact `Template` command, the restart and PowerOnState warning and the backup-first line, confirms with a tick, and a transaction applies it to one device at a time (backup, read again, send, verify) and stops the rest after the first failure. Operators see the tab read-only. A failed transaction is not retried: "Check again…" opens the tab for a fresh comparison
-
-### Security
-
-- Cancelling and retrying transactions is admin-only for GPIO template transactions and for job kinds this build does not know; the role is checked before the job kind. Before, an operator could cancel any transaction kind except command and backup retries
 
 ### Changed
 
