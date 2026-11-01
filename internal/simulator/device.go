@@ -166,6 +166,9 @@ func newDevice(f *fleet, spec DeviceSpec, def profileDef, c *capture) (*simDevic
 	if spec.MQTTPassword != "" {
 		d.persisted.kv["mqttpassword"] = spec.MQTTPassword
 	}
+	if err := d.initTemplate(); err != nil {
+		return nil, err
+	}
 	d.runtime = d.persisted.clone()
 	d.uptimeBase = capturedInt(c, "state.json", `"UptimeSec":(\d+)`)
 	d.bootAt = time.Now()

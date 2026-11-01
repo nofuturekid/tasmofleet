@@ -33,6 +33,9 @@ var profileDefs = map[Profile]profileDef{
 	ProfileESP32S2:     {Dir: "synthetic-esp32s2", Chip: "esp32s2", FlashKB: 4096},
 	ProfileESP32S3:     {Dir: "synthetic-esp32s3", Chip: "esp32s3", FlashKB: 4096},
 	ProfileUnknownChip: {Dir: "synthetic-unknown-chip", Chip: "unknown", FlashKB: 4096},
+	// The two NOUS A1T plugs of the fleet: one model, one user template, Module 0 (#327).
+	ProfileNOUSA1TBambu: {Dir: "mr-bambu-plug", Chip: "esp8266", FlashKB: 4096},
+	ProfileNOUSA1TPrusa: {Dir: "prusa-plug", Chip: "esp8266", FlashKB: 4096},
 }
 
 // syntheticFile is the profile.json of a synthetic profile directory.

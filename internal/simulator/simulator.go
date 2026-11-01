@@ -38,6 +38,10 @@ const (
 	ProfileESP32S2     Profile = "esp32s2" // two upstream builds (s2, s2cdc) behind one image tag (#88)
 	ProfileESP32S3     Profile = "esp32s3"
 	ProfileUnknownChip Profile = "unknown-chip" // Hardware string the detector must refuse
+
+	// The captures of the two NOUS A1T plugs (ESP8266EX, Module 0, template "NOUS A1T"): one model on two devices.
+	ProfileNOUSA1TBambu Profile = "esp8266-nous-a1t-bambu"
+	ProfileNOUSA1TPrusa Profile = "esp8266-nous-a1t-prusa"
 )
 
 // Fault is a scripted misbehaviour.
@@ -140,6 +144,21 @@ type DeviceSpec struct {
 	Dirs     []string
 	NoFS     bool
 	FSSizeKB int
+	// Template is the stored user template the device boots with (nil = as captured); its GPIO
+	// array must have the chip's length. Module is the active module at boot (nil = as captured):
+	// 0 runs the user template, n >= 1 a built-in module from the capture's Modules list, and then
+	// the stored template is inactive. Both set the flash state, like a configuration restored
+	// before the first boot.
+	Template *UserTemplate
+	Module   *int
+}
+
+// UserTemplate is the stored user template of a device: what Template answers.
+type UserTemplate struct {
+	Name string
+	GPIO []int // one value per template slot, as in the JSON (0 None, 1 User, function<<5|instance)
+	Flag int
+	Base int // module number the template is based on, 1 or more
 }
 
 // Device is a running simulated device.

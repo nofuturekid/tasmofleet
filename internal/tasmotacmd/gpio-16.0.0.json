@@ -1,0 +1,3659 @@
+{
+ "tasmota": "16.0.0",
+ "source_sha256": "d2812ba1b7a34c17dd32b4aab46de30a4f777a83ae5cce2c0d60176d34bf0f2c",
+ "functions": {
+  "esp32": [
+   {
+    "id": "GPIO_NONE",
+    "name": "None"
+   },
+   {
+    "id": "GPIO_KEY1",
+    "name": "Button",
+    "multi": true
+   },
+   {
+    "id": "GPIO_KEY1_NP",
+    "name": "Button_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_KEY1_INV",
+    "name": "Button_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_KEY1_INV_NP",
+    "name": "Button_in",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SWT1",
+    "name": "Switch",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SWT1_NP",
+    "name": "Switch_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_REL1",
+    "name": "Relay",
+    "multi": true
+   },
+   {
+    "id": "GPIO_REL1_INV",
+    "name": "Relay_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_LED1",
+    "name": "Led",
+    "multi": true
+   },
+   {
+    "id": "GPIO_LED1_INV",
+    "name": "Led_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_CNTR1",
+    "name": "Counter",
+    "multi": true
+   },
+   {
+    "id": "GPIO_CNTR1_NP",
+    "name": "Counter_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_PWM1",
+    "name": "PWM",
+    "multi": true
+   },
+   {
+    "id": "GPIO_PWM1_INV",
+    "name": "PWM_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BUZZER",
+    "name": "Buzzer"
+   },
+   {
+    "id": "GPIO_BUZZER_INV",
+    "name": "Buzzer_i"
+   },
+   {
+    "id": "GPIO_LEDLNK",
+    "name": "LedLink"
+   },
+   {
+    "id": "GPIO_LEDLNK_INV",
+    "name": "LedLink_i"
+   },
+   {
+    "id": "GPIO_I2C_SCL",
+    "name": "I2C SCL",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2C_SDA",
+    "name": "I2C SDA",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_MISO",
+    "name": "SPI MISO",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_MOSI",
+    "name": "SPI MOSI",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_CLK",
+    "name": "SPI CLK",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_CS",
+    "name": "SPI CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_DC",
+    "name": "SPI DC",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SSPI_MISO",
+    "name": "SSPI MISO"
+   },
+   {
+    "id": "GPIO_SSPI_MOSI",
+    "name": "SSPI MOSI"
+   },
+   {
+    "id": "GPIO_SSPI_SCLK",
+    "name": "SSPI SCLK"
+   },
+   {
+    "id": "GPIO_SSPI_CS",
+    "name": "SSPI CS"
+   },
+   {
+    "id": "GPIO_SSPI_DC",
+    "name": "SSPI DC"
+   },
+   {
+    "id": "GPIO_BACKLIGHT",
+    "name": "Backlight"
+   },
+   {
+    "id": "GPIO_DISPLAY_RESET",
+    "name": "Display Rst"
+   },
+   {
+    "id": "GPIO_IRSEND",
+    "name": "IRsend",
+    "multi": true
+   },
+   {
+    "id": "GPIO_IRRECV",
+    "name": "IRrecv"
+   },
+   {
+    "id": "GPIO_RFSEND",
+    "name": "RFSend"
+   },
+   {
+    "id": "GPIO_RFRECV",
+    "name": "RFrecv"
+   },
+   {
+    "id": "GPIO_DHT11",
+    "name": "DHT11"
+   },
+   {
+    "id": "GPIO_DHT22",
+    "name": "AM2301"
+   },
+   {
+    "id": "GPIO_SI7021",
+    "name": "SI7021"
+   },
+   {
+    "id": "GPIO_DHT11_OUT",
+    "name": "DHT11_o"
+   },
+   {
+    "id": "GPIO_DSB",
+    "name": "DS18x20",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DSB_OUT",
+    "name": "DS18x20_o",
+    "multi": true
+   },
+   {
+    "id": "GPIO_WS2812",
+    "name": "WS2812",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MHZ_TXD",
+    "name": "MHZ Tx"
+   },
+   {
+    "id": "GPIO_MHZ_RXD",
+    "name": "MHZ Rx"
+   },
+   {
+    "id": "GPIO_PZEM0XX_TX",
+    "name": "PZEM0XX Tx"
+   },
+   {
+    "id": "GPIO_PZEM004_RX",
+    "name": "PZEM004 Rx"
+   },
+   {
+    "id": "GPIO_PZEM016_RX",
+    "name": "PZEM016 Rx"
+   },
+   {
+    "id": "GPIO_PZEM017_RX",
+    "name": "PZEM017 Rx"
+   },
+   {
+    "id": "GPIO_SAIR_TX",
+    "name": "SAir Tx"
+   },
+   {
+    "id": "GPIO_SAIR_RX",
+    "name": "SAir Rx"
+   },
+   {
+    "id": "GPIO_PMS5003_TX",
+    "name": "PMS5003 Tx"
+   },
+   {
+    "id": "GPIO_PMS5003_RX",
+    "name": "PMS5003 Rx"
+   },
+   {
+    "id": "GPIO_SDS0X1_TX",
+    "name": "SDS0X1 Tx"
+   },
+   {
+    "id": "GPIO_SDS0X1_RX",
+    "name": "SDS0X1 Rx"
+   },
+   {
+    "id": "GPIO_SBR_TX",
+    "name": "SerBr Tx"
+   },
+   {
+    "id": "GPIO_SBR_RX",
+    "name": "SerBr Rx"
+   },
+   {
+    "id": "GPIO_SR04_TRIG",
+    "name": "SR04 Tri/Tx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SR04_ECHO",
+    "name": "SR04 Ech/Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SDM120_TX",
+    "name": "SDMx20 Tx"
+   },
+   {
+    "id": "GPIO_SDM120_RX",
+    "name": "SDMx20 Rx"
+   },
+   {
+    "id": "GPIO_SDM630_TX",
+    "name": "SDM630 Tx"
+   },
+   {
+    "id": "GPIO_SDM630_RX",
+    "name": "SDM630 Rx"
+   },
+   {
+    "id": "GPIO_TM1638CLK",
+    "name": "TM1638 CLK"
+   },
+   {
+    "id": "GPIO_TM1638DIO",
+    "name": "TM1638 DIO"
+   },
+   {
+    "id": "GPIO_TM1638STB",
+    "name": "TM1638 STB"
+   },
+   {
+    "id": "GPIO_MP3_DFR562",
+    "name": "MP3 Player"
+   },
+   {
+    "id": "GPIO_HX711_SCK",
+    "name": "HX711 SCK"
+   },
+   {
+    "id": "GPIO_HX711_DAT",
+    "name": "HX711 DAT"
+   },
+   {
+    "id": "GPIO_TX2X_TXD_BLACK",
+    "name": "TX2x"
+   },
+   {
+    "id": "GPIO_TUYA_TX",
+    "name": "Tuya Tx"
+   },
+   {
+    "id": "GPIO_TUYA_RX",
+    "name": "Tuya Rx"
+   },
+   {
+    "id": "GPIO_MGC3130_XFER",
+    "name": "MGC3130 Xfr"
+   },
+   {
+    "id": "GPIO_MGC3130_RESET",
+    "name": "MGC3130 Rst"
+   },
+   {
+    "id": "GPIO_RF_SENSOR",
+    "name": "RF Sensor"
+   },
+   {
+    "id": "GPIO_AZ_TXD",
+    "name": "AZ Tx"
+   },
+   {
+    "id": "GPIO_AZ_RXD",
+    "name": "AZ Rx"
+   },
+   {
+    "id": "GPIO_MAX31855CS",
+    "name": "MX31855 CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MAX31855CLK",
+    "name": "MX31855 CLK"
+   },
+   {
+    "id": "GPIO_MAX31855DO",
+    "name": "MX31855 DO"
+   },
+   {
+    "id": "GPIO_NRG_SEL",
+    "name": "HLWBL SEL"
+   },
+   {
+    "id": "GPIO_NRG_SEL_INV",
+    "name": "HLWBL SEL_i"
+   },
+   {
+    "id": "GPIO_NRG_CF1",
+    "name": "HLWBL CF1"
+   },
+   {
+    "id": "GPIO_HLW_CF",
+    "name": "HLW8012 CF"
+   },
+   {
+    "id": "GPIO_HJL_CF",
+    "name": "BL0937 CF"
+   },
+   {
+    "id": "GPIO_MCP39F5_TX",
+    "name": "MCP39F5 Tx"
+   },
+   {
+    "id": "GPIO_MCP39F5_RX",
+    "name": "MCP39F5 Rx"
+   },
+   {
+    "id": "GPIO_MCP39F5_RST",
+    "name": "MCP39F5 Rst"
+   },
+   {
+    "id": "GPIO_PN532_TXD",
+    "name": "PN532 Tx"
+   },
+   {
+    "id": "GPIO_PN532_RXD",
+    "name": "PN532 Rx"
+   },
+   {
+    "id": "GPIO_SM16716_CLK",
+    "name": "SM16716 CLK"
+   },
+   {
+    "id": "GPIO_SM16716_DAT",
+    "name": "SM16716 DAT"
+   },
+   {
+    "id": "GPIO_SM16716_SEL",
+    "name": "SM16716 PWR"
+   },
+   {
+    "id": "GPIO_DI",
+    "name": "MY92x1 DI"
+   },
+   {
+    "id": "GPIO_DCKI",
+    "name": "MY92x1 DCKI"
+   },
+   {
+    "id": "GPIO_CSE7766_TX",
+    "name": "CSE7766 Tx"
+   },
+   {
+    "id": "GPIO_CSE7766_RX",
+    "name": "CSE7766 Rx"
+   },
+   {
+    "id": "GPIO_ARIRFRCV",
+    "name": "ALux IrRcv"
+   },
+   {
+    "id": "GPIO_ARIRFSEL",
+    "name": "ALux IrSel"
+   },
+   {
+    "id": "GPIO_TXD",
+    "name": "Serial Tx"
+   },
+   {
+    "id": "GPIO_RXD",
+    "name": "Serial Rx"
+   },
+   {
+    "id": "GPIO_ROT1A",
+    "name": "Rotary A",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ROT1B",
+    "name": "Rotary B",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_JOY",
+    "name": "ADC Joystick",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SSPI_MAX31865_CS1",
+    "name": "MX31865 CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_HRE_CLOCK",
+    "name": "HRE Clock"
+   },
+   {
+    "id": "GPIO_HRE_DATA",
+    "name": "HRE Data"
+   },
+   {
+    "id": "GPIO_ADE7953_IRQ",
+    "name": "ADE7953 IRQ",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SOLAXX1_TX",
+    "name": "SolaxX1 Tx"
+   },
+   {
+    "id": "GPIO_SOLAXX1_RX",
+    "name": "SolaxX1 Rx"
+   },
+   {
+    "id": "GPIO_ZIGBEE_TX",
+    "name": "Zigbee Tx"
+   },
+   {
+    "id": "GPIO_ZIGBEE_RX",
+    "name": "Zigbee Rx"
+   },
+   {
+    "id": "GPIO_RDM6300_RX",
+    "name": "RDM6300 Rx"
+   },
+   {
+    "id": "GPIO_IBEACON_TX",
+    "name": "iBeacon Tx"
+   },
+   {
+    "id": "GPIO_IBEACON_RX",
+    "name": "iBeacon Rx"
+   },
+   {
+    "id": "GPIO_A4988_DIR",
+    "name": "A4988 DIR"
+   },
+   {
+    "id": "GPIO_A4988_STP",
+    "name": "A4988 STP"
+   },
+   {
+    "id": "GPIO_A4988_ENA",
+    "name": "A4988 ENA"
+   },
+   {
+    "id": "GPIO_A4988_MS1",
+    "name": "A4988 MS1",
+    "multi": true
+   },
+   {
+    "id": "GPIO_OUTPUT_HI",
+    "name": "Output Hi"
+   },
+   {
+    "id": "GPIO_OUTPUT_LO",
+    "name": "Output Lo"
+   },
+   {
+    "id": "GPIO_DDS2382_TX",
+    "name": "DDS238-2 Tx"
+   },
+   {
+    "id": "GPIO_DDS2382_RX",
+    "name": "DDS238-2 Rx"
+   },
+   {
+    "id": "GPIO_DDSU666_TX",
+    "name": "DDSU666 Tx"
+   },
+   {
+    "id": "GPIO_DDSU666_RX",
+    "name": "DDSU666 Rx"
+   },
+   {
+    "id": "GPIO_SM2135_CLK",
+    "name": "SM2135 Clk"
+   },
+   {
+    "id": "GPIO_SM2135_DAT",
+    "name": "SM2135 Dat",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DEEPSLEEP",
+    "name": "DeepSleep"
+   },
+   {
+    "id": "GPIO_EXS_ENABLE",
+    "name": "EXS Enable"
+   },
+   {
+    "id": "GPIO_TASMOTACLIENT_TXD",
+    "name": "Client Tx"
+   },
+   {
+    "id": "GPIO_TASMOTACLIENT_RXD",
+    "name": "Client Rx"
+   },
+   {
+    "id": "GPIO_TASMOTACLIENT_RST",
+    "name": "Client Rst"
+   },
+   {
+    "id": "GPIO_TASMOTACLIENT_RST_INV",
+    "name": "Client Rst_i"
+   },
+   {
+    "id": "GPIO_HPMA_RX",
+    "name": "HPMA Rx"
+   },
+   {
+    "id": "GPIO_HPMA_TX",
+    "name": "HPMA Tx"
+   },
+   {
+    "id": "GPIO_GPS_RX",
+    "name": "GPS Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_GPS_TX",
+    "name": "GPS Tx"
+   },
+   {
+    "id": "GPIO_HM10_RX",
+    "name": "HM10 Rx"
+   },
+   {
+    "id": "GPIO_HM10_TX",
+    "name": "HM10 Tx"
+   },
+   {
+    "id": "GPIO_LE01MR_RX",
+    "name": "LE-01MR Rx"
+   },
+   {
+    "id": "GPIO_LE01MR_TX",
+    "name": "LE-01MR Tx"
+   },
+   {
+    "id": "GPIO_CC1101_GDO0",
+    "name": "CC1101 GDO0"
+   },
+   {
+    "id": "GPIO_CC1101_GDO2",
+    "name": "CC1101 GDO2"
+   },
+   {
+    "id": "GPIO_HRXL_RX",
+    "name": "HRXL Rx"
+   },
+   {
+    "id": "GPIO_ELECTRIQ_MOODL_TX",
+    "name": "MOODL Tx"
+   },
+   {
+    "id": "GPIO_AS3935",
+    "name": "AS3935"
+   },
+   {
+    "id": "GPIO_ADC_INPUT",
+    "name": "ADC Input",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_TEMP",
+    "name": "ADC Temp",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_LIGHT",
+    "name": "ADC Light",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_BUTTON",
+    "name": "ADC Button",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_BUTTON_INV",
+    "name": "ADC Button_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_RANGE",
+    "name": "ADC Range",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_CT_POWER",
+    "name": "ADC CT Power",
+    "multi": true
+   },
+   {
+    "id": "GPIO_WEBCAM_PWDN",
+    "name": "CAM_PWDN"
+   },
+   {
+    "id": "GPIO_WEBCAM_RESET",
+    "name": "CAM_RESET"
+   },
+   {
+    "id": "GPIO_WEBCAM_XCLK",
+    "name": "CAM_XCLK"
+   },
+   {
+    "id": "GPIO_WEBCAM_SIOD",
+    "name": "CAM_SIOD"
+   },
+   {
+    "id": "GPIO_WEBCAM_SIOC",
+    "name": "CAM_SIOC"
+   },
+   {
+    "id": "GPIO_WEBCAM_DATA",
+    "name": "CAM_DATA",
+    "multi": true
+   },
+   {
+    "id": "GPIO_WEBCAM_VSYNC",
+    "name": "CAM_VSYNC"
+   },
+   {
+    "id": "GPIO_WEBCAM_HREF",
+    "name": "CAM_HREF"
+   },
+   {
+    "id": "GPIO_WEBCAM_PCLK",
+    "name": "CAM_PCLK"
+   },
+   {
+    "id": "GPIO_WEBCAM_PSCLK",
+    "name": "CAM_PSCLK"
+   },
+   {
+    "id": "GPIO_WEBCAM_HSD",
+    "name": "CAM_HSD",
+    "multi": true
+   },
+   {
+    "id": "GPIO_WEBCAM_PSRCS",
+    "name": "CAM_PSRCS"
+   },
+   {
+    "id": "GPIO_BOILER_OT_RX",
+    "name": "OpenTherm RX"
+   },
+   {
+    "id": "GPIO_BOILER_OT_TX",
+    "name": "OpenTherm TX"
+   },
+   {
+    "id": "GPIO_WINDMETER_SPEED",
+    "name": "WindMeter Spd"
+   },
+   {
+    "id": "GPIO_KEY1_TC",
+    "name": "Button_tc",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BL0940_RX",
+    "name": "BL0940 Rx"
+   },
+   {
+    "id": "GPIO_TCP_TX",
+    "name": "TCP Tx"
+   },
+   {
+    "id": "GPIO_TCP_RX",
+    "name": "TCP Rx"
+   },
+   {
+    "id": "GPIO_ETH_PHY_POWER",
+    "name": "ETH POWER"
+   },
+   {
+    "id": "GPIO_ETH_PHY_MDC",
+    "name": "ETH MDC",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ETH_PHY_MDIO",
+    "name": "ETH MDIO"
+   },
+   {
+    "id": "GPIO_TELEINFO_RX",
+    "name": "TInfo Rx"
+   },
+   {
+    "id": "GPIO_TELEINFO_ENABLE",
+    "name": "TInfo EN"
+   },
+   {
+    "id": "GPIO_LMT01",
+    "name": "LMT01 Pulse"
+   },
+   {
+    "id": "GPIO_IEM3000_TX",
+    "name": "iEM3000 Tx"
+   },
+   {
+    "id": "GPIO_IEM3000_RX",
+    "name": "iEM3000 Rx"
+   },
+   {
+    "id": "GPIO_ZIGBEE_RST",
+    "name": "Zigbee Rst",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DYP_RX",
+    "name": "DYP Rx"
+   },
+   {
+    "id": "GPIO_MIEL_HVAC_TX",
+    "name": "MiEl HVAC Tx"
+   },
+   {
+    "id": "GPIO_MIEL_HVAC_RX",
+    "name": "MiEl HVAC Rx"
+   },
+   {
+    "id": "GPIO_WE517_TX",
+    "name": "WE517 Tx"
+   },
+   {
+    "id": "GPIO_WE517_RX",
+    "name": "WE517 Rx"
+   },
+   {
+    "id": "GPIO_AS608_TX",
+    "name": "AS608 Tx"
+   },
+   {
+    "id": "GPIO_AS608_RX",
+    "name": "AS608 Rx"
+   },
+   {
+    "id": "GPIO_SHELLY_DIMMER_BOOT0",
+    "name": "SHD Boot 0"
+   },
+   {
+    "id": "GPIO_SHELLY_DIMMER_RST_INV",
+    "name": "SHD Reset"
+   },
+   {
+    "id": "GPIO_RC522_RST",
+    "name": "RC522 Rst"
+   },
+   {
+    "id": "GPIO_P9813_CLK",
+    "name": "P9813 Clk"
+   },
+   {
+    "id": "GPIO_P9813_DAT",
+    "name": "P9813 Dat"
+   },
+   {
+    "id": "GPIO_OPTION_A",
+    "name": "Option A",
+    "multi": true
+   },
+   {
+    "id": "GPIO_FTC532",
+    "name": "FTC532"
+   },
+   {
+    "id": "GPIO_RC522_CS",
+    "name": "RC522 CS"
+   },
+   {
+    "id": "GPIO_NRF24_CS",
+    "name": "NRF24 CS"
+   },
+   {
+    "id": "GPIO_NRF24_DC",
+    "name": "NRF24 DC"
+   },
+   {
+    "id": "GPIO_ILI9341_CS",
+    "name": "ILI9341 CS"
+   },
+   {
+    "id": "GPIO_ILI9341_DC",
+    "name": "ILI9341 DC"
+   },
+   {
+    "id": "GPIO_ILI9488_CS",
+    "name": "ILI9488 CS"
+   },
+   {
+    "id": "GPIO_EPAPER29_CS",
+    "name": "EPaper29 CS"
+   },
+   {
+    "id": "GPIO_EPAPER42_CS",
+    "name": "EPaper42 CS"
+   },
+   {
+    "id": "GPIO_SSD1351_CS",
+    "name": "SSD1351 CS"
+   },
+   {
+    "id": "GPIO_RA8876_CS",
+    "name": "RA8876 CS"
+   },
+   {
+    "id": "GPIO_ST7789_CS",
+    "name": "ST7789 CS"
+   },
+   {
+    "id": "GPIO_ST7789_DC",
+    "name": "ST7789 DC"
+   },
+   {
+    "id": "GPIO_SSD1331_CS",
+    "name": "SSD1331 CS"
+   },
+   {
+    "id": "GPIO_SSD1331_DC",
+    "name": "SSD1331 DC"
+   },
+   {
+    "id": "GPIO_SDCARD_CS",
+    "name": "SDCard CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ROT1A_NP",
+    "name": "Rotary A_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ROT1B_NP",
+    "name": "Rotary B_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_PH",
+    "name": "ADC pH",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BS814_CLK",
+    "name": "BS814 CLK"
+   },
+   {
+    "id": "GPIO_BS814_DAT",
+    "name": "BS814 DAT"
+   },
+   {
+    "id": "GPIO_WIEGAND_D0",
+    "name": "Wiegand D0"
+   },
+   {
+    "id": "GPIO_WIEGAND_D1",
+    "name": "Wiegand D1"
+   },
+   {
+    "id": "GPIO_NEOPOOL_TX",
+    "name": "NeoPool Tx"
+   },
+   {
+    "id": "GPIO_NEOPOOL_RX",
+    "name": "NeoPool Rx"
+   },
+   {
+    "id": "GPIO_SDM72_TX",
+    "name": "SDM72 Tx"
+   },
+   {
+    "id": "GPIO_SDM72_RX",
+    "name": "SDM72 Rx"
+   },
+   {
+    "id": "GPIO_TM1637CLK",
+    "name": "TM1637 CLK"
+   },
+   {
+    "id": "GPIO_TM1637DIO",
+    "name": "TM1637 DIO"
+   },
+   {
+    "id": "GPIO_PROJECTOR_CTRL_TX",
+    "name": "DLP Tx"
+   },
+   {
+    "id": "GPIO_PROJECTOR_CTRL_RX",
+    "name": "DLP Rx"
+   },
+   {
+    "id": "GPIO_SSD1351_DC",
+    "name": "SSD1351 DC"
+   },
+   {
+    "id": "GPIO_XPT2046_CS",
+    "name": "XPT2046 CS"
+   },
+   {
+    "id": "GPIO_CSE7761_TX",
+    "name": "CSE7761 Tx"
+   },
+   {
+    "id": "GPIO_CSE7761_RX",
+    "name": "CSE7761 Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_VL53LXX_XSHUT1",
+    "name": "VL53LXX XSHUT",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MAX7219CLK",
+    "name": "MAX7219 CLK"
+   },
+   {
+    "id": "GPIO_MAX7219DIN",
+    "name": "MAX7219 DIN"
+   },
+   {
+    "id": "GPIO_MAX7219CS",
+    "name": "MAX7219 CS"
+   },
+   {
+    "id": "GPIO_TFMINIPLUS_TX",
+    "name": "TFmini+ Tx"
+   },
+   {
+    "id": "GPIO_TFMINIPLUS_RX",
+    "name": "TFmini+ Rx"
+   },
+   {
+    "id": "GPIO_ZEROCROSS",
+    "name": "ZC Pulse"
+   },
+   {
+    "id": "GPIO_HALLEFFECT",
+    "name": "HallEffect",
+    "multi": true
+   },
+   {
+    "id": "GPIO_EPD_DATA",
+    "name": "EPD Data"
+   },
+   {
+    "id": "GPIO_INPUT",
+    "name": "Input",
+    "multi": true
+   },
+   {
+    "id": "GPIO_KEY1_PD",
+    "name": "Button_d",
+    "multi": true
+   },
+   {
+    "id": "GPIO_KEY1_INV_PD",
+    "name": "Button_id",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SWT1_PD",
+    "name": "Switch_d",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_DOUT",
+    "name": "I2S DOUT",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_BCLK",
+    "name": "I2S BCLK",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_WS",
+    "name": "I2S WS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_DIN",
+    "name": "I2S DIN",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_BCLK_IN",
+    "name": "I2S WS In"
+   },
+   {
+    "id": "GPIO_I2S_WS_IN",
+    "name": "I2S BCLK In"
+   },
+   {
+    "id": "GPIO_INTERRUPT",
+    "name": "Interrupt",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MCP2515_CS",
+    "name": "MCP2515 CS"
+   },
+   {
+    "id": "GPIO_HRG15_TX",
+    "name": "HRG15 Tx"
+   },
+   {
+    "id": "GPIO_HRG15_RX",
+    "name": "HRG15 Rx"
+   },
+   {
+    "id": "GPIO_VINDRIKTNING_RX",
+    "name": "VINDRIKTNING"
+   },
+   {
+    "id": "GPIO_BL0939_RX",
+    "name": "BL0939 Rx"
+   },
+   {
+    "id": "GPIO_BL0942_RX",
+    "name": "BL0942 Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_HM330X_SET",
+    "name": "HM330X SET"
+   },
+   {
+    "id": "GPIO_HEARTBEAT",
+    "name": "Heartbeat"
+   },
+   {
+    "id": "GPIO_HEARTBEAT_INV",
+    "name": "Heartbeat_i"
+   },
+   {
+    "id": "GPIO_SHIFT595_SRCLK",
+    "name": "74x595 SRCLK"
+   },
+   {
+    "id": "GPIO_SHIFT595_RCLK",
+    "name": "74x595 RCLK"
+   },
+   {
+    "id": "GPIO_SHIFT595_OE",
+    "name": "74x595 OE"
+   },
+   {
+    "id": "GPIO_SHIFT595_SER",
+    "name": "74x595 SER"
+   },
+   {
+    "id": "GPIO_SOLAXX1_RTS",
+    "name": "SolaxX1 RTS"
+   },
+   {
+    "id": "GPIO_OPTION_E",
+    "name": "Option E",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SDM230_TX",
+    "name": "SDM230 Tx"
+   },
+   {
+    "id": "GPIO_SDM230_RX",
+    "name": "SDM230 Rx"
+   },
+   {
+    "id": "GPIO_ADC_MQ",
+    "name": "ADC MQ",
+    "multi": true
+   },
+   {
+    "id": "GPIO_CM11_TXD",
+    "name": "CM110x Tx"
+   },
+   {
+    "id": "GPIO_CM11_RXD",
+    "name": "CM110x Rx"
+   },
+   {
+    "id": "GPIO_BL6523_TX",
+    "name": "BL6523 Tx"
+   },
+   {
+    "id": "GPIO_BL6523_RX",
+    "name": "BL6523 Rx"
+   },
+   {
+    "id": "GPIO_ADE7880_IRQ",
+    "name": "ADE7880 IRQ",
+    "multi": true
+   },
+   {
+    "id": "GPIO_RESET",
+    "name": "Reset"
+   },
+   {
+    "id": "GPIO_MS01",
+    "name": "MS01"
+   },
+   {
+    "id": "GPIO_SDIO_CMD",
+    "name": "SDIO CMD"
+   },
+   {
+    "id": "GPIO_SDIO_CLK",
+    "name": "SDIO CLK"
+   },
+   {
+    "id": "GPIO_SDIO_D0",
+    "name": "SDIO D0"
+   },
+   {
+    "id": "GPIO_SDIO_D1",
+    "name": "SDIO D1"
+   },
+   {
+    "id": "GPIO_SDIO_D2",
+    "name": "SDIO D2"
+   },
+   {
+    "id": "GPIO_SDIO_D3",
+    "name": "SDIO D3"
+   },
+   {
+    "id": "GPIO_FLOWRATEMETER_IN",
+    "name": "Flowrate",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BP5758D_CLK",
+    "name": "BP5758D Clk"
+   },
+   {
+    "id": "GPIO_BP5758D_DAT",
+    "name": "BP5758D Dat"
+   },
+   {
+    "id": "GPIO_SM2335_CLK",
+    "name": "SM2335 Clk"
+   },
+   {
+    "id": "GPIO_SM2335_DAT",
+    "name": "SM2335 Dat",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MP3_DFR562_BUSY",
+    "name": "MP3 Busy"
+   },
+   {
+    "id": "GPIO_TM1621_CS",
+    "name": "TM1621 CS"
+   },
+   {
+    "id": "GPIO_TM1621_WR",
+    "name": "TM1621 WR"
+   },
+   {
+    "id": "GPIO_TM1621_RD",
+    "name": "TM1621 RD"
+   },
+   {
+    "id": "GPIO_TM1621_DAT",
+    "name": "TM1621 DAT"
+   },
+   {
+    "id": "GPIO_REL1_BI",
+    "name": "Relay_b",
+    "multi": true
+   },
+   {
+    "id": "GPIO_REL1_BI_INV",
+    "name": "Relay_bi",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_MCLK",
+    "name": "I2S MCLK",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MBR_TX",
+    "name": "ModBr Tx"
+   },
+   {
+    "id": "GPIO_MBR_RX",
+    "name": "ModBr Rx"
+   },
+   {
+    "id": "GPIO_ADE7953_RST",
+    "name": "ADE7953 RST"
+   },
+   {
+    "id": "GPIO_NRG_MBS_TX",
+    "name": "NrgMbs Tx"
+   },
+   {
+    "id": "GPIO_NRG_MBS_RX",
+    "name": "NrgMbs Rx"
+   },
+   {
+    "id": "GPIO_ADE7953_CS",
+    "name": "ADE7953 CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DALI_RX",
+    "name": "Dali RX"
+   },
+   {
+    "id": "GPIO_DALI_TX",
+    "name": "Dali TX"
+   },
+   {
+    "id": "GPIO_BP1658CJ_CLK",
+    "name": "BP1658CJ Clk"
+   },
+   {
+    "id": "GPIO_BP1658CJ_DAT",
+    "name": "BP1658CJ Dat",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DINGTIAN_CLK",
+    "name": "Dingtian CLK",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DINGTIAN_SDI",
+    "name": "Dingtian SDI"
+   },
+   {
+    "id": "GPIO_DINGTIAN_Q7",
+    "name": "Dingtian Q7"
+   },
+   {
+    "id": "GPIO_DINGTIAN_PL",
+    "name": "Dingtian PL"
+   },
+   {
+    "id": "GPIO_DINGTIAN_RCK",
+    "name": "Dingtian RCK"
+   },
+   {
+    "id": "GPIO_LD2410_TX",
+    "name": "LD2410 Tx"
+   },
+   {
+    "id": "GPIO_LD2410_RX",
+    "name": "LD2410 Rx"
+   },
+   {
+    "id": "GPIO_MBR_TX_ENA",
+    "name": "ModBr Tx Ena"
+   },
+   {
+    "id": "GPIO_NRG_MBS_TX_ENA",
+    "name": "NrgMbs Tx Ena"
+   },
+   {
+    "id": "GPIO_ME007_TRIG",
+    "name": "ME007 Tri"
+   },
+   {
+    "id": "GPIO_ME007_RX",
+    "name": "ME007 Rx"
+   },
+   {
+    "id": "GPIO_TUYAMCUBR_TX",
+    "name": "TuyaMCUBr Tx"
+   },
+   {
+    "id": "GPIO_TUYAMCUBR_RX",
+    "name": "TuyaMCUBr Rx"
+   },
+   {
+    "id": "GPIO_BIOPDU_PZEM0XX_TX",
+    "name": "BioPDU PZEM0XX Tx"
+   },
+   {
+    "id": "GPIO_BIOPDU_PZEM016_RX",
+    "name": "BioPDU PZEM016 Rx"
+   },
+   {
+    "id": "GPIO_BIOPDU_BIT",
+    "name": "BioPDU Bit",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MCP23XXX_INT",
+    "name": "MCP23xxx Int",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MCP23SXX_CS",
+    "name": "MCP23Sxx CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_PCF8574_INT",
+    "name": "PCF8574 Int"
+   },
+   {
+    "id": "GPIO_LOX_O2_RX",
+    "name": "LoxO2 Rx"
+   },
+   {
+    "id": "GPIO_GM861_TX",
+    "name": "GM861 Tx"
+   },
+   {
+    "id": "GPIO_GM861_RX",
+    "name": "GM861 Rx"
+   },
+   {
+    "id": "GPIO_DINGTIAN_OE",
+    "name": "Dingtian OE"
+   },
+   {
+    "id": "GPIO_HDMI_CEC",
+    "name": "HDMI CEC"
+   },
+   {
+    "id": "GPIO_HC8_RXD",
+    "name": "HC8 Rx"
+   },
+   {
+    "id": "GPIO_I2S_DAC",
+    "name": "I2S DAC",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MAGIC_SWITCH",
+    "name": "MagicSwitch",
+    "multi": true
+   },
+   {
+    "id": "GPIO_PIPSOLAR_TX",
+    "name": "Pipsolar TX"
+   },
+   {
+    "id": "GPIO_PIPSOLAR_RX",
+    "name": "Pipsolar RX"
+   },
+   {
+    "id": "GPIO_LORA_CS",
+    "name": "LoRa CS"
+   },
+   {
+    "id": "GPIO_LORA_RST",
+    "name": "LoRa Rst"
+   },
+   {
+    "id": "GPIO_LORA_BUSY",
+    "name": "LoRa Busy"
+   },
+   {
+    "id": "GPIO_LORA_DI0",
+    "name": "LoRa DIO0"
+   },
+   {
+    "id": "GPIO_LORA_DI1",
+    "name": "LoRa DIO1"
+   },
+   {
+    "id": "GPIO_LORA_DI2",
+    "name": "LoRa DIO2"
+   },
+   {
+    "id": "GPIO_LORA_DI3",
+    "name": "LoRa DIO3"
+   },
+   {
+    "id": "GPIO_LORA_DI4",
+    "name": "LoRa DIO4"
+   },
+   {
+    "id": "GPIO_LORA_DI5",
+    "name": "LoRa DIO5"
+   },
+   {
+    "id": "GPIO_TS_SPI_CS",
+    "name": "TS SPI CS"
+   },
+   {
+    "id": "GPIO_TS_RST",
+    "name": "TS RST"
+   },
+   {
+    "id": "GPIO_TS_IRQ",
+    "name": "TS IRQ"
+   },
+   {
+    "id": "GPIO_RN2XX3_TX",
+    "name": "RN2XX3 Tx"
+   },
+   {
+    "id": "GPIO_RN2XX3_RX",
+    "name": "RN2XX3 Rx"
+   },
+   {
+    "id": "GPIO_RN2XX3_RST",
+    "name": "RN2XX3 Rst"
+   },
+   {
+    "id": "GPIO_TCP_TX_EN",
+    "name": "TCP Tx En"
+   },
+   {
+    "id": "GPIO_ASR650X_TX",
+    "name": "ASR650x Tx"
+   },
+   {
+    "id": "GPIO_ASR650X_RX",
+    "name": "ASR650x Rx"
+   },
+   {
+    "id": "GPIO_WOOLIIS_RX",
+    "name": "Wooliis Rx"
+   },
+   {
+    "id": "GPIO_ADC_VOLTAGE",
+    "name": "ADC Voltage",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_CURRENT",
+    "name": "ADC Current",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BL0906_RX",
+    "name": "BL0906 Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DALI_RX_INV",
+    "name": "Dali RX_i"
+   },
+   {
+    "id": "GPIO_DALI_TX_INV",
+    "name": "Dali TX_i"
+   },
+   {
+    "id": "GPIO_LD2410S_TX",
+    "name": "LD2410S Tx"
+   },
+   {
+    "id": "GPIO_LD2410S_RX",
+    "name": "LD2410S Rx"
+   },
+   {
+    "id": "GPIO_I2C_SER_TX",
+    "name": "I2C Ser Tx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2C_SER_RX",
+    "name": "I2C Ser Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_TM1640CLK",
+    "name": "TM1640 CLK"
+   },
+   {
+    "id": "GPIO_TM1640DIN",
+    "name": "TM1640 DIN"
+   },
+   {
+    "id": "GPIO_TWAI_TX",
+    "name": "TWAI Tx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_TWAI_RX",
+    "name": "TWAI Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_TWAI_BO",
+    "name": "TWAI BusOff",
+    "multi": true
+   },
+   {
+    "id": "GPIO_TWAI_CLK",
+    "name": "TWAI ClkOut",
+    "multi": true
+   },
+   {
+    "id": "GPIO_C8_CO2_5K_TX",
+    "name": "C8-CO2-5K Tx"
+   },
+   {
+    "id": "GPIO_C8_CO2_5K_RX",
+    "name": "C8-CO2-5K Rx"
+   },
+   {
+    "id": "GPIO_V9240_TX",
+    "name": "V9240 TX"
+   },
+   {
+    "id": "GPIO_V9240_RX",
+    "name": "V9240 RX"
+   },
+   {
+    "id": "GPIO_LD2402_TX",
+    "name": "LD2402 Tx"
+   },
+   {
+    "id": "GPIO_LD2402_RX",
+    "name": "LD2402 Rx"
+   },
+   {
+    "id": "GPIO_HSDIO_CMD",
+    "name": "HSDIO CMD"
+   },
+   {
+    "id": "GPIO_HSDIO_CLK",
+    "name": "HSDIO CLK"
+   },
+   {
+    "id": "GPIO_HSDIO_RST",
+    "name": "HSDIO RST"
+   },
+   {
+    "id": "GPIO_HSDIO_D0",
+    "name": "HSDIO D0"
+   },
+   {
+    "id": "GPIO_HSDIO_D1",
+    "name": "HSDIO D1"
+   },
+   {
+    "id": "GPIO_HSDIO_D2",
+    "name": "HSDIO D2"
+   },
+   {
+    "id": "GPIO_HSDIO_D3",
+    "name": "HSDIO D3"
+   },
+   {
+    "id": "GPIO_VID6608_F",
+    "name": "VID6608 F",
+    "multi": true
+   },
+   {
+    "id": "GPIO_VID6608_CW",
+    "name": "VID6608 CW",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MKSKYBLU_TX",
+    "name": "MkSkyBlu Tx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MKSKYBLU_RX",
+    "name": "MkSkyBlu Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MBS_RX_ENA",
+    "name": "ModBr Rx Ena"
+   },
+   {
+    "id": "GPIO_MODBUSRELAY_TX",
+    "name": "MbsRelay TX"
+   },
+   {
+    "id": "GPIO_MODBUSRELAY_TX_ENA",
+    "name": "MbsRelay TX Ena"
+   },
+   {
+    "id": "GPIO_MODBUSRELAY_RX",
+    "name": "MbsRelay RX"
+   },
+   {
+    "id": "GPIO_MODBUSRELAY_RX_ENA",
+    "name": "MbsRelay RX Ena"
+   },
+   {
+    "id": "GPIO_MIEL_HVAC_MB_TX",
+    "name": "MiEl HVAC MB Tx"
+   },
+   {
+    "id": "GPIO_MIEL_HVAC_MB_RX",
+    "name": "MiEl HVAC MB Rx"
+   },
+   {
+    "id": "GPIO_MIEL_HVAC_MB_TXEN",
+    "name": "MiEl HVAC MB DE"
+   },
+   {
+    "id": "GPIO_CC1101_CS",
+    "name": "CC1101 CS"
+   }
+  ],
+  "esp8266": [
+   {
+    "id": "GPIO_NONE",
+    "name": "None"
+   },
+   {
+    "id": "GPIO_KEY1",
+    "name": "Button",
+    "multi": true
+   },
+   {
+    "id": "GPIO_KEY1_NP",
+    "name": "Button_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_KEY1_INV",
+    "name": "Button_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_KEY1_INV_NP",
+    "name": "Button_in",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SWT1",
+    "name": "Switch",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SWT1_NP",
+    "name": "Switch_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_REL1",
+    "name": "Relay",
+    "multi": true
+   },
+   {
+    "id": "GPIO_REL1_INV",
+    "name": "Relay_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_LED1",
+    "name": "Led",
+    "multi": true
+   },
+   {
+    "id": "GPIO_LED1_INV",
+    "name": "Led_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_CNTR1",
+    "name": "Counter",
+    "multi": true
+   },
+   {
+    "id": "GPIO_CNTR1_NP",
+    "name": "Counter_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_PWM1",
+    "name": "PWM",
+    "multi": true
+   },
+   {
+    "id": "GPIO_PWM1_INV",
+    "name": "PWM_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BUZZER",
+    "name": "Buzzer"
+   },
+   {
+    "id": "GPIO_BUZZER_INV",
+    "name": "Buzzer_i"
+   },
+   {
+    "id": "GPIO_LEDLNK",
+    "name": "LedLink"
+   },
+   {
+    "id": "GPIO_LEDLNK_INV",
+    "name": "LedLink_i"
+   },
+   {
+    "id": "GPIO_I2C_SCL",
+    "name": "I2C SCL",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2C_SDA",
+    "name": "I2C SDA",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_MISO",
+    "name": "SPI MISO",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_MOSI",
+    "name": "SPI MOSI",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_CLK",
+    "name": "SPI CLK",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_CS",
+    "name": "SPI CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SPI_DC",
+    "name": "SPI DC",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SSPI_MISO",
+    "name": "SSPI MISO"
+   },
+   {
+    "id": "GPIO_SSPI_MOSI",
+    "name": "SSPI MOSI"
+   },
+   {
+    "id": "GPIO_SSPI_SCLK",
+    "name": "SSPI SCLK"
+   },
+   {
+    "id": "GPIO_SSPI_CS",
+    "name": "SSPI CS"
+   },
+   {
+    "id": "GPIO_SSPI_DC",
+    "name": "SSPI DC"
+   },
+   {
+    "id": "GPIO_BACKLIGHT",
+    "name": "Backlight"
+   },
+   {
+    "id": "GPIO_DISPLAY_RESET",
+    "name": "Display Rst"
+   },
+   {
+    "id": "GPIO_IRSEND",
+    "name": "IRsend",
+    "multi": true
+   },
+   {
+    "id": "GPIO_IRRECV",
+    "name": "IRrecv"
+   },
+   {
+    "id": "GPIO_RFSEND",
+    "name": "RFSend"
+   },
+   {
+    "id": "GPIO_RFRECV",
+    "name": "RFrecv"
+   },
+   {
+    "id": "GPIO_DHT11",
+    "name": "DHT11"
+   },
+   {
+    "id": "GPIO_DHT22",
+    "name": "AM2301"
+   },
+   {
+    "id": "GPIO_SI7021",
+    "name": "SI7021"
+   },
+   {
+    "id": "GPIO_DHT11_OUT",
+    "name": "DHT11_o"
+   },
+   {
+    "id": "GPIO_DSB",
+    "name": "DS18x20",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DSB_OUT",
+    "name": "DS18x20_o",
+    "multi": true
+   },
+   {
+    "id": "GPIO_WS2812",
+    "name": "WS2812",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MHZ_TXD",
+    "name": "MHZ Tx"
+   },
+   {
+    "id": "GPIO_MHZ_RXD",
+    "name": "MHZ Rx"
+   },
+   {
+    "id": "GPIO_PZEM0XX_TX",
+    "name": "PZEM0XX Tx"
+   },
+   {
+    "id": "GPIO_PZEM004_RX",
+    "name": "PZEM004 Rx"
+   },
+   {
+    "id": "GPIO_PZEM016_RX",
+    "name": "PZEM016 Rx"
+   },
+   {
+    "id": "GPIO_PZEM017_RX",
+    "name": "PZEM017 Rx"
+   },
+   {
+    "id": "GPIO_SAIR_TX",
+    "name": "SAir Tx"
+   },
+   {
+    "id": "GPIO_SAIR_RX",
+    "name": "SAir Rx"
+   },
+   {
+    "id": "GPIO_PMS5003_TX",
+    "name": "PMS5003 Tx"
+   },
+   {
+    "id": "GPIO_PMS5003_RX",
+    "name": "PMS5003 Rx"
+   },
+   {
+    "id": "GPIO_SDS0X1_TX",
+    "name": "SDS0X1 Tx"
+   },
+   {
+    "id": "GPIO_SDS0X1_RX",
+    "name": "SDS0X1 Rx"
+   },
+   {
+    "id": "GPIO_SBR_TX",
+    "name": "SerBr Tx"
+   },
+   {
+    "id": "GPIO_SBR_RX",
+    "name": "SerBr Rx"
+   },
+   {
+    "id": "GPIO_SR04_TRIG",
+    "name": "SR04 Tri/Tx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SR04_ECHO",
+    "name": "SR04 Ech/Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SDM120_TX",
+    "name": "SDMx20 Tx"
+   },
+   {
+    "id": "GPIO_SDM120_RX",
+    "name": "SDMx20 Rx"
+   },
+   {
+    "id": "GPIO_SDM630_TX",
+    "name": "SDM630 Tx"
+   },
+   {
+    "id": "GPIO_SDM630_RX",
+    "name": "SDM630 Rx"
+   },
+   {
+    "id": "GPIO_TM1638CLK",
+    "name": "TM1638 CLK"
+   },
+   {
+    "id": "GPIO_TM1638DIO",
+    "name": "TM1638 DIO"
+   },
+   {
+    "id": "GPIO_TM1638STB",
+    "name": "TM1638 STB"
+   },
+   {
+    "id": "GPIO_MP3_DFR562",
+    "name": "MP3 Player"
+   },
+   {
+    "id": "GPIO_HX711_SCK",
+    "name": "HX711 SCK"
+   },
+   {
+    "id": "GPIO_HX711_DAT",
+    "name": "HX711 DAT"
+   },
+   {
+    "id": "GPIO_TX2X_TXD_BLACK",
+    "name": "TX2x"
+   },
+   {
+    "id": "GPIO_TUYA_TX",
+    "name": "Tuya Tx"
+   },
+   {
+    "id": "GPIO_TUYA_RX",
+    "name": "Tuya Rx"
+   },
+   {
+    "id": "GPIO_MGC3130_XFER",
+    "name": "MGC3130 Xfr"
+   },
+   {
+    "id": "GPIO_MGC3130_RESET",
+    "name": "MGC3130 Rst"
+   },
+   {
+    "id": "GPIO_RF_SENSOR",
+    "name": "RF Sensor"
+   },
+   {
+    "id": "GPIO_AZ_TXD",
+    "name": "AZ Tx"
+   },
+   {
+    "id": "GPIO_AZ_RXD",
+    "name": "AZ Rx"
+   },
+   {
+    "id": "GPIO_MAX31855CS",
+    "name": "MX31855 CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MAX31855CLK",
+    "name": "MX31855 CLK"
+   },
+   {
+    "id": "GPIO_MAX31855DO",
+    "name": "MX31855 DO"
+   },
+   {
+    "id": "GPIO_NRG_SEL",
+    "name": "HLWBL SEL"
+   },
+   {
+    "id": "GPIO_NRG_SEL_INV",
+    "name": "HLWBL SEL_i"
+   },
+   {
+    "id": "GPIO_NRG_CF1",
+    "name": "HLWBL CF1"
+   },
+   {
+    "id": "GPIO_HLW_CF",
+    "name": "HLW8012 CF"
+   },
+   {
+    "id": "GPIO_HJL_CF",
+    "name": "BL0937 CF"
+   },
+   {
+    "id": "GPIO_MCP39F5_TX",
+    "name": "MCP39F5 Tx"
+   },
+   {
+    "id": "GPIO_MCP39F5_RX",
+    "name": "MCP39F5 Rx"
+   },
+   {
+    "id": "GPIO_MCP39F5_RST",
+    "name": "MCP39F5 Rst"
+   },
+   {
+    "id": "GPIO_PN532_TXD",
+    "name": "PN532 Tx"
+   },
+   {
+    "id": "GPIO_PN532_RXD",
+    "name": "PN532 Rx"
+   },
+   {
+    "id": "GPIO_SM16716_CLK",
+    "name": "SM16716 CLK"
+   },
+   {
+    "id": "GPIO_SM16716_DAT",
+    "name": "SM16716 DAT"
+   },
+   {
+    "id": "GPIO_SM16716_SEL",
+    "name": "SM16716 PWR"
+   },
+   {
+    "id": "GPIO_DI",
+    "name": "MY92x1 DI"
+   },
+   {
+    "id": "GPIO_DCKI",
+    "name": "MY92x1 DCKI"
+   },
+   {
+    "id": "GPIO_CSE7766_TX",
+    "name": "CSE7766 Tx"
+   },
+   {
+    "id": "GPIO_CSE7766_RX",
+    "name": "CSE7766 Rx"
+   },
+   {
+    "id": "GPIO_ARIRFRCV",
+    "name": "ALux IrRcv"
+   },
+   {
+    "id": "GPIO_ARIRFSEL",
+    "name": "ALux IrSel"
+   },
+   {
+    "id": "GPIO_TXD",
+    "name": "Serial Tx"
+   },
+   {
+    "id": "GPIO_RXD",
+    "name": "Serial Rx"
+   },
+   {
+    "id": "GPIO_ROT1A",
+    "name": "Rotary A",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ROT1B",
+    "name": "Rotary B",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_JOY",
+    "name": "ADC Joystick",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SSPI_MAX31865_CS1",
+    "name": "MX31865 CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_HRE_CLOCK",
+    "name": "HRE Clock"
+   },
+   {
+    "id": "GPIO_HRE_DATA",
+    "name": "HRE Data"
+   },
+   {
+    "id": "GPIO_ADE7953_IRQ",
+    "name": "ADE7953 IRQ",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SOLAXX1_TX",
+    "name": "SolaxX1 Tx"
+   },
+   {
+    "id": "GPIO_SOLAXX1_RX",
+    "name": "SolaxX1 Rx"
+   },
+   {
+    "id": "GPIO_ZIGBEE_TX",
+    "name": "Zigbee Tx"
+   },
+   {
+    "id": "GPIO_ZIGBEE_RX",
+    "name": "Zigbee Rx"
+   },
+   {
+    "id": "GPIO_RDM6300_RX",
+    "name": "RDM6300 Rx"
+   },
+   {
+    "id": "GPIO_IBEACON_TX",
+    "name": "iBeacon Tx"
+   },
+   {
+    "id": "GPIO_IBEACON_RX",
+    "name": "iBeacon Rx"
+   },
+   {
+    "id": "GPIO_A4988_DIR",
+    "name": "A4988 DIR"
+   },
+   {
+    "id": "GPIO_A4988_STP",
+    "name": "A4988 STP"
+   },
+   {
+    "id": "GPIO_A4988_ENA",
+    "name": "A4988 ENA"
+   },
+   {
+    "id": "GPIO_A4988_MS1",
+    "name": "A4988 MS1",
+    "multi": true
+   },
+   {
+    "id": "GPIO_OUTPUT_HI",
+    "name": "Output Hi"
+   },
+   {
+    "id": "GPIO_OUTPUT_LO",
+    "name": "Output Lo"
+   },
+   {
+    "id": "GPIO_DDS2382_TX",
+    "name": "DDS238-2 Tx"
+   },
+   {
+    "id": "GPIO_DDS2382_RX",
+    "name": "DDS238-2 Rx"
+   },
+   {
+    "id": "GPIO_DDSU666_TX",
+    "name": "DDSU666 Tx"
+   },
+   {
+    "id": "GPIO_DDSU666_RX",
+    "name": "DDSU666 Rx"
+   },
+   {
+    "id": "GPIO_SM2135_CLK",
+    "name": "SM2135 Clk"
+   },
+   {
+    "id": "GPIO_SM2135_DAT",
+    "name": "SM2135 Dat",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DEEPSLEEP",
+    "name": "DeepSleep"
+   },
+   {
+    "id": "GPIO_EXS_ENABLE",
+    "name": "EXS Enable"
+   },
+   {
+    "id": "GPIO_TASMOTACLIENT_TXD",
+    "name": "Client Tx"
+   },
+   {
+    "id": "GPIO_TASMOTACLIENT_RXD",
+    "name": "Client Rx"
+   },
+   {
+    "id": "GPIO_TASMOTACLIENT_RST",
+    "name": "Client Rst"
+   },
+   {
+    "id": "GPIO_TASMOTACLIENT_RST_INV",
+    "name": "Client Rst_i"
+   },
+   {
+    "id": "GPIO_HPMA_RX",
+    "name": "HPMA Rx"
+   },
+   {
+    "id": "GPIO_HPMA_TX",
+    "name": "HPMA Tx"
+   },
+   {
+    "id": "GPIO_GPS_RX",
+    "name": "GPS Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_GPS_TX",
+    "name": "GPS Tx"
+   },
+   {
+    "id": "GPIO_HM10_RX",
+    "name": "HM10 Rx"
+   },
+   {
+    "id": "GPIO_HM10_TX",
+    "name": "HM10 Tx"
+   },
+   {
+    "id": "GPIO_LE01MR_RX",
+    "name": "LE-01MR Rx"
+   },
+   {
+    "id": "GPIO_LE01MR_TX",
+    "name": "LE-01MR Tx"
+   },
+   {
+    "id": "GPIO_CC1101_GDO0",
+    "name": "CC1101 GDO0"
+   },
+   {
+    "id": "GPIO_CC1101_GDO2",
+    "name": "CC1101 GDO2"
+   },
+   {
+    "id": "GPIO_HRXL_RX",
+    "name": "HRXL Rx"
+   },
+   {
+    "id": "GPIO_ELECTRIQ_MOODL_TX",
+    "name": "MOODL Tx"
+   },
+   {
+    "id": "GPIO_AS3935",
+    "name": "AS3935"
+   },
+   {
+    "id": "GPIO_ADC_INPUT",
+    "name": "ADC Input",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_TEMP",
+    "name": "ADC Temp",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_LIGHT",
+    "name": "ADC Light",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_BUTTON",
+    "name": "ADC Button",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_BUTTON_INV",
+    "name": "ADC Button_i",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_RANGE",
+    "name": "ADC Range",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_CT_POWER",
+    "name": "ADC CT Power",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BOILER_OT_RX",
+    "name": "OpenTherm RX"
+   },
+   {
+    "id": "GPIO_BOILER_OT_TX",
+    "name": "OpenTherm TX"
+   },
+   {
+    "id": "GPIO_WINDMETER_SPEED",
+    "name": "WindMeter Spd"
+   },
+   {
+    "id": "GPIO_KEY1_TC",
+    "name": "Button_tc",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BL0940_RX",
+    "name": "BL0940 Rx"
+   },
+   {
+    "id": "GPIO_TCP_TX",
+    "name": "TCP Tx"
+   },
+   {
+    "id": "GPIO_TCP_RX",
+    "name": "TCP Rx"
+   },
+   {
+    "id": "GPIO_TELEINFO_RX",
+    "name": "TInfo Rx"
+   },
+   {
+    "id": "GPIO_TELEINFO_ENABLE",
+    "name": "TInfo EN"
+   },
+   {
+    "id": "GPIO_LMT01",
+    "name": "LMT01 Pulse"
+   },
+   {
+    "id": "GPIO_IEM3000_TX",
+    "name": "iEM3000 Tx"
+   },
+   {
+    "id": "GPIO_IEM3000_RX",
+    "name": "iEM3000 Rx"
+   },
+   {
+    "id": "GPIO_ZIGBEE_RST",
+    "name": "Zigbee Rst",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DYP_RX",
+    "name": "DYP Rx"
+   },
+   {
+    "id": "GPIO_MIEL_HVAC_TX",
+    "name": "MiEl HVAC Tx"
+   },
+   {
+    "id": "GPIO_MIEL_HVAC_RX",
+    "name": "MiEl HVAC Rx"
+   },
+   {
+    "id": "GPIO_WE517_TX",
+    "name": "WE517 Tx"
+   },
+   {
+    "id": "GPIO_WE517_RX",
+    "name": "WE517 Rx"
+   },
+   {
+    "id": "GPIO_AS608_TX",
+    "name": "AS608 Tx"
+   },
+   {
+    "id": "GPIO_AS608_RX",
+    "name": "AS608 Rx"
+   },
+   {
+    "id": "GPIO_SHELLY_DIMMER_BOOT0",
+    "name": "SHD Boot 0"
+   },
+   {
+    "id": "GPIO_SHELLY_DIMMER_RST_INV",
+    "name": "SHD Reset"
+   },
+   {
+    "id": "GPIO_RC522_RST",
+    "name": "RC522 Rst"
+   },
+   {
+    "id": "GPIO_P9813_CLK",
+    "name": "P9813 Clk"
+   },
+   {
+    "id": "GPIO_P9813_DAT",
+    "name": "P9813 Dat"
+   },
+   {
+    "id": "GPIO_OPTION_A",
+    "name": "Option A",
+    "multi": true
+   },
+   {
+    "id": "GPIO_FTC532",
+    "name": "FTC532"
+   },
+   {
+    "id": "GPIO_RC522_CS",
+    "name": "RC522 CS"
+   },
+   {
+    "id": "GPIO_NRF24_CS",
+    "name": "NRF24 CS"
+   },
+   {
+    "id": "GPIO_NRF24_DC",
+    "name": "NRF24 DC"
+   },
+   {
+    "id": "GPIO_ILI9341_CS",
+    "name": "ILI9341 CS"
+   },
+   {
+    "id": "GPIO_ILI9341_DC",
+    "name": "ILI9341 DC"
+   },
+   {
+    "id": "GPIO_ILI9488_CS",
+    "name": "ILI9488 CS"
+   },
+   {
+    "id": "GPIO_EPAPER29_CS",
+    "name": "EPaper29 CS"
+   },
+   {
+    "id": "GPIO_EPAPER42_CS",
+    "name": "EPaper42 CS"
+   },
+   {
+    "id": "GPIO_SSD1351_CS",
+    "name": "SSD1351 CS"
+   },
+   {
+    "id": "GPIO_RA8876_CS",
+    "name": "RA8876 CS"
+   },
+   {
+    "id": "GPIO_ST7789_CS",
+    "name": "ST7789 CS"
+   },
+   {
+    "id": "GPIO_ST7789_DC",
+    "name": "ST7789 DC"
+   },
+   {
+    "id": "GPIO_SSD1331_CS",
+    "name": "SSD1331 CS"
+   },
+   {
+    "id": "GPIO_SSD1331_DC",
+    "name": "SSD1331 DC"
+   },
+   {
+    "id": "GPIO_SDCARD_CS",
+    "name": "SDCard CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ROT1A_NP",
+    "name": "Rotary A_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ROT1B_NP",
+    "name": "Rotary B_n",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_PH",
+    "name": "ADC pH",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BS814_CLK",
+    "name": "BS814 CLK"
+   },
+   {
+    "id": "GPIO_BS814_DAT",
+    "name": "BS814 DAT"
+   },
+   {
+    "id": "GPIO_WIEGAND_D0",
+    "name": "Wiegand D0"
+   },
+   {
+    "id": "GPIO_WIEGAND_D1",
+    "name": "Wiegand D1"
+   },
+   {
+    "id": "GPIO_NEOPOOL_TX",
+    "name": "NeoPool Tx"
+   },
+   {
+    "id": "GPIO_NEOPOOL_RX",
+    "name": "NeoPool Rx"
+   },
+   {
+    "id": "GPIO_SDM72_TX",
+    "name": "SDM72 Tx"
+   },
+   {
+    "id": "GPIO_SDM72_RX",
+    "name": "SDM72 Rx"
+   },
+   {
+    "id": "GPIO_TM1637CLK",
+    "name": "TM1637 CLK"
+   },
+   {
+    "id": "GPIO_TM1637DIO",
+    "name": "TM1637 DIO"
+   },
+   {
+    "id": "GPIO_PROJECTOR_CTRL_TX",
+    "name": "DLP Tx"
+   },
+   {
+    "id": "GPIO_PROJECTOR_CTRL_RX",
+    "name": "DLP Rx"
+   },
+   {
+    "id": "GPIO_SSD1351_DC",
+    "name": "SSD1351 DC"
+   },
+   {
+    "id": "GPIO_XPT2046_CS",
+    "name": "XPT2046 CS"
+   },
+   {
+    "id": "GPIO_CSE7761_TX",
+    "name": "CSE7761 Tx"
+   },
+   {
+    "id": "GPIO_CSE7761_RX",
+    "name": "CSE7761 Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_VL53LXX_XSHUT1",
+    "name": "VL53LXX XSHUT",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MAX7219CLK",
+    "name": "MAX7219 CLK"
+   },
+   {
+    "id": "GPIO_MAX7219DIN",
+    "name": "MAX7219 DIN"
+   },
+   {
+    "id": "GPIO_MAX7219CS",
+    "name": "MAX7219 CS"
+   },
+   {
+    "id": "GPIO_TFMINIPLUS_TX",
+    "name": "TFmini+ Tx"
+   },
+   {
+    "id": "GPIO_TFMINIPLUS_RX",
+    "name": "TFmini+ Rx"
+   },
+   {
+    "id": "GPIO_ZEROCROSS",
+    "name": "ZC Pulse"
+   },
+   {
+    "id": "GPIO_INPUT",
+    "name": "Input",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_DOUT",
+    "name": "I2S DOUT",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_BCLK",
+    "name": "I2S BCLK",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_WS",
+    "name": "I2S WS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_DIN",
+    "name": "I2S DIN",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_BCLK_IN",
+    "name": "I2S WS In"
+   },
+   {
+    "id": "GPIO_I2S_WS_IN",
+    "name": "I2S BCLK In"
+   },
+   {
+    "id": "GPIO_INTERRUPT",
+    "name": "Interrupt",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MCP2515_CS",
+    "name": "MCP2515 CS"
+   },
+   {
+    "id": "GPIO_HRG15_TX",
+    "name": "HRG15 Tx"
+   },
+   {
+    "id": "GPIO_HRG15_RX",
+    "name": "HRG15 Rx"
+   },
+   {
+    "id": "GPIO_VINDRIKTNING_RX",
+    "name": "VINDRIKTNING"
+   },
+   {
+    "id": "GPIO_BL0939_RX",
+    "name": "BL0939 Rx"
+   },
+   {
+    "id": "GPIO_BL0942_RX",
+    "name": "BL0942 Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_HM330X_SET",
+    "name": "HM330X SET"
+   },
+   {
+    "id": "GPIO_HEARTBEAT",
+    "name": "Heartbeat"
+   },
+   {
+    "id": "GPIO_HEARTBEAT_INV",
+    "name": "Heartbeat_i"
+   },
+   {
+    "id": "GPIO_SHIFT595_SRCLK",
+    "name": "74x595 SRCLK"
+   },
+   {
+    "id": "GPIO_SHIFT595_RCLK",
+    "name": "74x595 RCLK"
+   },
+   {
+    "id": "GPIO_SHIFT595_OE",
+    "name": "74x595 OE"
+   },
+   {
+    "id": "GPIO_SHIFT595_SER",
+    "name": "74x595 SER"
+   },
+   {
+    "id": "GPIO_SOLAXX1_RTS",
+    "name": "SolaxX1 RTS"
+   },
+   {
+    "id": "GPIO_OPTION_E",
+    "name": "Option E",
+    "multi": true
+   },
+   {
+    "id": "GPIO_SDM230_TX",
+    "name": "SDM230 Tx"
+   },
+   {
+    "id": "GPIO_SDM230_RX",
+    "name": "SDM230 Rx"
+   },
+   {
+    "id": "GPIO_ADC_MQ",
+    "name": "ADC MQ",
+    "multi": true
+   },
+   {
+    "id": "GPIO_CM11_TXD",
+    "name": "CM110x Tx"
+   },
+   {
+    "id": "GPIO_CM11_RXD",
+    "name": "CM110x Rx"
+   },
+   {
+    "id": "GPIO_BL6523_TX",
+    "name": "BL6523 Tx"
+   },
+   {
+    "id": "GPIO_BL6523_RX",
+    "name": "BL6523 Rx"
+   },
+   {
+    "id": "GPIO_ADE7880_IRQ",
+    "name": "ADE7880 IRQ",
+    "multi": true
+   },
+   {
+    "id": "GPIO_RESET",
+    "name": "Reset"
+   },
+   {
+    "id": "GPIO_MS01",
+    "name": "MS01"
+   },
+   {
+    "id": "GPIO_SDIO_CMD",
+    "name": "SDIO CMD"
+   },
+   {
+    "id": "GPIO_SDIO_CLK",
+    "name": "SDIO CLK"
+   },
+   {
+    "id": "GPIO_SDIO_D0",
+    "name": "SDIO D0"
+   },
+   {
+    "id": "GPIO_SDIO_D1",
+    "name": "SDIO D1"
+   },
+   {
+    "id": "GPIO_SDIO_D2",
+    "name": "SDIO D2"
+   },
+   {
+    "id": "GPIO_SDIO_D3",
+    "name": "SDIO D3"
+   },
+   {
+    "id": "GPIO_FLOWRATEMETER_IN",
+    "name": "Flowrate",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BP5758D_CLK",
+    "name": "BP5758D Clk"
+   },
+   {
+    "id": "GPIO_BP5758D_DAT",
+    "name": "BP5758D Dat"
+   },
+   {
+    "id": "GPIO_SM2335_CLK",
+    "name": "SM2335 Clk"
+   },
+   {
+    "id": "GPIO_SM2335_DAT",
+    "name": "SM2335 Dat",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MP3_DFR562_BUSY",
+    "name": "MP3 Busy"
+   },
+   {
+    "id": "GPIO_TM1621_CS",
+    "name": "TM1621 CS"
+   },
+   {
+    "id": "GPIO_TM1621_WR",
+    "name": "TM1621 WR"
+   },
+   {
+    "id": "GPIO_TM1621_RD",
+    "name": "TM1621 RD"
+   },
+   {
+    "id": "GPIO_TM1621_DAT",
+    "name": "TM1621 DAT"
+   },
+   {
+    "id": "GPIO_REL1_BI",
+    "name": "Relay_b",
+    "multi": true
+   },
+   {
+    "id": "GPIO_REL1_BI_INV",
+    "name": "Relay_bi",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2S_MCLK",
+    "name": "I2S MCLK",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MBR_TX",
+    "name": "ModBr Tx"
+   },
+   {
+    "id": "GPIO_MBR_RX",
+    "name": "ModBr Rx"
+   },
+   {
+    "id": "GPIO_ADE7953_RST",
+    "name": "ADE7953 RST"
+   },
+   {
+    "id": "GPIO_NRG_MBS_TX",
+    "name": "NrgMbs Tx"
+   },
+   {
+    "id": "GPIO_NRG_MBS_RX",
+    "name": "NrgMbs Rx"
+   },
+   {
+    "id": "GPIO_ADE7953_CS",
+    "name": "ADE7953 CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DALI_RX",
+    "name": "Dali RX"
+   },
+   {
+    "id": "GPIO_DALI_TX",
+    "name": "Dali TX"
+   },
+   {
+    "id": "GPIO_BP1658CJ_CLK",
+    "name": "BP1658CJ Clk"
+   },
+   {
+    "id": "GPIO_BP1658CJ_DAT",
+    "name": "BP1658CJ Dat",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DINGTIAN_CLK",
+    "name": "Dingtian CLK",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DINGTIAN_SDI",
+    "name": "Dingtian SDI"
+   },
+   {
+    "id": "GPIO_DINGTIAN_Q7",
+    "name": "Dingtian Q7"
+   },
+   {
+    "id": "GPIO_DINGTIAN_PL",
+    "name": "Dingtian PL"
+   },
+   {
+    "id": "GPIO_DINGTIAN_RCK",
+    "name": "Dingtian RCK"
+   },
+   {
+    "id": "GPIO_LD2410_TX",
+    "name": "LD2410 Tx"
+   },
+   {
+    "id": "GPIO_LD2410_RX",
+    "name": "LD2410 Rx"
+   },
+   {
+    "id": "GPIO_MBR_TX_ENA",
+    "name": "ModBr Tx Ena"
+   },
+   {
+    "id": "GPIO_NRG_MBS_TX_ENA",
+    "name": "NrgMbs Tx Ena"
+   },
+   {
+    "id": "GPIO_ME007_TRIG",
+    "name": "ME007 Tri"
+   },
+   {
+    "id": "GPIO_ME007_RX",
+    "name": "ME007 Rx"
+   },
+   {
+    "id": "GPIO_TUYAMCUBR_TX",
+    "name": "TuyaMCUBr Tx"
+   },
+   {
+    "id": "GPIO_TUYAMCUBR_RX",
+    "name": "TuyaMCUBr Rx"
+   },
+   {
+    "id": "GPIO_BIOPDU_PZEM0XX_TX",
+    "name": "BioPDU PZEM0XX Tx"
+   },
+   {
+    "id": "GPIO_BIOPDU_PZEM016_RX",
+    "name": "BioPDU PZEM016 Rx"
+   },
+   {
+    "id": "GPIO_BIOPDU_BIT",
+    "name": "BioPDU Bit",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MCP23XXX_INT",
+    "name": "MCP23xxx Int",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MCP23SXX_CS",
+    "name": "MCP23Sxx CS",
+    "multi": true
+   },
+   {
+    "id": "GPIO_PCF8574_INT",
+    "name": "PCF8574 Int"
+   },
+   {
+    "id": "GPIO_LOX_O2_RX",
+    "name": "LoxO2 Rx"
+   },
+   {
+    "id": "GPIO_GM861_TX",
+    "name": "GM861 Tx"
+   },
+   {
+    "id": "GPIO_GM861_RX",
+    "name": "GM861 Rx"
+   },
+   {
+    "id": "GPIO_DINGTIAN_OE",
+    "name": "Dingtian OE"
+   },
+   {
+    "id": "GPIO_HDMI_CEC",
+    "name": "HDMI CEC"
+   },
+   {
+    "id": "GPIO_HC8_RXD",
+    "name": "HC8 Rx"
+   },
+   {
+    "id": "GPIO_I2S_DAC",
+    "name": "I2S DAC",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MAGIC_SWITCH",
+    "name": "MagicSwitch",
+    "multi": true
+   },
+   {
+    "id": "GPIO_PIPSOLAR_TX",
+    "name": "Pipsolar TX"
+   },
+   {
+    "id": "GPIO_PIPSOLAR_RX",
+    "name": "Pipsolar RX"
+   },
+   {
+    "id": "GPIO_LORA_CS",
+    "name": "LoRa CS"
+   },
+   {
+    "id": "GPIO_LORA_RST",
+    "name": "LoRa Rst"
+   },
+   {
+    "id": "GPIO_LORA_BUSY",
+    "name": "LoRa Busy"
+   },
+   {
+    "id": "GPIO_LORA_DI0",
+    "name": "LoRa DIO0"
+   },
+   {
+    "id": "GPIO_LORA_DI1",
+    "name": "LoRa DIO1"
+   },
+   {
+    "id": "GPIO_LORA_DI2",
+    "name": "LoRa DIO2"
+   },
+   {
+    "id": "GPIO_LORA_DI3",
+    "name": "LoRa DIO3"
+   },
+   {
+    "id": "GPIO_LORA_DI4",
+    "name": "LoRa DIO4"
+   },
+   {
+    "id": "GPIO_LORA_DI5",
+    "name": "LoRa DIO5"
+   },
+   {
+    "id": "GPIO_TS_SPI_CS",
+    "name": "TS SPI CS"
+   },
+   {
+    "id": "GPIO_TS_RST",
+    "name": "TS RST"
+   },
+   {
+    "id": "GPIO_TS_IRQ",
+    "name": "TS IRQ"
+   },
+   {
+    "id": "GPIO_RN2XX3_TX",
+    "name": "RN2XX3 Tx"
+   },
+   {
+    "id": "GPIO_RN2XX3_RX",
+    "name": "RN2XX3 Rx"
+   },
+   {
+    "id": "GPIO_RN2XX3_RST",
+    "name": "RN2XX3 Rst"
+   },
+   {
+    "id": "GPIO_TCP_TX_EN",
+    "name": "TCP Tx En"
+   },
+   {
+    "id": "GPIO_ASR650X_TX",
+    "name": "ASR650x Tx"
+   },
+   {
+    "id": "GPIO_ASR650X_RX",
+    "name": "ASR650x Rx"
+   },
+   {
+    "id": "GPIO_WOOLIIS_RX",
+    "name": "Wooliis Rx"
+   },
+   {
+    "id": "GPIO_ADC_VOLTAGE",
+    "name": "ADC Voltage",
+    "multi": true
+   },
+   {
+    "id": "GPIO_ADC_CURRENT",
+    "name": "ADC Current",
+    "multi": true
+   },
+   {
+    "id": "GPIO_BL0906_RX",
+    "name": "BL0906 Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_DALI_RX_INV",
+    "name": "Dali RX_i"
+   },
+   {
+    "id": "GPIO_DALI_TX_INV",
+    "name": "Dali TX_i"
+   },
+   {
+    "id": "GPIO_LD2410S_TX",
+    "name": "LD2410S Tx"
+   },
+   {
+    "id": "GPIO_LD2410S_RX",
+    "name": "LD2410S Rx"
+   },
+   {
+    "id": "GPIO_I2C_SER_TX",
+    "name": "I2C Ser Tx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_I2C_SER_RX",
+    "name": "I2C Ser Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_TM1640CLK",
+    "name": "TM1640 CLK"
+   },
+   {
+    "id": "GPIO_TM1640DIN",
+    "name": "TM1640 DIN"
+   },
+   {
+    "id": "GPIO_TWAI_TX",
+    "name": "TWAI Tx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_TWAI_RX",
+    "name": "TWAI Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_TWAI_BO",
+    "name": "TWAI BusOff",
+    "multi": true
+   },
+   {
+    "id": "GPIO_TWAI_CLK",
+    "name": "TWAI ClkOut",
+    "multi": true
+   },
+   {
+    "id": "GPIO_C8_CO2_5K_TX",
+    "name": "C8-CO2-5K Tx"
+   },
+   {
+    "id": "GPIO_C8_CO2_5K_RX",
+    "name": "C8-CO2-5K Rx"
+   },
+   {
+    "id": "GPIO_V9240_TX",
+    "name": "V9240 TX"
+   },
+   {
+    "id": "GPIO_V9240_RX",
+    "name": "V9240 RX"
+   },
+   {
+    "id": "GPIO_LD2402_TX",
+    "name": "LD2402 Tx"
+   },
+   {
+    "id": "GPIO_LD2402_RX",
+    "name": "LD2402 Rx"
+   },
+   {
+    "id": "GPIO_VID6608_F",
+    "name": "VID6608 F",
+    "multi": true
+   },
+   {
+    "id": "GPIO_VID6608_CW",
+    "name": "VID6608 CW",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MKSKYBLU_TX",
+    "name": "MkSkyBlu Tx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MKSKYBLU_RX",
+    "name": "MkSkyBlu Rx",
+    "multi": true
+   },
+   {
+    "id": "GPIO_MBS_RX_ENA",
+    "name": "ModBr Rx Ena"
+   },
+   {
+    "id": "GPIO_MODBUSRELAY_TX",
+    "name": "MbsRelay TX"
+   },
+   {
+    "id": "GPIO_MODBUSRELAY_TX_ENA",
+    "name": "MbsRelay TX Ena"
+   },
+   {
+    "id": "GPIO_MODBUSRELAY_RX",
+    "name": "MbsRelay RX"
+   },
+   {
+    "id": "GPIO_MODBUSRELAY_RX_ENA",
+    "name": "MbsRelay RX Ena"
+   },
+   {
+    "id": "GPIO_CC1101_CS",
+    "name": "CC1101 CS"
+   }
+  ]
+ },
+ "families": [
+  {
+   "family": "esp32",
+   "pins": 36,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    9,
+    10,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    6,
+    7,
+    8,
+    11,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39
+   ]
+  },
+  {
+   "family": "esp32c2",
+   "pins": 21,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+   ]
+  },
+  {
+   "family": "esp32c3",
+   "pins": 22,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+   ]
+  },
+  {
+   "family": "esp32c5",
+   "pins": 29,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28
+   ]
+  },
+  {
+   "family": "esp32c6",
+   "pins": 31,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30
+   ]
+  },
+  {
+   "family": "esp32c61",
+   "pins": 30,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29
+   ]
+  },
+  {
+   "family": "esp32p4",
+   "pins": 55,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54
+   ]
+  },
+  {
+   "family": "esp32s2",
+   "pins": 36,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46
+   ]
+  },
+  {
+   "family": "esp32s3",
+   "pins": 38,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48
+   ]
+  },
+  {
+   "family": "esp32s31",
+   "pins": 62,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61
+   ]
+  },
+  {
+   "family": "esp8266",
+   "pins": 14,
+   "phys": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    9,
+    10,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+   ]
+  }
+ ]
+}

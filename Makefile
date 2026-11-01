@@ -286,6 +286,8 @@ TASMOTA_PINS ?= \
   14.4.1=beb873eea61944fb9aaec8e0b943e21be7a6527723b2c2873b993c90e449d0ac \
   15.6.0=91365e7308ec45aee6e7bef8debfb78fbadf5315a1c5d7529ffd87de198b8d4f \
   16.0.0=d2812ba1b7a34c17dd32b4aab46de30a4f777a83ae5cce2c0d60176d34bf0f2c
+# The GPIO function table (internal/tasmotacmd/gpio-<version>.json, #327) is generated from this one pin only.
+GPIO_VERSION ?= 16.0.0
 TASMOTA_CACHE ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/tasmofleet
 
 catalogue-src:
@@ -301,14 +303,17 @@ catalogue-src:
 # Regenerates the checked-in catalogues from the pinned sources (deterministic).
 catalogue: catalogue-src
 	@set -e; for pin in $(TASMOTA_PINS); do v=$${pin%%=*}; sha=$${pin#*=}; \
-	$(NICE) $(GO) run ./cmd/tasmofleet-catalogue -src "$(TASMOTA_CACHE)/tasmota-$$v/tasmota" -version $$v -sha256 $$sha -out internal/tasmotacmd/catalogue-$$v.json; done
+	$(NICE) $(GO) run ./cmd/tasmofleet-catalogue -src "$(TASMOTA_CACHE)/tasmota-$$v/tasmota" -version $$v -sha256 $$sha -out internal/tasmotacmd/catalogue-$$v.json; \
+	if [ "$$v" = "$(GPIO_VERSION)" ]; then $(NICE) $(GO) run ./cmd/tasmofleet-catalogue -src "$(TASMOTA_CACHE)/tasmota-$$v/tasmota" -version $$v -sha256 $$sha -gpio-out internal/tasmotacmd/gpio-$$v.json; fi; done
 
 # Fails when a checked-in catalogue differs from a regeneration, or a catalogue file has no pin (FULL tier).
 catalogue-check: catalogue-src
 	@set -e; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
 	for pin in $(TASMOTA_PINS); do v=$${pin%%=*}; sha=$${pin#*=}; \
 	$(NICE) $(GO) run ./cmd/tasmofleet-catalogue -src "$(TASMOTA_CACHE)/tasmota-$$v/tasmota" -version $$v -sha256 $$sha -out "$$tmp" >/dev/null && \
-	diff -u internal/tasmotacmd/catalogue-$$v.json "$$tmp" || { echo "catalogue-check: internal/tasmotacmd/catalogue-$$v.json is stale; run 'make catalogue' and commit it" >&2; exit 1; }; done; \
+	diff -u internal/tasmotacmd/catalogue-$$v.json "$$tmp" || { echo "catalogue-check: internal/tasmotacmd/catalogue-$$v.json is stale; run 'make catalogue' and commit it" >&2; exit 1; }; \
+	if [ "$$v" = "$(GPIO_VERSION)" ]; then $(NICE) $(GO) run ./cmd/tasmofleet-catalogue -src "$(TASMOTA_CACHE)/tasmota-$$v/tasmota" -version $$v -sha256 $$sha -gpio-out "$$tmp" >/dev/null && \
+	diff -u internal/tasmotacmd/gpio-$$v.json "$$tmp" || { echo "catalogue-check: internal/tasmotacmd/gpio-$$v.json is stale; run 'make catalogue' and commit it" >&2; exit 1; }; fi; done; \
 	for f in internal/tasmotacmd/catalogue-*.json; do v=$${f#internal/tasmotacmd/catalogue-}; v=$${v%.json}; \
 	case " $(TASMOTA_PINS) " in *" $$v="*) ;; *) echo "catalogue-check: $$f has no pin in TASMOTA_PINS" >&2; exit 1;; esac; done
 

@@ -32,6 +32,7 @@ var (
 	reMqttUser  = regexp.MustCompile(`"MqttUser":"[^"]*"`)
 	reFriendlyN = regexp.MustCompile(`"([^"]*)"`)
 	reSettingSO = regexp.MustCompile(`^setoption(\d+)$`)
+	reModuleKey = regexp.MustCompile(`"Module":\d+`)
 )
 
 var restartKeys = map[string]bool{
@@ -472,6 +473,9 @@ func (d *simDevice) applySettings(s string, kv map[string]string) string {
 		return s
 	}
 	has := func(k string) bool { _, ok := kv[k]; return ok }
+	if has("module") {
+		s = reModuleKey.ReplaceAllLiteralString(s, `"Module":`+kv["module"])
+	}
 	if has("teleperiod") {
 		s = reTeleP.ReplaceAllLiteralString(s, `"TelePeriod":`+kv["teleperiod"])
 	}
