@@ -8,6 +8,7 @@ always upgrade automatically.
 
 ### Added
 
+- Groundwork for backing up ESP32 files (part of #324): the device client can list, download and upload files of the flash file system (`UfsList`, `GET /ufsd`, `POST /ufsu`), and the simulator models that file system from live captures. Nothing uses it yet.
 - The "Devices without a backup" tile on Settings, Backups now opens the device list narrowed to exactly those devices. The list has a new "No backup" chip (`?chip=nobackup`) with the tile's count, so the two always agree. On a phone the active filter chip is scrolled into view in its row, so a filtered list never looks unfiltered (#381, thanks @Noschvie)
 
 ### Changed

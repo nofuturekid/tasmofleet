@@ -156,3 +156,18 @@ discovery `sw`: bare `16.0.0`. Details in docs/research/tasmota-minimal-and-ota.
 * BSSIDs were rewritten the same way, and DS18B20 sensor ids to fake values.
 * IPs were moved to 172.31.0.0/16, hostnames to `example.internal` (including the `tasmoadmin.example.internal` OtaUrl). SSID `IoT` is kept. Device names are generic room/appliance names kept from the capture.
 * The capture scripts are not included, and the unsanitised capture is not part of the repository.
+
+## 8. UFS (file system) captures, 2026-11-01
+
+`ufs/esp32-littlefs/` (ESP32, Tasmota 16.0.0, LittleFS 320 kB) and `ufs/esp8266-1m/` (ESP8285, 1 MB flash, 16.0.0), read-only
+(`UfsType`, `Ufs`, `UfsSize`, `UfsFree`, `UfsList`, `GET /ufsd`, one download of a small non-secret file `_persist.json`). Nothing was
+written, uploaded, deleted or restarted. Facts they show (`internal/simulator` replays them):
+* `UfsType` -> `{"UfsType":3}`; `Ufs` -> `{"Ufs":{"Type":3,"Size":320,"Free":208}}` (kB); `UfsSize`/`UfsFree` -> one number.
+* `UfsList` hides dot files; an empty folder AND a folder that does not exist both answer `{"UfsList":"Done"}`; `UfsList2` also lists
+  dot files and hidden folders (a folder has an empty date). Dates are `YYYY-MM-DDThh:mm:ss`.
+* `GET /ufsd?dir=2&download=<file>` -> 200, `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename=..`,
+  `Content-Length`, `Connection: close`, no Server/Cache headers. A folder (or no `download`) -> the 7 kB HTML page (`text/html`, chunked).
+  A missing file -> the connection closes with no byte (`download-missing.txt`).
+* ESP8266 1 MB build: `UfsType` and `Ufs` -> `{"Command":"Unknown","Input":"UFSTYPE"}` / `"UFS"`.
+* Not captured (would write or expose secrets): `POST /ufsu`, SD card, `/tlskey`, `.settings*` downloads, throughput of a large file
+  (the only file is 299 B). The device name and IP in `ufsd-page.html` are replaced like in section 7.

@@ -190,6 +190,10 @@ func (d *simDevice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		d.serveU1(w, r)
 	case "/dl":
 		d.serveDump(w)
+	case "/ufsd":
+		d.serveUfsd(w, r)
+	case "/ufsu":
+		d.serveUfsu(w, r)
 	default:
 		d.setHeaders(w, "", "text/plain")
 		d.writeBody(w, http.StatusNotFound, []byte(fmt.Sprintf("File Not Found\n\nURI: %s\nMethod: %s\nArguments: %d\n",
@@ -202,7 +206,7 @@ func (d *simDevice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // gets the 404 page.
 func refererGuarded(path string) bool {
 	switch path {
-	case "/cm", "/dl", "/up", "/u1", "/u2", "/u4":
+	case "/cm", "/dl", "/up", "/u1", "/u2", "/u4", "/ufsd", "/ufsu":
 		return true
 	}
 	return false

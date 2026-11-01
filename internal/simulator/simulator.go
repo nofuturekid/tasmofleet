@@ -131,6 +131,15 @@ type DeviceSpec struct {
 	// Sensors are published in tele/SENSOR as one block per sensor name, for example
 	// {"BME280": {"Temperature": 21.5}}, followed by TempUnit "C" (and PressureUnit "hPa" when a block has a Pressure).
 	Sensors map[string]map[string]float64
+	// Files seeds the flash file system by absolute path ("/autoexec.be", "/lib/x.be"; folders are
+	// implied). Nil on an ESP32 profile seeds /autoexec.be, /lib/helper.be and a fake /tlskey; nil on
+	// an ESP8266 profile means a build without a file system (UfsType answers {"Command":"Unknown"}).
+	// Dirs adds empty folders. NoFS removes the file system from an ESP32 profile. FSSizeKB is the
+	// size UfsSize reports (default 320, the 4 MB ESP32 layout). Minimal and safeboot images have none.
+	Files    map[string]FSFile
+	Dirs     []string
+	NoFS     bool
+	FSSizeKB int
 }
 
 // Device is a running simulated device.

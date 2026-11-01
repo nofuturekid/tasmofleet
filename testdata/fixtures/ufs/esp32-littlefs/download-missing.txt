@@ -1,0 +1,3 @@
+GET /ufsd?dir=2&download=%2Fnope.txt  (file does not exist)
+Result: the device closes the connection without sending a single byte.
+curl: exit 52 (empty reply from server), HTTP status 000, 0.12 s after the request.

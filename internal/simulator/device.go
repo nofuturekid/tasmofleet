@@ -108,6 +108,7 @@ type simDevice struct {
 	srv                  *httpServer
 	mq                   *mqttLink
 	mf                   mqttFile // MQTT FileDownload/FileUpload state (FMqtt)
+	fs                   *simFS   // flash file system, nil = build without one
 }
 
 // flashed is a downloaded image waiting for the restart.
@@ -175,6 +176,7 @@ func newDevice(f *fleet, spec DeviceSpec, def profileDef, c *capture) (*simDevic
 			d.relays[i] = i < len(spec.Power) && spec.Power[i]
 		}
 	}
+	d.fs = newSimFS(d.spec, d.esp32, d.minimalLocked(), time.Now())
 	d.phase = PhaseRun
 	d.phaseCh = make(chan struct{})
 	d.history = []PhaseChange{{PhaseRun, time.Now()}}

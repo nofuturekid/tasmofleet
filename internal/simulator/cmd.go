@@ -91,6 +91,9 @@ func (d *simDevice) execLocked(cmd string) ([]byte, []outMsg) {
 	if body, ok := d.settingCmdLocked(base, idx, hasIdx, data); ok {
 		return result(body)
 	}
+	if body, ok := d.ufsCmdLocked(base, idx, hasIdx, data); ok {
+		return result(body)
+	}
 	v := d.viewLocked()
 	switch base {
 	case "status":
