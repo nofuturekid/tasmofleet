@@ -354,7 +354,7 @@ func (m *Manager) filesStep(ctx context.Context, t tasmota.Target, fwVersion str
 	}
 	if w.rootErr != nil {
 		m.o.Log.Info("backup: files not read", "component", "backup", "device", int64(t.DeviceID()), "reason", reasonOf(w.rootErr))
-		return notBacked(reasonOf(w.rootErr)), nil
+		return notBacked(reasonOf(w.rootErr)), nil //nolint:nilerr // files are best effort: the reason goes into the run note, the run goes on
 	}
 	sort.Slice(w.man.Files, func(i, j int) bool { return w.man.Files[i].Path < w.man.Files[j].Path })
 	sort.Slice(w.man.Skipped, func(i, j int) bool { return w.man.Skipped[i].Path < w.man.Skipped[j].Path })
