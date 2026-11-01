@@ -183,14 +183,6 @@ func (h *handler) templateStartOf(r *http.Request, batch model.BatchID) (templat
 	return d, true
 }
 
-// templateRefOf is the reference device of a template transaction; 0 when it cannot be found.
-func (h *handler) templateRefOf(r *http.Request, batch model.BatchID) model.DeviceID {
-	if d, ok := h.templateStartOf(r, batch); ok && d.Reference > 0 {
-		return model.DeviceID(d.Reference)
-	}
-	return 0
-}
-
 // templateFacts is the part of the header line that names the template and its reference
 // ("Gosund SP111 v1.1, reference tv-plug (chosen) · "); "" when the start record is gone.
 func (h *handler) templateFacts(r *http.Request, batch model.BatchID) string {
