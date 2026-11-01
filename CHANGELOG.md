@@ -6,6 +6,13 @@ always upgrade automatically.
 
 ## Unreleased
 
+## 0.26.1 "Skerryvore" (2026-11-01)
+
+### Upgrade notes
+
+- No database migration (the schema stays at 0041). Nothing to change in the template.
+- The device Overview has a new layout (#421, #420, #422), and devices identified before 0.22.0 now get their Status 2 facts (core, SDK, CPU frequency, build date) read automatically after the update (#417), at most one read per two seconds.
+
 ### Changed
 
 - The device Overview arranges its cards in two column stacks (#421): Stability, Connection · Wi-Fi and "How TasmoFleet reaches this device" on the left, Identity and Activity on the right. Stability and Activity no longer stretch over the full width with mostly empty space; phones keep the order Stability, Identity, Connection, reach paths, Activity
