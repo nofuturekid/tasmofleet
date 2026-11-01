@@ -294,7 +294,7 @@ func sortAudit(ev []model.AuditEvent, s tableSort) {
 	case "actor":
 		key = func(a, b model.AuditEvent) int { return lower(a.Actor, b.Actor) }
 	case "action":
-		key = func(a, b model.AuditEvent) int { return lower(a.Action, b.Action) }
+		key = func(a, b model.AuditEvent) int { return lower(auditLabel(a.Action), auditLabel(b.Action)) } // the column shows the label
 	case "target":
 		key = func(a, b model.AuditEvent) int { return lower(a.Target, b.Target) }
 	case "result": // ok first, then by text

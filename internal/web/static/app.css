@@ -1349,13 +1349,13 @@ th .sortlink.is-hover {
   height: 10px;
   opacity: 0.35;
   background:
-    linear-gradient(to top right, transparent 50%, currentColor 50%) top left /
-      50% 40% no-repeat,
-    linear-gradient(to top left, transparent 50%, currentColor 50%) top right /
-      50% 40% no-repeat,
-    linear-gradient(to bottom right, transparent 50%, currentColor 50%) bottom
+    linear-gradient(to bottom right, transparent 50%, currentColor 50%) top
       left / 50% 40% no-repeat,
-    linear-gradient(to bottom left, transparent 50%, currentColor 50%) bottom
+    linear-gradient(to bottom left, transparent 50%, currentColor 50%) top
+      right / 50% 40% no-repeat,
+    linear-gradient(to top right, transparent 50%, currentColor 50%) bottom
+      left / 50% 40% no-repeat,
+    linear-gradient(to top left, transparent 50%, currentColor 50%) bottom
       right / 50% 40% no-repeat;
 }
 .sortlink:hover .sortmark,
@@ -1369,17 +1369,17 @@ th .sortlink.is-hover {
 .sortlink.is-asc .sortmark {
   opacity: 1;
   background:
-    linear-gradient(to top right, transparent 50%, var(--color-accent) 50%) top
-      left / 50% 40% no-repeat,
-    linear-gradient(to top left, transparent 50%, var(--color-accent) 50%) top
-      right / 50% 40% no-repeat;
+    linear-gradient(to bottom right, transparent 50%, var(--color-accent) 50%)
+      top left / 50% 40% no-repeat,
+    linear-gradient(to bottom left, transparent 50%, var(--color-accent) 50%)
+      top right / 50% 40% no-repeat;
 }
 .sortlink.is-desc .sortmark {
   opacity: 1;
   background:
-    linear-gradient(to bottom right, transparent 50%, var(--color-accent) 50%)
+    linear-gradient(to top right, transparent 50%, var(--color-accent) 50%)
       bottom left / 50% 40% no-repeat,
-    linear-gradient(to bottom left, transparent 50%, var(--color-accent) 50%)
+    linear-gradient(to top left, transparent 50%, var(--color-accent) 50%)
       bottom right / 50% 40% no-repeat;
 }
 /* row actions: at most two buttons; more go into details.rowmenu */

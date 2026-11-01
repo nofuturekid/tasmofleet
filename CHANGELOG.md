@@ -17,6 +17,7 @@ always upgrade automatically.
 ### Fixed
 
 - The status bar no longer reads a partly failed scheduled backup run as "Backup failed". A run that backed up some devices says "Backup · 19 of 27 backed up · 8 failed" in the warning colour, red "Backup failed" is kept for a run that backed up no device, and an all-good run shows "Backup · 27 of 27 backed up" in the normal colour. The phone sheet uses the same counts (#406)
+- Sorting by a column ascending no longer looks descending: the sort arrow in table headers was drawn the wrong way round (an ascending column showed the down arrow), and the audit log's Action column sorted by the stored key instead of the label it shows, so the order could look scrambled. The arrow now points up for ascending and down for descending, and Action sorts by the shown label (#407)
 
 ### Removed
 

@@ -2,6 +2,9 @@ package web
 
 import (
 	"fmt"
+	"os"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -133,3 +136,101 @@ type noonClock struct{ t time.Time }
 
 func (c noonClock) Now() time.Time                     { return c.t }
 func (noonClock) After(time.Duration) <-chan time.Time { return make(chan time.Time) }
+
+// Why (#407): the arrow in a column header and the order of the rows must agree, in
+// both directions, for every sortable column. The Action column shows a label ("Create user"),
+// not the stored key ("account.create"), and people read the label, so the sort follows what is
+// shown: the key order differs from the label order for these actions.
+func TestAuditSortOrderMatchesArrowAndShownText(t *testing.T) {
+	e := setup(t)
+	base := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
+	// target marker t1..t6 is the row's identity; the other columns are given in the order that
+	// each sort is expected to produce (marker order for an ascending sort).
+	rows := []struct {
+		marker, actor, action, result string
+		at                            time.Time
+	}{
+		{"device:t1", "carol", "sysconfig.update", "ok", base.Add(5 * time.Minute)},
+		{"device:t2", "adam", "policy.rules.save", "error: boom", base.Add(1 * time.Minute)},
+		{"device:t3", "dora", "command.send", "error: aaa", base.Add(4 * time.Minute)},
+		{"device:t4", "bob", "backup.create", "refused: no", base.Add(2 * time.Minute)},
+		{"device:t5", "erin", "account.create", "refused: zz", base.Add(6 * time.Minute)},
+		{"device:t6", "frank", "device.update", "error: zzz", base.Add(3 * time.Minute)},
+	}
+	for i, r := range rows {
+		e.aud.events = append(e.aud.events, model.AuditEvent{ID: int64(i + 1), At: r.at, Actor: r.actor, Action: r.action, Target: r.marker, Result: r.result})
+	}
+	order := func(body string) string {
+		type hit struct {
+			at int
+			m  string
+		}
+		var hits []hit
+		for _, r := range rows {
+			if i := strings.Index(body[strings.Index(body, "<tbody"):], r.marker); i >= 0 {
+				hits = append(hits, hit{i, strings.TrimPrefix(r.marker, "device:")})
+			}
+		}
+		sort.Slice(hits, func(a, b int) bool { return hits[a].at < hits[b].at })
+		var out []string
+		for _, h := range hits {
+			out = append(out, h.m)
+		}
+		return strings.Join(out, " ")
+	}
+	cases := []struct {
+		col, asc string // asc is the expected row order of an ascending sort
+	}{
+		{"when", "t2 t4 t6 t3 t1 t5"},   // oldest first
+		{"actor", "t2 t4 t1 t3 t5 t6"},  // adam bob carol dora erin frank
+		{"action", "t4 t3 t5 t6 t2 t1"}, // by label: Backup, Console command, Create user, Edit device, Save policy rules, System settings
+		{"target", "t1 t2 t3 t4 t5 t6"}, // device:t1 ... device:t6
+		{"result", "t1 t3 t2 t6 t4 t5"}, // ok first, then error: boom, refused: no
+	}
+	reverse := func(s string) string {
+		f := strings.Fields(s)
+		slices.Reverse(f)
+		return strings.Join(f, " ")
+	}
+	for _, c := range cases {
+		for _, dir := range []string{"asc", "desc"} {
+			_, body := e.do(t, "GET", "/audit?since=all&sort="+c.col+"&dir="+dir, "admin", nil)
+			want := c.asc
+			arrow, aria := "is-asc", "ascending"
+			if dir == "desc" {
+				want, arrow, aria = reverse(c.asc), "is-desc", "descending"
+			}
+			if got := order(body); got != want {
+				t.Errorf("sort=%s dir=%s: rows %q, want %q", c.col, dir, got, want)
+			}
+			if !strings.Contains(body, `aria-sort="`+aria+`"><a class="sortlink `+arrow+`"`) {
+				t.Errorf("sort=%s dir=%s: the header does not show %s", c.col, dir, arrow)
+			}
+		}
+	}
+}
+
+// Why (#407): the sort arrow must point the way people read it: up for ascending, down for
+// descending. The header icon is drawn with two CSS triangles; "to bottom ..." gradients placed at
+// the top make an upward point, so the ascending icon needs exactly those. Until #407 it was drawn
+// the other way round, so an ascending column looked descending.
+func TestSortIconAscendingPointsUp(t *testing.T) {
+	css, err := os.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := func(sel string) string {
+		i := strings.Index(string(css), sel+" {")
+		if i < 0 {
+			t.Fatalf("no rule %s", sel)
+		}
+		return string(css)[i : i+strings.Index(string(css)[i:], "}")]
+	}
+	norm := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	if a := norm(rule(".sortlink.is-asc .sortmark")); !strings.Contains(a, "to bottom right, transparent 50%, var(--color-accent) 50%) top left") {
+		t.Errorf("ascending icon does not point up: %s", a)
+	}
+	if d := norm(rule(".sortlink.is-desc .sortmark")); !strings.Contains(d, "to top right, transparent 50%, var(--color-accent) 50%) bottom left") {
+		t.Errorf("descending icon does not point down: %s", d)
+	}
+}
