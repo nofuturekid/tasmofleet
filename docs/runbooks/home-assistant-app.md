@@ -22,29 +22,31 @@ form, installs, restarts, updates and backs up the app. That needs a Supervisor.
 ## Install from a local repository in the Home Assistant devcontainer
 
 Needs Docker with privileged containers and about 10 GB of free disk; the first start pulls the Supervisor
-and Core images.
+images. Run on a throwaway devcontainer, never on the household's Home Assistant. This is the way phase 1
+was verified (2026-11-01), without VS Code:
 
-1. Clone `https://github.com/home-assistant/apps-example` and open it with the Dev Containers extension
-   (or `devcontainer up`).
-2. Build the image on the host and load it into the devcontainer's Docker:
-   `docker build --target ha --build-arg VERSION=dev -t ghcr.io/nofuturekid/tasmofleet-ha:dev .`, then
-   `docker save ghcr.io/nofuturekid/tasmofleet-ha:dev | docker exec -i <devcontainer> docker load`.
-3. Copy `deploy/homeassistant/tasmofleet/` into the devcontainer's `/addons/tasmofleet` (the local app
-   folder). The repository's `version: "dev"` matches the tag above.
-4. Run the task **Start Home Assistant**, open `http://localhost:7123`, finish onboarding, enable
-   advanced mode, open Settings, Apps, the three-dot menu, **Check for updates**; TasmoFleet is under
-   **Local apps**.
-5. Install and start it. Check on the Info tab: the port table shows `8080` and `8081` with their
-   descriptions, **Open Web UI** opens `https://<host>:8080`, the configuration tab offers
-   _Initial admin password_, the Log tab is plain text and shows the setup link.
+1. Start the devcontainer image with the volumes its `.devcontainer.json` (home-assistant/apps-example)
+   uses; without volumes for `/var/lib/docker` and `/var/lib/containerd` the inner Docker cannot start
+   containers:
+   `docker run -d --name tf-hadev --privileged -v tf-docker:/var/lib/docker -v tf-containerd:/var/lib/containerd -v tf-sup:/mnt/supervisor -v <dir>:/mnt/supervisor/apps/local/ws -e WORKSPACE_DIRECTORY=/mnt/supervisor/apps/local/ws -e SUPERVISOR_CHANNEL=beta --tmpfs /tmp ghcr.io/home-assistant/devcontainer:5-apps`
+   where `<dir>` contains a copy of `deploy/homeassistant/tasmofleet/`.
+2. `docker exec -u vscode -e WORKSPACE_DIRECTORY=/mnt/supervisor/apps/local/ws tf-hadev bash devcontainer_bootstrap`, then
+   `docker exec -d -u vscode ... tf-hadev bash -c 'supervisor_run > /tmp/sup.log 2>&1'` (the task "Start Home Assistant").
+   After about a minute `docker exec tf-hadev docker ps` lists `hassio_supervisor` and `homeassistant`.
+3. The Supervisor always pulls `image:`, even for a local app, so publish the image to a registry the inner
+   Docker can reach: in the devcontainer `docker run -d -p 5000:5000 registry:2`, load the image
+   (`docker build --target ha --build-arg VERSION=dev -t x . && docker save x | docker exec -i tf-hadev docker load`),
+   tag and push it as `localhost:5000/tasmofleet-ha:dev`, and change `image:` in the copied `config.yaml` to
+   `localhost:5000/tasmofleet-ha`. (`version: "dev"` is the tag.)
+4. Use the CLI of the `hassio_cli` container instead of the UI:
+   `docker exec tf-hadev docker exec hassio_cli ha apps install local_tasmofleet` (run `ha store reload` first),
+   `ha apps info local_tasmofleet` (ports, `webui`, schema), `ha apps start`, `ha apps logs`, and from the
+   devcontainer `curl -sk https://127.0.0.1:8080/readyz`.
+5. Update: bump `version` in the copied `config.yaml`, push the image with the new tag, `ha store reload`,
+   `ha apps update local_tasmofleet`. Backup and restore: `ha backups new --app local_tasmofleet`, uninstall,
+   install, start, `ha backups restore <slug> --app local_tasmofleet`.
+6. Clean up: `docker rm -f -v tf-hadev` and remove the three volumes.
 
-Exit checks of phase 1 (record the result of each in the PR or issue):
-
-- Start `cmd/tasmofleet-devenv` on the host (it serves simulated Tasmota devices), add one in TasmoFleet.
-- Set the firmware base URL to `http://<host>:8081`, run an update through the firmware port.
-- Restart the app and update it (bump `version` and load the new image); data is still there.
-- Make an app backup in Home Assistant, uninstall the app, restore: the devices, the accounts and a
-  stored device password (open a device) are back.
-
-If the Supervisor ignores a locally loaded image for a local app and tries to pull, comment out `image:`
-in the copied `config.yaml` and add a `Dockerfile` next to it that copies a prebuilt binary.
+Not covered by that run and still to do by hand when needed: a simulated device
+(`cmd/tasmofleet-devenv` on the host), an update through the mapped firmware port (set the firmware base URL to
+`http://<host>:8081` first; the firmware server only starts once it is set), and the UI in a browser.
