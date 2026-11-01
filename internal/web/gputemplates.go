@@ -356,7 +356,10 @@ func gtStacks(p gtView) [][]gtCardRef {
 	return stacks
 }
 
-func variantLetter(i int) string { return string(rune('A' + i)) }
+func variantLetter(i int) string {
+	const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	return letters[i%len(letters) : i%len(letters)+1]
+}
 
 // gtGroupOf builds one group card. differ counts the devices that differ and can be changed, cannot
 // those that differ but are refused.

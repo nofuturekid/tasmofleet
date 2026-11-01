@@ -97,7 +97,7 @@ func templateCardOf(j jobView, base string, names map[model.JobID]string) tmplCa
 		case earlyFailure(err):
 			steps = [4]st{done, failed, notStarted, notStarted}
 		default:
-			steps = [4]st{done, done, st{"Sent", ui.ToneOK}, failed}
+			steps = [4]st{done, done, {"Sent", ui.ToneOK}, failed}
 			readNote, sent = " · unchanged since the preview", true
 		}
 	case model.JobCancelled:
