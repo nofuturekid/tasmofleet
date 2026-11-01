@@ -27,7 +27,7 @@ func (a *runtime) setupRestore() error {
 		a.log.Warn("restores interrupted by the restart were marked failed", "count", n)
 	}
 	m, err := restore.New(restore.Options{
-		Devices: a.svc.Store, Backups: a.backups, Store: a.svc.Store, Client: a.svc.Client,
+		Devices: a.svc.Store, Backups: a.backups, Files: a.backups, Store: a.svc.Store, Client: a.svc.Client,
 		BaseURL: a.cfg.FWBaseURL, Uploader: a.svc.Router, PathFor: a.restorePath, BrokerPassword: func() string { return a.svc.Sys.Snapshot().MQTTPassword }, Audit: a.svc.Audit, Log: a.log, Context: a.bgContext,
 		Locks: a.deviceLocks(), Jobs: a.svc.Store,
 		Hardware: a.svc.Store, Describe: a.svc.Prober.Describe,

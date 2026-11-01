@@ -17,12 +17,17 @@ func TestStepOfRunningDoneAndFailedJobs(t *testing.T) {
 	}{
 		{store.RestorePending, "", StepBackup},
 		{store.RestoreBackup, "taking a backup", StepBackup},
+		{store.RestoreFiles, "writing lib/x.be (2 of 3)", StepFiles},
 		{store.RestoreSending, "", StepUpload},
 		{store.RestoreWaiting, "", StepRestart},
 		{store.RestoreVerifying, "", StepVerify},
 		{store.RestoreDone, "restored", StepVerify + 1},
 		{store.RestoreFailed, failPreBackup + "timeout", StepBackup},
 		{store.RestoreFailed, failPreBackupReplace + "timeout", StepBackup},
+		// #324: a failure of the files step is the files step, not the upload; it must not be read as
+		// "nothing was changed" (which maps to the upload) when the text says files were written.
+		{store.RestoreFailed, failFilesNone + "device busy", StepFiles},
+		{store.RestoreFailed, failFilesPartly + "lib/x.be: upload refused", StepFiles},
 		{store.RestoreFailed, "replacement " + failUnreachable + "x", StepUpload},
 		{store.RestoreFailed, failToken + "x", StepUpload},
 		{store.RestoreFailed, "the device downloaded the configuration but did not come back in time", StepRestart},
@@ -32,5 +37,28 @@ func TestStepOfRunningDoneAndFailedJobs(t *testing.T) {
 		if got := Step(Job{State: c.state, Detail: c.detail}); got != c.want {
 			t.Errorf("%s %q: step %d, want %d", c.state, c.detail, got, c.want)
 		}
+	}
+}
+
+// Why: the progress page offers the rollback only when the device was changed. A files failure
+// before the first write changed nothing; one after it did, and the restore of the backup taken
+// first puts the old files back too.
+func TestFilesChangedOnlyForAPartlyWrittenFailure(t *testing.T) {
+	if FilesChanged(failFilesNone + "x") {
+		t.Error("a files failure before any write must not offer a rollback")
+	}
+	if !FilesChanged(failFilesPartly + "x") {
+		t.Error("a partly written files step must offer a rollback")
+	}
+}
+
+// Why: the finished job keeps what the files step did in the same text as the verification, so
+// the page can show both after a restart of the service.
+func TestSplitDetailSeparatesTheFilesSummary(t *testing.T) {
+	if f, r := SplitDetail("6 files written (6 flash writes)\nrestored; identical"); f != "6 files written (6 flash writes)" || r != "restored; identical" {
+		t.Errorf("%q %q", f, r)
+	}
+	if f, r := SplitDetail("restored; identical"); f != "" || r != "restored; identical" {
+		t.Errorf("no files part: %q %q", f, r)
 	}
 }

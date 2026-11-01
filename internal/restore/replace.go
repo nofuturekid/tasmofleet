@@ -71,6 +71,10 @@ type ReplacePreview struct {
 	Backup  model.Backup
 	Dumps   []model.Backup // dumps of the entry that could be chosen, newest first
 	Carries Carries
+	// Files is what the replacement does with the backup's files (#324).
+	Files FilesPlan
+	// DumpFiles says per dump what it holds of the device's files ("6 files", "no files (went over MQTT)").
+	DumpFiles map[model.BackupID]string
 	// Major and Family need the admin's tick (StartOptions), Detail says why.
 	Major, Family bool
 	Detail        string
@@ -104,6 +108,7 @@ type replacePlan struct {
 	carries Carries
 	need    OverrideError
 	dumps   []model.Backup
+	files   FilesPlan
 }
 
 // Candidates implements Replacer. It answers from Status 5 without
@@ -153,7 +158,7 @@ func (m *Manager) PreviewReplace(ctx context.Context, req ReplaceRequest) (Repla
 	if err != nil {
 		return ReplacePreview{}, err
 	}
-	return ReplacePreview{Old: p.old, New: p.cand, Backup: p.b, Dumps: p.dumps, Carries: p.carries,
+	return ReplacePreview{Old: p.old, New: p.cand, Backup: p.b, Dumps: p.dumps, Carries: p.carries, Files: p.files, DumpFiles: m.dumpFiles(ctx, p.dumps),
 		Major: p.need.Major, Family: p.need.Family, Detail: p.need.Detail}, nil
 }
 
@@ -189,6 +194,7 @@ func (m *Manager) planReplace(ctx context.Context, req ReplaceRequest) (*replace
 		return nil, err
 	}
 	p.carries = m.carries(ctx, p.b)
+	p.files = m.replaceFilesPlan(ctx, p)
 	return p, nil
 }
 
@@ -508,10 +514,26 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan) {
 		}
 	}
 
+	stillThere := func() error {
+		// The address may have changed hands since the preview (DHCP).
+		if got, err := m.liveMAC(ctx, bare); err != nil || got != normMAC(p.cand.MAC) {
+			return errors.New("the device at the address is no longer the replacement device you chose")
+		}
+		return nil
+	}
+	fo, ferr := m.filesStep(ctx, &j, target, func(context.Context) (string, error) { return p.cand.Identity.Version, nil }, false, stillThere)
+	if ferr != nil {
+		var ff *failedFiles
+		text := failFilesNone + ferr.Error()
+		if errors.As(ferr, &ff) {
+			text = ff.text
+		}
+		m.failReplace(ctx, &j, text)
+		return
+	}
 	m.step(ctx, &j, store.RestoreSending, "asking the replacement device to fetch the configuration")
-	// The address may have changed hands since the preview (DHCP).
-	if got, err := m.liveMAC(ctx, bare); err != nil || got != normMAC(p.cand.MAC) {
-		m.failReplace(ctx, &j, failUnchanged+"the device at the address is no longer the replacement device you chose")
+	if err := stillThere(); err != nil {
+		m.failReplace(ctx, &j, failUnchanged+err.Error())
 		return
 	}
 	before, err := m.uptime(ctx, target)
@@ -544,7 +566,7 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan) {
 	m.step(ctx, &j, store.RestoreVerifying, "taking a fresh backup to verify")
 	detail, verified, changes, verr := m.verify(ctx, j, p.dmp, func() ([]model.Backup, error) {
 		return m.o.Backups.BackupOf(ctx, j.Actor, p.old.ID, found, "")
-	})
+	}, fo.check)
 	if verr != nil {
 		// The new hardware answered with its own MAC after the reboot: it is
 		// there and holds the configuration. Leaving the entry on the dead
@@ -567,7 +589,7 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan) {
 		m.failReplace(ctx, &j, failTakeOver+"the inventory entry could not take it over (it still points to the old hardware): "+err.Error())
 		return
 	}
-	j.Detail = "replaced; " + detail
+	j.Detail = fo.withSummary("replaced; " + detail)
 	m.step(ctx, &j, store.RestoreDone, j.Detail)
 	m.recordReplace(ctx, j.Actor, "replace.finish", j, "ok", map[string]any{
 		"old_macs": oldMACs, "new_mac": p.cand.MAC, "address": addr, "verified": verified})
@@ -648,4 +670,15 @@ func (m *Manager) waitReplaced(ctx context.Context, p *replacePlan, tok string, 
 			return model.Device{}, errors.New("the replacement device downloaded the configuration but was not found again in time (it may have joined the network at another address; the inventory entry was not changed)")
 		}
 	}
+}
+
+// replaceFilesPlan is the files part of the preview: what the replacement hardware would get.
+// Its file system is read without credentials, like everything else on a device not yet in the inventory.
+func (m *Manager) replaceFilesPlan(ctx context.Context, p *replacePlan) FilesPlan {
+	t := tasmota.TargetFor(model.Device{Address: p.cand.Address, Port: p.cand.Port})
+	plan, err := m.planFiles(ctx, p.b.ID, t, func(context.Context) (string, error) { return p.cand.Identity.Version, nil }, false)
+	if err != nil {
+		return FilesPlan{Files: plan.Files, Why: "the replacement device's file system could not be read right now; the files are checked again when the replacement runs"}
+	}
+	return plan
 }

@@ -185,6 +185,14 @@ func (fakeDecoder) Decode(_ context.Context, dmp []byte) ([]byte, error) {
 	return []byte(fmt.Sprintf(`{"header":{"data":{"hardware":"ESP82xx"}},"cfg_crc":%d,"tele_period":%d,"mqtt_pwd":"secret-%d"}`, dmp[0], dmp[1], dmp[1])), nil
 }
 
+// esp32Decoder is fakeDecoder for the flows with ESP32 devices (the family check reads the header).
+type esp32Decoder struct{}
+
+func (esp32Decoder) Version(context.Context) (string, error) { return "16.0.0.0", nil }
+func (esp32Decoder) Decode(_ context.Context, dmp []byte) ([]byte, error) {
+	return []byte(fmt.Sprintf(`{"header":{"data":{"hardware":"ESP32"}},"cfg_crc":%d,"tele_period":%d,"mqtt_pwd":"secret-%d"}`, dmp[0], dmp[1], dmp[1])), nil
+}
+
 // hookClient lets a test observe and intercept device commands.
 type hookClient struct {
 	tasmota.Client
@@ -196,6 +204,61 @@ type hookClient struct {
 	afterErr   error  // returned after WebGetConfig was really executed
 	swallowErr error  // returned instead of executing WebGetConfig
 	failDL     atomic.Bool
+
+	// fs is the file system part of the real client. The wrapper exposes it (so the backup and the
+	// restore see a client with file access, as in production) and lets a test break one upload.
+	fs tasmota.FileSystem
+	// order records the writes in the sequence they reached the device: "upload:/path" and the
+	// commands that change settings (WebGetConfig).
+	order []string
+	// uploadHook runs before every UploadFile with the 1-based number of the attempt for this path;
+	// a non-nil error is returned instead of the real upload (the hook may have written something
+	// itself, the way a device does that deletes the old file and then fails).
+	uploadHook func(p string, attempt int) error
+	attempts   map[string]int
+}
+
+func (c *hookClient) FSInfo(ctx context.Context, t tasmota.Target) (tasmota.FSInfo, error) {
+	return c.fs.FSInfo(ctx, t)
+}
+
+func (c *hookClient) ListFiles(ctx context.Context, t tasmota.Target, dir string) ([]tasmota.FileEntry, error) {
+	return c.fs.ListFiles(ctx, t, dir)
+}
+
+func (c *hookClient) DownloadFile(ctx context.Context, t tasmota.Target, p string, max int64) ([]byte, error) {
+	return c.fs.DownloadFile(ctx, t, p, max)
+}
+
+func (c *hookClient) UploadFile(ctx context.Context, t tasmota.Target, p string, data []byte) error {
+	c.mu.Lock()
+	if c.attempts == nil {
+		c.attempts = map[string]int{}
+	}
+	c.attempts[p]++
+	n := c.attempts[p]
+	c.order = append(c.order, "upload:"+p)
+	hook := c.uploadHook
+	c.mu.Unlock()
+	if hook != nil {
+		if err := hook(p, n); err != nil {
+			return err
+		}
+	}
+	return c.fs.UploadFile(ctx, t, p, data)
+}
+
+// uploads lists the paths of the uploads that reached the client, in order.
+func (c *hookClient) uploads() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for _, o := range c.order {
+		if p, ok := strings.CutPrefix(o, "upload:"); ok {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (c *hookClient) Command(ctx context.Context, t tasmota.Target, cmnd string) (json.RawMessage, error) {
@@ -211,6 +274,11 @@ func (c *hookClient) Command(ctx context.Context, t tasmota.Target, cmnd string)
 	}
 	if cmnd == "Status 5" && s5 != "" {
 		return json.RawMessage(`{"StatusNET":{"Mac":"` + s5 + `"}}`), nil
+	}
+	if strings.HasPrefix(cmnd, "WebGetConfig") {
+		c.mu.Lock()
+		c.order = append(c.order, "WebGetConfig")
+		c.mu.Unlock()
 	}
 	if strings.HasPrefix(cmnd, "WebGetConfig") && c.swallowErr != nil {
 		return nil, c.swallowErr
@@ -357,6 +425,12 @@ func newFlow(t *testing.T, version string) *flowEnv { return newFlowWith(t, vers
 // newFlowWith is newFlow with the decoder that turns dumps into decoded backups.
 func newFlowWith(t *testing.T, version string, dec backup.Decoder) *flowEnv {
 	t.Helper()
+	return newFlowSpec(t, version, dec, simulator.DeviceSpec{Profile: simulator.ProfileESP8266_4M})
+}
+
+// newFlowSpec is newFlowWith for the device the spec describes (profile, seeded files).
+func newFlowSpec(t *testing.T, version string, dec backup.Decoder, spec simulator.DeviceSpec) *flowEnv {
+	t.Helper()
 	dir := t.TempDir()
 	box, err := secretbox.LoadOrCreate(dir)
 	if err != nil {
@@ -372,15 +446,21 @@ func newFlowWith(t *testing.T, version string, dec backup.Decoder) *flowEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = fleet.Close() })
-	sd, err := fleet.Add(t.Context(), simulator.DeviceSpec{Name: "plug", Profile: simulator.ProfileESP8266_4M, Version: version})
+	spec.Name, spec.Version = "plug", version
+	sd, err := fleet.Add(t.Context(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctl, _ := simulator.Control(sd)
 	host, portStr, _ := net.SplitHostPort(sd.Addr())
 	port, _ := strconv.Atoi(portStr)
-	cl := &hookClient{Client: tasmota.NewHTTPClient(tasmota.Options{AllowedNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})}
-	dev := model.Device{Name: "plug", Address: host, Port: port, Identity: model.Identity{Version: version, Family: model.ChipESP8266}}
+	real := tasmota.NewHTTPClient(tasmota.Options{AllowedNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	cl := &hookClient{Client: real, fs: real.(tasmota.FileSystem)}
+	family := model.ChipESP8266
+	if strings.HasPrefix(string(spec.Profile), "esp32") {
+		family = model.ChipESP32
+	}
+	dev := model.Device{Name: "plug", Address: host, Port: port, Identity: model.Identity{Version: version, Family: family}}
 	raw5, err := cl.Command(t.Context(), tasmota.TargetFor(dev), "Status 5")
 	if err != nil {
 		t.Fatal(err)
@@ -412,7 +492,7 @@ func newFlowWith(t *testing.T, version string, dec backup.Decoder) *flowEnv {
 	t.Cleanup(e.srv.Close)
 	e.served = make(chan model.DeviceID, 8)
 	m, err := New(Options{
-		Devices: st, Backups: hb, Store: st, Client: cl, BaseURL: e.srv.URL, Audit: au, Log: quiet,
+		Devices: st, Backups: hb, Store: st, Client: cl, Files: bk, BaseURL: e.srv.URL, Audit: au, Log: quiet,
 		Hardware: st, Describe: e.describe,
 		OnServed:     func(id model.DeviceID) { e.served <- id },
 		PollInterval: 20 * time.Millisecond, RebootTimeout: 15 * time.Second, TokenTTL: 30 * time.Second, Context: t.Context(),

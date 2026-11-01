@@ -65,3 +65,31 @@ func TestFailActiveRestores(t *testing.T) {
 		t.Errorf("missing job: %v", err)
 	}
 }
+
+// Why (#324): a restore interrupted while it writes files (state "files") is an unfinished job
+// like any other: it still blocks a second restore of the device (partial uploads must not be
+// raced), and after a restart of TasmoFleet start-up recovery fails it instead of leaving it
+// stuck. The state column is free text, so this proves no schema list excludes the new state.
+func TestRestoreInFilesStateIsActiveAndRecoveredAfterARestart(t *testing.T) {
+	s, _, _ := newStore(t)
+	ctx := context.Background()
+	d, _ := s.CreateDevice(ctx, model.Device{Name: "a", Address: "10.0.0.1"})
+	id, _ := s.CreateRestore(ctx, RestoreJob{DeviceID: d, BackupID: 1, Actor: "x"})
+	j, _ := s.GetRestore(ctx, id)
+	j.State, j.Detail = RestoreFiles, "writing lib/x.be (2 of 3)"
+	if err := s.UpdateRestore(ctx, j); err != nil {
+		t.Fatal(err)
+	}
+	if j.Terminal() {
+		t.Error("a job in the files state must not count as finished")
+	}
+	if _, err := s.CreateRestore(ctx, RestoreJob{DeviceID: d, BackupID: 2, Actor: "x"}); !errors.Is(err, ErrConflict) {
+		t.Errorf("a second restore while files are written: %v, want ErrConflict", err)
+	}
+	if n, err := s.FailActiveRestores(ctx, "interrupted by restart"); err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if got, _ := s.GetRestore(ctx, id); got.State != RestoreFailed {
+		t.Errorf("state after recovery: %q", got.State)
+	}
+}

@@ -60,7 +60,7 @@ func (g idGuard) Command(ctx context.Context, t tasmota.Target, c string) (json.
 func (e *flowEnv) mqttManager(t *testing.T, u *fakeUploader, path transport.Path) *Manager {
 	t.Helper()
 	m, err := New(Options{
-		Devices: e.st, Backups: e.hb, Store: e.st, Client: idGuard{e.cl}, Uploader: u,
+		Devices: e.st, Backups: e.hb, Store: e.st, Client: idGuard{e.cl}, Files: e.bk, Uploader: u,
 		PathFor: func(context.Context, model.Device) (transport.Path, string) {
 			return path, "over MQTT (FileUpload), because HTTP fails"
 		},

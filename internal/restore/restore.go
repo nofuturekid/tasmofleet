@@ -98,6 +98,9 @@ type Assessment struct {
 	// the page shows for the path, as transport.Choose gave it.
 	ViaMQTT  bool
 	PathNote string
+	// Files is what the restore does with the backup's files (#324): the list, or the reason they
+	// are not written.
+	Files FilesPlan
 }
 
 // Job is one restore run.
@@ -153,9 +156,11 @@ type Options struct {
 	// (WebGetConfig), MQTT (FileUpload) or None with the sentence why. The second result is the
 	// path's reason, shown on the confirmation page. nil: always HTTP.
 	PathFor func(ctx context.Context, d model.Device) (transport.Path, string)
-	Audit   audit.Recorder // optional
-	Clock   clock.Clock    // default clock.Real
-	Log     *slog.Logger
+	// Files reads the files archive of a backup (backup.Manager). Optional: nil restores settings only.
+	Files FileArchives
+	Audit audit.Recorder // optional
+	Clock clock.Clock    // default clock.Real
+	Log   *slog.Logger
 	// Context bounds the background runs; default context.Background.
 	Context context.Context
 	// TokenTTL is how long the download token lives (default 5 minutes).
@@ -218,6 +223,9 @@ type Manager struct {
 	tokens    map[[32]byte]*tokenEntry // key: SHA-256 of the token
 	noted     map[string]time.Time     // rate limit of refusal reports
 	replacing map[string]bool          // MACs of replacement hardware a replace is working on
+
+	progress      map[store.RestoreID]*progress // per-file progress of the latest jobs (files.go)
+	progressOrder []store.RestoreID
 }
 
 var _ Service = (*Manager)(nil)

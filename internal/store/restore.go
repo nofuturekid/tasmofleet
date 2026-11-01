@@ -15,6 +15,7 @@ type RestoreID int64
 const (
 	RestorePending   = "pending"
 	RestoreBackup    = "backup"
+	RestoreFiles     = "files"
 	RestoreSending   = "sending"
 	RestoreWaiting   = "waiting"
 	RestoreVerifying = "verifying"

@@ -784,3 +784,22 @@ func TestGluedBacklogPrefixOutsideBacklogIsUnknown(t *testing.T) {
 		}
 	}
 }
+
+// Why (#324): the filesystem commands change what the device keeps in flash (UfsDelete removes a
+// file, UfsRename moves one, UfsRun executes a script). They must be device writes that only an
+// admin sends, alone or hidden in a Backlog; an operator who could send them could delete the
+// files a restore puts back. The file transfer itself is TasmoFleet's own code, not these commands.
+func TestFilesystemCommandsAreAdminDeviceWrites(t *testing.T) {
+	for _, cmd := range []string{"UfsDelete /autoexec.be", "UfsRename /a.be,/b.be", "UfsRun /x.bat", "UfsDelete", "ufsdelete /tlskey", "Backlog UfsDelete /autoexec.be", "Backlog Power ON; UfsRename /a,/b"} {
+		v, err := Classify(cmd)
+		if err != nil || v.Class != ClassAdmin {
+			t.Errorf("Classify(%q) = %v, %v; want admin", cmd, v.Class, err)
+		}
+		if _, err := Authorize(cmd, model.RoleOperator); !errors.Is(err, ErrRole) {
+			t.Errorf("an operator may send %q: %v", cmd, err)
+		}
+		if _, err := Authorize(cmd, model.RoleAdmin); err != nil {
+			t.Errorf("an admin may not send %q: %v", cmd, err)
+		}
+	}
+}

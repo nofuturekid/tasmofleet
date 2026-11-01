@@ -58,8 +58,15 @@ func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, 
 		}
 	}
 
-	if j.Transport == model.TransportMQTT {
-		m.sendMQTT(ctx, &j, dev, target, dmp)
+	viaMQTT := j.Transport == model.TransportMQTT
+	fo, err := m.filesStep(ctx, &j, target, func(c context.Context) (string, error) { return m.liveVersion(c, dev) }, viaMQTT,
+		func() error { return m.checkIdentity(ctx, dev) })
+	if err != nil {
+		m.failFiles(ctx, &j, err)
+		return
+	}
+	if viaMQTT {
+		m.sendMQTT(ctx, &j, dev, target, dmp, fo)
 		return
 	}
 	m.step(ctx, &j, store.RestoreSending, "asking the device to fetch the configuration")
@@ -102,13 +109,13 @@ func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, 
 		return
 	}
 
-	m.finish(ctx, j, dev, dmp)
+	m.finish(ctx, j, dev, dmp, fo)
 }
 
 // sendMQTT is the upload half of a restore over MQTT: identity, BootCount, FileUpload, wait for
 // the restart. The order is the same as over HTTP (safety backup, identity, send); the device
 // applies the dump only after the MD5 matched, so a failed or aborted upload leaves it unchanged.
-func (m *Manager) sendMQTT(ctx context.Context, j *Job, dev model.Device, target tasmota.Target, dmp []byte) {
+func (m *Manager) sendMQTT(ctx context.Context, j *Job, dev model.Device, target tasmota.Target, dmp []byte, fo *filesOutcome) {
 	m.step(ctx, j, store.RestoreSending, "uploading the configuration over MQTT")
 	if err := m.checkIdentity(ctx, dev); err != nil {
 		m.fail(ctx, j, failUnchanged+err.Error())
@@ -133,7 +140,7 @@ func (m *Manager) sendMQTT(ctx context.Context, j *Job, dev model.Device, target
 		m.fail(ctx, j, err.Error())
 		return
 	}
-	m.finish(ctx, *j, dev, dmp)
+	m.finish(ctx, *j, dev, dmp, fo)
 }
 
 // bootCount reads Status 1 (a fresh answer from the device, not the INFO3 of an earlier boot).
@@ -177,7 +184,7 @@ func (m *Manager) waitBoot(ctx context.Context, t tasmota.Target, before int) er
 }
 
 // finish takes the fresh backup and compares it with the restored one.
-func (m *Manager) finish(ctx context.Context, j Job, dev model.Device, dmp []byte) {
+func (m *Manager) finish(ctx context.Context, j Job, dev model.Device, dmp []byte, fo *filesOutcome) {
 	m.step(ctx, &j, store.RestoreVerifying, "taking a fresh backup to verify")
 	if err := m.checkIdentity(ctx, dev); err != nil {
 		m.fail(ctx, &j, failAfterRestore+err.Error())
@@ -185,14 +192,25 @@ func (m *Manager) finish(ctx context.Context, j Job, dev model.Device, dmp []byt
 	}
 	detail, verified, changes, err := m.verify(ctx, j, dmp, func() ([]model.Backup, error) {
 		return m.o.Backups.Backup(ctx, j.Actor, j.DeviceID)
-	})
+	}, fo.check)
 	if err != nil {
 		m.fail(ctx, &j, failAfterRestore+"verification failed: "+err.Error())
 		return
 	}
 	j.Verified, j.Changes = verified, changes
+	detail = fo.withSummary(detail)
 	m.step(ctx, &j, store.RestoreDone, detail)
 	m.record(ctx, j.Actor, "restore.finish", j.ID, j.DeviceID, "ok", detail)
+}
+
+// failFiles ends the job with the failure text of the files step.
+func (m *Manager) failFiles(ctx context.Context, j *Job, err error) {
+	var ff *failedFiles
+	if errors.As(err, &ff) {
+		m.fail(ctx, j, ff.text)
+		return
+	}
+	m.fail(ctx, j, failFilesNone+err.Error())
 }
 
 func redactToken(s, tok string) string { return strings.ReplaceAll(s, tok, "***") }
@@ -239,11 +257,23 @@ func (m *Manager) waitReboot(ctx context.Context, t tasmota.Target, tok string, 
 
 // verify takes a fresh backup (take) and compares it with the restored one.
 // The detail names paths only, never values.
-func (m *Manager) verify(ctx context.Context, j Job, dmp []byte, take func() ([]model.Backup, error)) (detail string, verified bool, changes int, err error) {
+func (m *Manager) verify(ctx context.Context, j Job, dmp []byte, take func() ([]model.Backup, error), fc *filesCheck) (detail string, verified bool, changes int, err error) {
 	fresh, err := take()
 	if err != nil {
 		return "", false, 0, err
 	}
+	detail, verified, changes, err = m.verifySettings(ctx, j, dmp, fresh)
+	if err != nil || fc == nil {
+		return detail, verified, changes, err
+	}
+	if fd, ok := m.verifyFiles(ctx, fresh, fc); fd != "" {
+		detail, verified = detail+"; "+fd, verified && ok
+	}
+	return detail, verified, changes, nil
+}
+
+// verifySettings compares the fresh dump with the restored one.
+func (m *Manager) verifySettings(ctx context.Context, j Job, dmp []byte, fresh []model.Backup) (detail string, verified bool, changes int, err error) {
 	var freshDmp, freshDec []byte
 	for _, b := range fresh {
 		switch b.Kind {
@@ -523,6 +553,9 @@ func (m *Manager) Assess(ctx context.Context, bid model.BackupID) (Assessment, e
 	}
 	a := Assessment{MACUnknown: normMAC(dev.MAC) == "", ViaMQTT: path == transport.MQTT, PathNote: note}
 	err = m.preflight(ctx, "", &dev, b, StartOptions{}, false)
+	if err == nil || errors.As(err, new(*OverrideError)) {
+		a.Files = m.assessFiles(ctx, b, dev, path == transport.MQTT)
+	}
 	if a.MACUnknown {
 		a.LiveMAC, a.Address, a.Chip = dev.MAC, dev.Address, string(dev.Identity.Family)
 	}
@@ -570,4 +603,15 @@ func (m *Manager) backupFamily(ctx context.Context, b model.Backup) (family, err
 		return familyESP32, nil
 	}
 	return familyUnknown, nil
+}
+
+// assessFiles is the files part of the assessment. A device that cannot be asked now is not a
+// refusal: the page says the files could not be checked, the run asks again and fails loudly.
+func (m *Manager) assessFiles(ctx context.Context, b model.Backup, dev model.Device, viaMQTT bool) FilesPlan {
+	plan, err := m.planFiles(ctx, b.ID, tasmota.TargetFor(dev), func(c context.Context) (string, error) { return m.liveVersion(c, dev) }, viaMQTT)
+	if err != nil {
+		m.o.Log.Warn("restore: assess files", "component", "restore", "err", err)
+		return FilesPlan{Files: plan.Files, Why: "the device's file system could not be read right now, so the files could not be checked"}
+	}
+	return plan
 }
