@@ -205,7 +205,7 @@ func TestRestoreOverMQTTFailedUploadLeavesTheDeviceUnchanged(t *testing.T) {
 }
 
 // Why: a lost "Done" means the device may have applied the dump. The restore must look at the
-// device (its uptime) instead of failing, and must not upload a second time.
+// device (boot count) instead of failing, and must not upload a second time.
 func TestRestoreOverMQTTUnknownOutcomeIsCheckedOnTheDevice(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
@@ -220,10 +220,10 @@ func TestRestoreOverMQTTUnknownOutcomeIsCheckedOnTheDevice(t *testing.T) {
 	}
 }
 
-// Why: the restart is proven by a fresh Status 11 uptime shorter than the time since the upload
-// began, not by anything stale (an unchanged device that merely answers). An upload that returned
-// but never restarted the device is a failure at the restart step.
-func TestRestoreOverMQTTNeedsARestart(t *testing.T) {
+// Why: the restart is proven by a larger BootCount from a fresh Status 1, not by anything stale
+// (an INFO3 of the earlier boot, an unchanged device that merely answers). An upload that
+// returned but never restarted the device is a failure at the restart step.
+func TestRestoreOverMQTTNeedsTheBootCountToRise(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
 	m := e.mqttManager(t, &fakeUploader{e: e, apply: false}, transport.MQTT) // says Done, nothing happens
@@ -233,7 +233,7 @@ func TestRestoreOverMQTTNeedsARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := e.finish(t, job.ID)
-	if done.State != store.RestoreFailed || FailedStep(done.Detail) != StepRestart || !strings.Contains(done.Detail, "did not restart") {
+	if done.State != store.RestoreFailed || FailedStep(done.Detail) != StepRestart || !strings.Contains(done.Detail, "boot count") {
 		t.Fatalf("job: %+v", done)
 	}
 }

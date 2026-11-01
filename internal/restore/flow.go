@@ -68,8 +68,7 @@ func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, 
 	m.send(ctx, &j, dev, target, dmp, fo)
 }
 
-// send is the upload half of a restore: identity, the boot count as the "device answers" check,
-// the upload (the HTTP restore upload, or FileUpload over MQTT), wait for the restart. Over both
+// send is the upload half of a restore: identity, the boot count before, the upload (the HTTP restore upload, or FileUpload over MQTT), wait for the restart. Over both
 // paths a refused or aborted upload leaves the device unchanged: over HTTP the device answers its
 // "Failed" page and keeps running, over MQTT it applies the dump only after the MD5 matched.
 func (m *Manager) send(ctx context.Context, j *Job, dev model.Device, target tasmota.Target, dmp []byte, fo *filesOutcome) {
@@ -85,7 +84,8 @@ func (m *Manager) send(ctx context.Context, j *Job, dev model.Device, target tas
 		m.fail(ctx, j, fo.afterFiles(failUnchanged+err.Error()))
 		return
 	}
-	if _, err := m.bootCount(ctx, target); err != nil {
+	before, err := m.bootCount(ctx, target)
+	if err != nil {
 		m.fail(ctx, j, fo.afterFiles(failUnreachable+err.Error()))
 		return
 	}
@@ -111,7 +111,7 @@ func (m *Manager) send(ctx context.Context, j *Job, dev model.Device, target tas
 		m.o.Log.Warn("restore: upload outcome unknown, checking the device", "component", "restore", "job", j.ID, "err", err)
 	}
 	m.step(ctx, j, store.RestoreWaiting, "waiting for the restart")
-	if err := m.waitBoot(ctx, target, began); err != nil {
+	if err := m.waitBoot(ctx, target, before, began); err != nil {
 		m.fail(ctx, j, err.Error())
 		return
 	}
@@ -133,13 +133,15 @@ func (m *Manager) bootCount(ctx context.Context, t tasmota.Target) (int, error) 
 	return *s.StatusPRM.BootCount, nil
 }
 
-// waitBoot returns when a fresh Status 11 shows an uptime shorter than the time since the upload
-// began (plus 2 s): the device has booted since. BootCount proves nothing here: the restored
-// settings bring the backup's counter back (SettingsConfigRestore copies the whole block), so
-// after an older backup it is lower than before, and the firmware counts the boot only at 10 s of
-// uptime. Whether the settings were applied is the verification's job. While the device restarts
-// the poll fails (LWT Offline, refused or timed out); that just means "not yet" until the deadline.
-func (m *Manager) waitBoot(ctx context.Context, t tasmota.Target, began time.Time) error {
+// waitBoot returns when Status 1 answers with a larger BootCount than before the upload and
+// Status 11 shows an uptime shorter than the time since the upload began (the device really
+// restarted since: a count that rose for another reason, or a stale answer, is not a restart). A
+// restore does not bring the backup's BootCount back: it sits in the first 16 bytes of the
+// settings, which SettingsConfigRestore does not copy (v16 settings.ino 557, tasmota_types.h 490).
+// The firmware counts the boot at 10 s of uptime, so the count rises a few polls after the device
+// answers again. While the device restarts the poll fails (LWT Offline, refused or timed out);
+// that just means "not yet" until the deadline.
+func (m *Manager) waitBoot(ctx context.Context, t tasmota.Target, before int, began time.Time) error {
 	deadline := m.o.Clock.Now().Add(m.o.RebootTimeout)
 	for {
 		select {
@@ -147,11 +149,13 @@ func (m *Manager) waitBoot(ctx context.Context, t tasmota.Target, began time.Tim
 			return ctx.Err()
 		case <-m.o.Clock.After(m.o.PollInterval):
 		}
-		if up, err := m.uptime(ctx, t); err == nil && time.Duration(up)*time.Second <= m.o.Clock.Now().Sub(began)+2*time.Second {
-			return nil
+		if n, err := m.bootCount(ctx, t); err == nil && n > before {
+			if up, uerr := m.uptime(ctx, t); uerr == nil && time.Duration(up)*time.Second <= m.o.Clock.Now().Sub(began)+2*time.Second {
+				return nil
+			}
 		}
 		if m.o.Clock.Now().After(deadline) {
-			return errors.New("the device did not restart in time (its uptime shows no restart since the upload); the configuration may or may not have been applied")
+			return errors.New("the device did not restart in time (its boot count did not change); the configuration may or may not have been applied")
 		}
 	}
 }

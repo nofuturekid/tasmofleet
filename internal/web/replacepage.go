@@ -159,7 +159,7 @@ func (h *handler) renderReplace(w http.ResponseWriter, r *http.Request, status i
 		rv.NotCopied = append(rv.NotCopied,
 			ui.KVRow{Key: "Firmware", Value: "The new device keeps Tasmota " + pv.New.Identity.Version},
 			ui.KVRow{Key: "Its factory configuration", Value: factoryText(pv.Files.Restores())})
-		rv.Warnings = append(rv.Warnings, "The old device must stay switched off from now on: the new one carries the same hostname, MQTT topic and (if static) IP address. The old credentials come back on the new device. The download is plain HTTP on your device network.")
+		rv.Warnings = append(rv.Warnings, "The old device must stay switched off from now on: the new one carries the same hostname, MQTT topic and (if static) IP address. The old credentials come back on the new device. The upload is plain HTTP on your device network.")
 		if pv.Detail != "" {
 			rv.Warnings = append(rv.Warnings, sentence(pv.Detail))
 		}

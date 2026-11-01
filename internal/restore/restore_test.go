@@ -493,40 +493,6 @@ func TestRestoreRoundTripAgainstSimulator(t *testing.T) {
 	}
 }
 
-// simDumpWithBootCount is a settings dump in the simulator's own format ("TFSIMDMP1\n" + JSON, padded
-// to 4096 bytes) that carries a boot counter, which the simulated device takes over when it applies
-// the dump, like SettingsConfigRestore does.
-func simDumpWithBootCount(n int) []byte {
-	b := []byte("TFSIMDMP1\n" + `{"bootcount":` + strconv.Itoa(n) + `}`)
-	return append(b, make([]byte, 4096-len(b))...)
-}
-
-// Why (#430 review): the restored settings bring the backup's BootCount back, so after restoring an
-// older backup the count is LOWER than before the restore. The restart must be proven by the
-// uptime, or every restore of an older backup would end in "did not restart in time" although
-// the device restarted with it.
-func TestRestoreOfAnOlderBackupWithALowerBootCountCompletes(t *testing.T) {
-	e := newFlow(t, "15.6.0")
-	old := simDumpWithBootCount(2)
-	a := e.dumpBackup(t, old)
-	e.sim.SetConfigDump(e.dumpB)
-	before := e.sim.BootCount()
-	if before <= 3 {
-		t.Fatalf("fixture BootCount %d, the test needs one above 3", before)
-	}
-	job, err := e.m.Start(t.Context(), "alice", a.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := e.finish(t, job.ID)
-	if done.State != store.RestoreDone || !done.Verified {
-		t.Fatalf("job: %+v", done)
-	}
-	if got := e.sim.BootCount(); got >= before {
-		t.Errorf("BootCount %d, want below %d: the test no longer covers an older backup", got, before)
-	}
-}
-
 // Why: the trap seen live: a restore upload whose type the device lost answers "Successful" and
 // restarts with nothing applied. The restart alone proves nothing; the verification afterwards
 // must say that the device does not hold the backup.

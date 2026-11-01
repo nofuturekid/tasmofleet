@@ -1,7 +1,6 @@
 package simulator
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
@@ -98,20 +97,7 @@ func (d *simDevice) restoreUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // applyConfigLocked replaces the settings with a dump (SettingsConfigRestore); the caller
-// restarts. Shared by the web restore upload and MQTT FileUpload Type 2. Like the firmware, which
-// copies the whole settings block, a simulator dump that carries a boot counter brings it back.
-func (d *simDevice) applyConfigLocked(dump []byte) {
-	d.configDump = dump
-	if len(dump) < len(dumpMagic) || string(dump[:len(dumpMagic)]) != dumpMagic {
-		return
-	}
-	body := dump[len(dumpMagic):]
-	end := len(body)
-	for end > 0 && body[end-1] == 0 {
-		end--
-	}
-	var doc struct{ Bootcount *int }
-	if json.Unmarshal(body[:end], &doc) == nil && doc.Bootcount != nil {
-		d.persisted.bootCount = *doc.Bootcount
-	}
-}
+// restarts. Shared by the web restore upload and MQTT FileUpload Type 2. Like the firmware, it
+// leaves the boot counter alone: BootCount sits in the first 16 bytes of the settings, which
+// SettingsConfigRestore does not copy (v16 settings.ino 557, tasmota_types.h 490).
+func (d *simDevice) applyConfigLocked(dump []byte) { d.configDump = dump }

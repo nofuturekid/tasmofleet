@@ -1454,13 +1454,13 @@ shows the decoded secrets. The diff/drift view redacts keys matching
   (restore upload) while HTTP is not failing, else MQTT (FileUpload Type 2) for a device on our broker
   with a usable MQTT password; otherwise the restore is refused with the reason. `restore.New` needs one
   of the two (`ErrNotConfigured` when neither exists); Replace device needs the HTTP restore upload. The
-  order is the same on both paths: safety backup (through the same path), identity (Status 5), `Status 1`
-  (the device answers), then the upload. Over MQTT the device applies the dump only after the MD5 matched,
-  so an upload that fails or is aborted leaves the settings unchanged. Restart detection (both paths, #430):
-  a fresh `Status 11` whose uptime is shorter than the time since the upload began (+2 s), within
-  `RebootTimeout` (3 minutes). Not the boot count: the restored settings bring the backup's counter back,
-  so it is lower after an older backup. A lost "Done" is an unknown outcome and is checked on the device,
-  never uploaded again. Error 1 marks the device's MQTT password bad. The job records its transport and the
+  order is the same on both paths: safety backup (through the same path), identity (Status 5), the boot
+  count (`Status 1`), then the upload. Over MQTT the device applies the dump only after the MD5 matched,
+  so an upload that fails or is aborted leaves the settings unchanged. Restart detection (both paths): the
+  boot count from a fresh `Status 1` must rise and `Status 11` must show an uptime shorter than the time
+  since the upload began, within `RebootTimeout` (3 minutes); a restore does not reset the boot count (it is
+  in the first 16 bytes of the settings, which `SettingsConfigRestore` skips). A lost "Done" is an unknown
+  outcome and is checked on the device, never uploaded again. Error 1 marks the device's MQTT password bad. The job records its transport and the
   confirmation page names the path.
 - Restore and replace put the files back (0.26.0, #324). When the backup run holds a files archive
   (§12.1), a restore or replace writes its files to the device's flash file system **before** the settings,

@@ -65,21 +65,19 @@ func TestRestoreUploadAppliesTheDumpAndRestarts(t *testing.T) {
 	}
 }
 
-// Why: SettingsConfigRestore copies the whole settings block, the boot counter included, and the
-// firmware counts the boot on top of it. After restoring an older backup BootCount is LOWER than
-// before, which is why a restart may never be proven by a larger BootCount.
-func TestRestoreUploadTakesTheBootCountOfTheDump(t *testing.T) {
+// Why: a restore must not reset the boot counter: BootCount is in the first 16 bytes of the
+// settings, which SettingsConfigRestore skips, so it keeps counting (live, 2026-11-01: a backup
+// with 145 restored onto a device at 147 gave 148). The restore's restart proof relies on it.
+func TestRestoreUploadKeepsCountingBoots(t *testing.T) {
 	f := newTestFleet(t, "", Extra{})
 	d := add(t, f, DeviceSpec{Name: "plug", Profile: ProfileESP32, Version: "16.0.0"})
-	if d.BootCount() <= 3 {
-		t.Fatalf("fixture BootCount %d, the test needs one above 3", d.BootCount())
-	}
+	before := d.BootCount()
 	getRs(t, d)
 	if page, err := postU2(d, "Config.dmp", simDump(2, "old")); err != nil || !strings.Contains(page, "Successful") {
 		t.Fatalf("%v %s", err, page)
 	}
 	settled(t, d, 1)
-	eq(t, "BootCount after restoring a dump with count 2", d.BootCount(), 3)
+	eq(t, "BootCount after the restore", d.BootCount(), before+1)
 }
 
 // Why: the device refuses a file that is not a settings dump with its own messages and neither

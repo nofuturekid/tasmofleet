@@ -132,7 +132,7 @@ func restoreConfirmOf(v view, p confirmPage) restoreConfirmView {
 		c.Changes = append(c.Changes, row)
 	}
 	c.Path = sentence(p.PathNote)
-	c.Cred = "Old credentials come back: the Wi-Fi, MQTT and web passwords in the backup replace the current ones. The download is plain HTTP on your device network."
+	c.Cred = "Old credentials come back: the Wi-Fi, MQTT and web passwords in the backup replace the current ones. The upload is plain HTTP on your device network."
 	if p.ViaMQTT {
 		c.Cred = "Old credentials come back: the Wi-Fi, MQTT and web passwords in the backup replace the current ones. The configuration travels over your MQTT broker."
 	}
