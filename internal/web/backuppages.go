@@ -139,8 +139,9 @@ func runDetail(r backupRun) string {
 	if t := backupTriggerText(r.Trigger, r.TriggerRef); t != "" {
 		parts = append(parts, t)
 	}
-	if r.Note != "" && snapshotGaps(r.Note) == "" {
-		parts = append(parts, r.Note)
+	// The files sentence is data for the Files block that waits for its mockup (#324).
+	if note := backup.WithoutFilesNote(r.Note); note != "" && snapshotGaps(note) == "" {
+		parts = append(parts, note)
 	}
 	if r.Gaps != "" {
 		parts = append(parts, "incomplete snapshot, missing "+r.Gaps)

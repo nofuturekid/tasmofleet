@@ -126,6 +126,8 @@ const (
 	whyDeviceGone = "not read: the device did not answer"
 	whyTimeout    = "not read: the device took too long to answer"
 	whyAuth       = "not read: the device rejected the web password"
+	whyOutside    = "not read: the device address is outside the configured device networks"
+	whyTimeLimit  = "not read: time limit of the backup reached"
 )
 
 // reasonOf chooses the sentence for a failed call from the error's kind.
@@ -149,7 +151,8 @@ func reasonOf(err error) string {
 
 // walker reads the device's file system into a manifest and file contents.
 type walker struct {
-	ctx     context.Context
+	parent  context.Context // the caller's: only its error aborts the run
+	ctx     context.Context // the walk's own, ending earlier
 	fs      tasmota.FileSystem
 	t       tasmota.Target
 	man     Manifest
@@ -177,19 +180,24 @@ func (w *walker) dir(dir string, depth int) error {
 			w.skip(join(dir, cleanName(n)), 0, whyName)
 		}
 	case err != nil:
-		if cerr := w.ctx.Err(); cerr != nil {
+		if cerr := w.parent.Err(); cerr != nil {
 			return cerr
 		}
+		w.noteDead(err)
 		if dir == "/" {
 			w.rootErr = err
 			return nil
 		}
-		w.noteDead(err)
 		w.skip(dir, 0, whyList)
 		return nil
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	seen := map[string]bool{}
 	for _, e := range entries {
+		if seen[e.Name] { // a repeated name would give the tar two entries of one path
+			continue
+		}
+		seen[e.Name] = true
 		p := join(dir, e.Name)
 		var err error
 		switch {
@@ -235,17 +243,31 @@ func (w *walker) file(p string, e tasmota.FileEntry) error {
 		return nil
 	}
 	w.reads++
-	b, err := w.fs.DownloadFile(w.ctx, w.t, p, MaxFileBytes)
-	if err == nil && w.total+int64(len(b)) > MaxRunBytes { // the listing understated the size
-		w.skip(p, int64(len(b)), whyRunCap)
+	// The limit of this download is what the run may still store: a file that grew since the
+	// listing is refused by its Content-Length before a body byte is read.
+	limit, runBound := MaxFileBytes, false
+	if left := MaxRunBytes - w.total; left < limit {
+		limit, runBound = left, true
+	}
+	if limit <= 0 { // nothing left (a client treats max <= 0 as "its default")
+		w.skip(p, e.Size, whyRunCap)
 		return nil
 	}
+	b, err := w.fs.DownloadFile(w.ctx, w.t, p, limit)
 	if err != nil {
-		if cerr := w.ctx.Err(); cerr != nil {
+		if cerr := w.parent.Err(); cerr != nil {
 			return cerr
 		}
 		w.noteDead(err)
-		w.skip(p, e.Size, downloadReason(err, w.dead))
+		reason := downloadReason(err, w.dead)
+		if errors.Is(err, tasmota.ErrFileTooLarge) && runBound {
+			reason = whyRunCap
+		}
+		w.skip(p, e.Size, reason)
+		return nil
+	}
+	if w.total+int64(len(b)) > MaxRunBytes { // the client let more through than asked for
+		w.skip(p, int64(len(b)), whyRunCap)
 		return nil
 	}
 	sum := sha256.Sum256(b)
@@ -264,7 +286,13 @@ const modTimeLayout = "2006-01-02T15:04:05"
 // noteDead remembers that the device stopped answering, so the rest of the
 // walk sends nothing more: every further call would wait for its own timeout.
 func (w *walker) noteDead(err error) {
+	if w.ctx.Err() != nil { // the walk's own deadline: the call was cut off by us, not by the device
+		w.dead = whyTimeLimit
+		return
+	}
 	switch {
+	case errors.Is(err, tasmota.ErrForbiddenAddr):
+		w.dead = whyOutside
 	case errors.Is(err, tasmota.ErrAuth):
 		w.dead = whyAuth
 	case errors.Is(err, tasmota.ErrUnreachable):
@@ -332,13 +360,21 @@ func (m *Manager) filesStep(ctx context.Context, t tasmota.Target, fwVersion str
 	if transport.MQTTOnly(ctx) {
 		return notBacked("they need HTTP"), nil
 	}
-	info, err := fs.FSInfo(ctx, t)
+	// The walk ends a few seconds before the caller's deadline (the pre-OTA backup has 30 s for
+	// everything), so a stalling device costs the files, never the dump.
+	wctx, cancel := walkContext(ctx)
+	defer cancel()
+	info, err := fs.FSInfo(wctx, t)
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return filesResult{}, cerr
 		}
-		m.o.Log.Info("backup: files not read", "component", "backup", "device", int64(t.DeviceID()), "reason", reasonOf(err))
-		return notBacked(reasonOf(err)), nil
+		why := reasonOf(err)
+		if wctx.Err() != nil {
+			why = strings.TrimPrefix(whyTimeLimit, "not read: ")
+		}
+		m.o.Log.Info("backup: files not read", "component", "backup", "device", int64(t.DeviceID()), "reason", why)
+		return notBacked(why), nil
 	}
 	if !tasmota.FilesSupported(fwVersion, info) {
 		if !info.HasFlash() {
@@ -347,14 +383,18 @@ func (m *Manager) filesStep(ctx context.Context, t tasmota.Target, fwVersion str
 		return notBacked("firmware older than " + tasmota.MinFilesFirmware), nil
 	}
 
-	w := &walker{ctx: ctx, fs: fs, t: t, data: map[string][]byte{},
+	w := &walker{parent: ctx, ctx: wctx, fs: fs, t: t, data: map[string][]byte{},
 		man: Manifest{FSType: info.Type, FSSizeKB: info.SizeKB, FSFreeKB: info.FreeKB, Files: []ManifestFile{}, Skipped: []ManifestSkip{}}}
 	if err := w.dir("/", 0); err != nil {
 		return filesResult{}, err
 	}
 	if w.rootErr != nil {
-		m.o.Log.Info("backup: files not read", "component", "backup", "device", int64(t.DeviceID()), "reason", reasonOf(w.rootErr))
-		return notBacked(reasonOf(w.rootErr)), nil //nolint:nilerr // files are best effort: the reason goes into the run note, the run goes on
+		why := reasonOf(w.rootErr)
+		if w.dead == whyTimeLimit {
+			why = strings.TrimPrefix(whyTimeLimit, "not read: ")
+		}
+		m.o.Log.Info("backup: files not read", "component", "backup", "device", int64(t.DeviceID()), "reason", why)
+		return notBacked(why), nil //nolint:nilerr // files are best effort: the reason goes into the run note, the run goes on
 	}
 	sort.Slice(w.man.Files, func(i, j int) bool { return w.man.Files[i].Path < w.man.Files[j].Path })
 	sort.Slice(w.man.Skipped, func(i, j int) bool { return w.man.Skipped[i].Path < w.man.Skipped[j].Path })
@@ -369,6 +409,31 @@ func (m *Manager) filesStep(ctx context.Context, t tasmota.Target, fwVersion str
 	}
 	m.o.Log.Debug("backup: files read", "component", "backup", "device", int64(t.DeviceID()), "stored", len(w.man.Files), "skipped", len(w.man.Skipped), "bytes", w.total)
 	return res, nil
+}
+
+// walkMargin is how long before the caller's deadline the files walk ends, so the dump and the
+// snapshot already read can still be stored.
+const walkMargin = 5 * time.Second
+
+// walkContext returns ctx limited to end walkMargin (at most half of the time left) before its
+// deadline; without a deadline ctx itself.
+func walkContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return context.WithCancel(ctx)
+	}
+	margin := min(walkMargin, time.Until(dl)/2)
+	return context.WithDeadline(ctx, dl.Add(-margin))
+}
+
+// WithoutFilesNote removes the files sentence (always last) from a dump note, for views that
+// do not show it yet.
+func WithoutFilesNote(note string) string {
+	i := strings.LastIndex(note, NoteFilesPrefix)
+	if i < 0 {
+		return note
+	}
+	return strings.TrimSuffix(strings.TrimSpace(note[:i]), ";")
 }
 
 func plural(n int, one, many string) string {

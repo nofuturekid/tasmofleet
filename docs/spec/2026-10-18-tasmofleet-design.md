@@ -1347,7 +1347,11 @@ No migration, no store contract change and no new dependency.
    A file over a limit is in `skipped`, not in the tar. Files are best effort: a file that cannot be read,
    an unlistable folder or a device that stops answering never fails the run; the archive row's note says
    `files incomplete: N files not stored`, and after a lost link nothing further is requested (every call
-   would wait for its own timeout). Without an archive the run says why in the last sentence of the dump's
+   would wait for its own timeout). The walk runs under its own deadline, up to 5 s before the caller's
+   (the pre-OTA backup has 30 s for everything): what is not read by then is `skipped` with "time limit of
+   the backup reached" and the dump is kept. Each download is limited to the remaining run budget. A tar
+   that cannot be written or indexed is logged and noted as `files_error` in the audit detail; the run
+   still succeeds. Without an archive the run says why in the last sentence of the dump's
    note, `files not backed up: no filesystem | firmware older than 14.6.0 | they need HTTP | <failure>`
    (MQTT cannot carry files: `transport.Router` forwards file calls to HTTP only, `ErrFilesNeedHTTP` for
    a call pinned to MQTT, and a run whose calls so far all went over MQTT does not try). No migration:

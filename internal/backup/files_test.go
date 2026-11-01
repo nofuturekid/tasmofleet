@@ -39,9 +39,17 @@ type flakyFS struct {
 	listErr   map[string]error // by folder
 	getErr    map[string]error // by file
 	skipNames map[string][]string
+	stall     map[string]bool // downloads that hang until the context ends
+	infoStall bool
+	maxes     []int64
+	listMod   func(dir string, e []tasmota.FileEntry) []tasmota.FileEntry
 }
 
 func (f *flakyFS) FSInfo(ctx context.Context, t tasmota.Target) (tasmota.FSInfo, error) {
+	if f.infoStall {
+		<-ctx.Done()
+		return tasmota.FSInfo{}, ctx.Err()
+	}
 	if f.infoErr != nil {
 		return tasmota.FSInfo{}, f.infoErr
 	}
@@ -53,6 +61,9 @@ func (f *flakyFS) ListFiles(ctx context.Context, t tasmota.Target, dir string) (
 		return nil, err
 	}
 	e, err := f.fs.ListFiles(ctx, t, dir)
+	if f.listMod != nil {
+		e = f.listMod(dir, e)
+	}
 	if names := f.skipNames[dir]; err == nil && len(names) > 0 {
 		return e, &tasmota.SkippedNamesError{Names: names}
 	}
@@ -62,7 +73,12 @@ func (f *flakyFS) ListFiles(ctx context.Context, t tasmota.Target, dir string) (
 func (f *flakyFS) DownloadFile(ctx context.Context, t tasmota.Target, p string, max int64) ([]byte, error) {
 	f.mu.Lock()
 	f.downloads = append(f.downloads, p)
+	f.maxes = append(f.maxes, max)
 	f.mu.Unlock()
+	if f.stall[p] {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if err := f.getErr[p]; err != nil {
 		return nil, err
 	}
@@ -683,5 +699,265 @@ func TestAnEmptyFilesystemStillGetsAnArchiveWithAManifest(t *testing.T) {
 	a, err := e.m.OpenFilesArchive(t.Context(), d.ID)
 	if err != nil || len(a.Manifest.Files) != 0 || a.Manifest.FSType != tasmota.FSLittleFS {
 		t.Fatalf("%+v, %v", a, err)
+	}
+}
+
+// ---- review findings (PR #424)
+
+func TestDeadlineInTheFilesStepKeepsTheDump(t *testing.T) {
+	// Why (H1): the pre-OTA backup runs under a 30 s deadline; a stalling download used to end the
+	// whole run with the context error, losing the dump and stopping the update. The files are best
+	// effort: the walk gets its own, earlier deadline and the run goes on.
+	files := map[string]simulator.FSFile{"/a.be": {Data: []byte("a")}, "/b.be": {Data: []byte("b")}, "/c.be": {Data: []byte("c")}}
+	e := newFilesEnv(t, esp32(files), nil)
+	e.flaky.stall = map[string]bool{"/b.be": true}
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
+	defer cancel()
+	start := time.Now()
+	got, err := e.m.Backup(ctx, "alice", 7)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if time.Since(start) > 3500*time.Millisecond {
+		t.Errorf("the walk used the whole deadline (%v)", time.Since(start))
+	}
+	if _, ok := kindOf(got, model.BackupConfigDump); !ok {
+		t.Fatal("dump lost")
+	}
+	d, _ := kindOf(got, model.BackupConfigDump)
+	a, err := e.m.OpenFilesArchive(t.Context(), d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := skippedReasons(a.Manifest)
+	if len(a.Manifest.Files) != 1 || r["/b.be"] != "time limit of the backup reached" || r["/c.be"] != "not read: time limit of the backup reached" {
+		t.Errorf("stored %+v skipped %+v", a.Manifest.Files, r)
+	}
+	if len(e.st.attempts) != 0 {
+		t.Errorf("a Failed row was recorded: %+v", e.st.attempts)
+	}
+}
+
+func TestDeadlineBeforeTheListingGivesANoteNotAFailure(t *testing.T) {
+	// Why (H1): same rule when the very first file call hangs.
+	e := newFilesEnv(t, esp32(nil), nil)
+	e.flaky.infoStall = true
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	got, err := e.m.Backup(ctx, "alice", 7)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if n := dumpNote(t, got); !strings.Contains(n, NoteFilesPrefix+"time limit of the backup reached") {
+		t.Errorf("dump note %q", n)
+	}
+}
+
+func TestACancelledBackupStillStopsInTheFilesStep(t *testing.T) {
+	// Why (H1): only the caller's own context ends the run (shutdown, cancelled job); that is not
+	// the device's fault and records no Failed row.
+	e := newFilesEnv(t, esp32(map[string]simulator.FSFile{"/a.be": {Data: []byte("a")}}), nil)
+	e.flaky.stall = map[string]bool{"/a.be": true}
+	ctx, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(300*time.Millisecond, cancel)
+	if _, err := e.m.Backup(ctx, "alice", 7); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v, want context.Canceled", err)
+	}
+	if len(e.st.attempts) != 0 {
+		t.Errorf("attempts: %+v", e.st.attempts)
+	}
+}
+
+// failFilesStore refuses to index the files row, as a full disk or a broken database would.
+type failFilesStore struct{ *memBackups }
+
+func (s failFilesStore) PutBackup(ctx context.Context, b model.Backup) (model.BackupID, error) {
+	if b.Kind == model.BackupFiles {
+		return 0, errors.New("index broke")
+	}
+	return s.memBackups.PutBackup(ctx, b)
+}
+
+func TestAnArchiveThatCannotBeIndexedNeverFailsTheRun(t *testing.T) {
+	// Why (M1): the dump and snapshot are already stored; losing the run over the best-effort
+	// archive would also stop a pre-OTA backup. The orphan file goes, the reason goes to the audit.
+	e := newFilesEnv(t, esp32(nil), func(o *Options) { o.Store = failFilesStore{o.Store.(*memBackups)} })
+	got, err := e.m.Backup(t.Context(), "alice", 7)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("rows %+v", got)
+	}
+	left, _ := filepath.Glob(filepath.Join(e.dir, "backups", "*", "*.files.tar"))
+	if len(left) != 0 {
+		t.Errorf("unindexed archive left on disk: %v", left)
+	}
+	var detail map[string]any
+	last := e.audit.ev[len(e.audit.ev)-1]
+	if err := json.Unmarshal([]byte(last.Detail), &detail); err != nil || detail["files_error"] == nil || last.Result != "ok" {
+		t.Errorf("audit %+v (%v)", last, err)
+	}
+}
+
+func TestDownloadsStopAtTheRemainingRunBudget(t *testing.T) {
+	// Why (M3): the listing can understate a size (a file growing between list and read); the cap
+	// must hold for the bytes actually read, so each download gets the remaining budget as its limit.
+	files := map[string]simulator.FSFile{}
+	for i := 0; i < 5; i++ {
+		files[fmt.Sprintf("/f%d.bin", i)] = simulator.FSFile{Data: bytes.Repeat([]byte{'z'}, 900<<10)}
+	}
+	e := newFilesEnv(t, esp32(files), nil)
+	e.flaky.listMod = func(_ string, es []tasmota.FileEntry) []tasmota.FileEntry {
+		for i := range es {
+			es[i].Size = 1
+		}
+		return es
+	}
+	got, err := e.m.Backup(t.Context(), "alice", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, _ := kindOf(got, model.BackupConfigDump)
+	a, _ := e.m.OpenFilesArchive(t.Context(), d.ID)
+	if len(a.Manifest.Files) != 4 {
+		t.Fatalf("stored %d files", len(a.Manifest.Files))
+	}
+	want := MaxRunBytes - 4*(900<<10)
+	if last := e.flaky.maxes[len(e.flaky.maxes)-1]; last != want {
+		t.Errorf("last download limit %d, want the remaining budget %d", last, want)
+	}
+	if first := e.flaky.maxes[0]; first != MaxFileBytes {
+		t.Errorf("first download limit %d, want %d", first, MaxFileBytes)
+	}
+	if r := skippedReasons(a.Manifest)["/f4.bin"]; r != "run limit of 4 MiB reached" {
+		t.Errorf("reason %q", r)
+	}
+}
+
+func TestDuplicateNamesInAListingAreWrittenOnce(t *testing.T) {
+	// Why (L3): a duplicate would put two tar entries of one name next to one manifest line, and
+	// ParseFilesArchive (rightly) refuses such an archive: the whole run's files would be unusable.
+	e := newFilesEnv(t, esp32(map[string]simulator.FSFile{"/a.be": {Data: []byte("a")}}), nil)
+	e.flaky.listMod = func(_ string, es []tasmota.FileEntry) []tasmota.FileEntry { return append(es, es...) }
+	got, err := e.m.Backup(t.Context(), "alice", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, _ := kindOf(got, model.BackupConfigDump)
+	a, err := e.m.OpenFilesArchive(t.Context(), d.ID)
+	if err != nil || len(a.Manifest.Files) != 1 || len(e.flaky.downloads) != 1 {
+		t.Fatalf("%+v, %v, downloads %v", a, err, e.flaky.downloads)
+	}
+}
+
+func TestAddressRefusedCountsAsTheDeviceBeingGone(t *testing.T) {
+	// Why (L1): a refused address or API will refuse the next file too; do not ask 99 more times.
+	for name, err := range map[string]error{"outside networks": tasmota.ErrForbiddenAddr, "api refused": tasmota.ErrHTTPAPIRefused} {
+		files := map[string]simulator.FSFile{}
+		for i := 0; i < 5; i++ {
+			files[fmt.Sprintf("/f%d", i)] = simulator.FSFile{Data: []byte("x")}
+		}
+		e := newFilesEnv(t, esp32(files), nil)
+		e.flaky.getErr = map[string]error{"/f0": err}
+		if _, berr := e.m.Backup(t.Context(), "alice", 7); berr != nil {
+			t.Fatal(berr)
+		}
+		if len(e.flaky.downloads) != 1 {
+			t.Errorf("%s: %d downloads", name, len(e.flaky.downloads))
+		}
+	}
+}
+
+// mqttDevice is the command channel of a device that is only reachable over MQTT.
+type mqttDevice struct{ dump []byte }
+
+func (m mqttDevice) Do(context.Context, model.Device, string) (json.RawMessage, error) {
+	return json.RawMessage(`{"Status":{}}`), nil
+}
+func (m mqttDevice) DoLoose(ctx context.Context, d model.Device, c string) (json.RawMessage, error) {
+	return m.Do(ctx, d, c)
+}
+func (m mqttDevice) Connected() bool { return true }
+func (m mqttDevice) Download(context.Context, model.Device, string) ([]byte, error) {
+	return m.dump, nil
+}
+
+type mqttFacts struct{ mem *transport.Memory }
+
+func (f mqttFacts) HTTPState(id model.DeviceID) transport.HTTPState {
+	if kind, since, ok := f.mem.HTTPFailure(id); ok {
+		return transport.HTTPState{State: transport.HTTPFailing, Kind: kind, Since: since}
+	}
+	return transport.HTTPState{}
+}
+
+func (f mqttFacts) FactsFor(_ context.Context, d model.Device) (transport.Facts, error) {
+	now := time.Now()
+	return transport.Facts{Now: now, HTTP: f.HTTPState(d.ID),
+		MQTT: transport.MQTTFacts{BusConnected: true, Ours: true, Topic: d.Topic, TopicExclusive: true, LWTOnline: true,
+			GroupTopic: "tasmotas", GroupTopicReadAt: now, LastProbeAt: now.Add(-time.Hour)},
+		Password: transport.Password{Mode: d.MQTTPasswordMode}}, nil
+}
+
+// httpSpy is the raw HTTP client of a device that does not answer; it counts file calls.
+type httpSpy struct {
+	tasmota.Client
+	mu    sync.Mutex
+	calls []string
+}
+
+func (h *httpSpy) rec(c string) { h.mu.Lock(); h.calls = append(h.calls, c); h.mu.Unlock() }
+func (h *httpSpy) Command(context.Context, tasmota.Target, string) (json.RawMessage, error) {
+	h.rec("command")
+	return nil, tasmota.ErrUnreachable
+}
+func (h *httpSpy) DownloadConfig(context.Context, tasmota.Target) ([]byte, error) {
+	h.rec("dl")
+	return nil, tasmota.ErrUnreachable
+}
+func (h *httpSpy) FSInfo(context.Context, tasmota.Target) (tasmota.FSInfo, error) {
+	h.rec("fsinfo")
+	return tasmota.FSInfo{}, tasmota.ErrUnreachable
+}
+func (h *httpSpy) ListFiles(context.Context, tasmota.Target, string) ([]tasmota.FileEntry, error) {
+	h.rec("list")
+	return nil, tasmota.ErrUnreachable
+}
+func (h *httpSpy) DownloadFile(context.Context, tasmota.Target, string, int64) ([]byte, error) {
+	h.rec("get")
+	return nil, tasmota.ErrUnreachable
+}
+func (h *httpSpy) UploadFile(context.Context, tasmota.Target, string, []byte) error {
+	h.rec("put")
+	return tasmota.ErrUnreachable
+}
+
+func TestBackupOverMQTTThroughTheRealRouterSendsNoFileCallToHTTP(t *testing.T) {
+	// Why (M4): when the dump came over MQTT because HTTP is down, the files step must not try HTTP
+	// (each call would wait for a timeout) and must say "they need HTTP". Real Router, real trace.
+	mem := transport.NewMemory(transport.DefaultFailFor, time.Now)
+	mem.Fail(7, transport.HTTPFailUnreachable)
+	dev := model.Device{ID: 7, Name: "plug", Address: "192.0.2.7", Topic: "plug", MQTT: model.MQTTOurs,
+		MQTTPasswordMode: model.MQTTPasswordOwn, MQTTPassword: "pw", Identity: model.Identity{Version: "16.0.0"}}
+	spy := &httpSpy{}
+	rt := transport.NewRouter(transport.Options{HTTP: spy, Devices: devs{dev}, Facts: mqttFacts{mem}, Memory: mem})
+	rt.SetMQTT(mqttDevice{dump: []byte("DUMP")})
+	e := newEnv(t, func(o *Options) {
+		o.Devices = devs{dev}
+		o.Client = rt
+		o.Decoder = nil
+	})
+	got, err := e.m.Backup(t.Context(), "alice", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := dumpNote(t, got); !strings.Contains(n, NoteFilesPrefix+"they need HTTP") {
+		t.Errorf("dump note %q", n)
+	}
+	for _, c := range spy.calls {
+		if c != "command" && c != "dl" { // anything but what HTTP-first routing may try once is a file call
+			t.Errorf("file call reached HTTP: %v", spy.calls)
+		}
 	}
 }

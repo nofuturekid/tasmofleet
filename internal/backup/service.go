@@ -193,8 +193,12 @@ func (m *Manager) finishBackup(ctx context.Context, actor string, owner, dev mod
 		note = strings.TrimSuffix(strings.TrimSpace(run.Label+"; "+note), ";")
 	}
 	ctx, tr := transport.WithTrace(ctx) // which transport carried the dump, for the audit entry
-	out, version, err := m.backup(ctx, owner, dev, note, run)
+	var filesErr string
+	out, version, err := m.backup(ctx, owner, dev, note, run, &filesErr)
 	detail := map[string]any{"files": len(out), "firmware": version, "trigger": run.Trigger, "via": tr.Via()}
+	if filesErr != "" {
+		detail["files_error"] = filesErr // the files archive could not be written or indexed; the run succeeded
+	}
 	if run.Keep {
 		detail["kept"] = true
 	}
@@ -257,7 +261,14 @@ func (m *Manager) recordAttempt(ctx context.Context, id model.DeviceID, run Run,
 	}
 }
 
-func (m *Manager) backup(ctx context.Context, owner, dev model.Device, note string, run Run) ([]model.Backup, string, error) {
+// filesLost records that the files archive could not be stored. The run goes on: the archive is
+// best effort, and the dump is stored already. The reason is a fixed word, never the error text.
+func (m *Manager) filesLost(id model.DeviceID, warn *string, step string, err error) {
+	*warn = step
+	m.o.Log.Error("backup: files archive not stored", "component", "backup", "device", int64(id), "step", step, "err", err)
+}
+
+func (m *Manager) backup(ctx context.Context, owner, dev model.Device, note string, run Run, filesErr *string) ([]model.Backup, string, error) {
 	id := owner.ID
 	target := tasmota.TargetFor(dev)
 
@@ -324,6 +335,10 @@ func (m *Manager) backup(ctx context.Context, owner, dev model.Device, note stri
 	for _, f := range files {
 		name := fileName(taken.Format(stampLayout), base, f.kind)
 		if err := writeAtomic(dir, name, f.data); err != nil {
+			if f.kind == model.BackupFiles { // best effort: the dump is stored already
+				m.filesLost(id, filesErr, "write", err)
+				continue
+			}
 			return stored, fwVersion, fmt.Errorf("backup: write %s: %w", f.kind, err)
 		}
 		sum := sha256.Sum256(f.data)
@@ -336,6 +351,10 @@ func (m *Manager) backup(ctx context.Context, owner, dev model.Device, note stri
 		bid, err := m.o.Store.PutBackup(ctx, b)
 		if err != nil {
 			_ = os.Remove(filepath.Join(dir, name)) // unindexed file would never be pruned
+			if f.kind == model.BackupFiles {
+				m.filesLost(id, filesErr, "index", err)
+				continue
+			}
 			return stored, fwVersion, fmt.Errorf("backup: index %s: %w", f.kind, err)
 		}
 		b.ID = bid
