@@ -10877,6 +10877,12 @@ dialog.fw-notes-dlg .fw-dlg-body {
   color: var(--color-text-2);
   cursor: pointer;
 }
+@media (max-width: 44.99rem) {
+  .add-more > summary {
+    padding: 12px 0; /* a 40 px touch target without moving the layout */
+    margin: -12px 0;
+  }
+}
 .add-more-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
@@ -11809,19 +11815,19 @@ dialog.fw-notes-dlg .fw-dlg-body {
 .db-restore li {
   margin: var(--sp-4) 0;
 }
+/* a path in the narrow Snapshots column wraps inside its own box instead of across the next path (#410) */
+.db-restore .mono {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .db-note {
   grid-column: 1 / -1;
   margin: 0;
 }
-#card-database .sys-orphans {
-  margin-top: var(--sp-8);
-}
-#card-database .st-fail > .error {
+#card-download .st-fail > .error {
   margin: var(--sp-12) 0 0;
   max-width: none;
-}
-#card-database .sys-subhead {
-  margin-top: var(--sp-16);
 }
 #card-snapshots .sys-status {
   margin-top: var(--sp-4);

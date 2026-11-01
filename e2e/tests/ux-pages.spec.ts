@@ -114,7 +114,7 @@ test("pages: intros fit one line and labels are short", async ({ page }) => {
     const labels = await page.locator("main label:visible").evaluateAll((els) =>
       els.map((l) => {
         const c = l.cloneNode(true) as HTMLElement;
-        c.querySelectorAll("input, select, textarea, small, button, code, .info").forEach((x) => x.remove());
+        c.querySelectorAll("input, select, textarea, small, button, code, .info, .ufield-help, .ufield-err").forEach((x) => x.remove());
         return (c.textContent ?? "").trim();
       }),
     );

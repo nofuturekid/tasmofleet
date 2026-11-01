@@ -404,8 +404,9 @@ test("the Wi-Fi readings never split over two lines on a phone", async ({
   page,
 }) => {
   await open(page, "/devices", 375);
+  // a device row's link (the menu's Add entry, /devices/new, comes first in the page since #410)
   const href = await page
-    .locator("a[href*='/devices/']")
+    .locator("#devtable a[href*='/devices/']")
     .filter({ hasText: /\S/ })
     .first()
     .getAttribute("href");
