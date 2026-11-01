@@ -56,6 +56,9 @@ func (g deviceGuard) enter(ctx context.Context, id model.DeviceID, owner string)
 		if jobs[0].IsBackup() {
 			return nil, devlock.BusyError{Holder: "backup"}
 		}
+		if jobs[0].IsTemplate() {
+			return nil, devlock.BusyError{Holder: "template"}
+		}
 		return nil, devlock.BusyError{Holder: "ota"}
 	}
 	return release, nil

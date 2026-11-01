@@ -956,7 +956,7 @@ func (h *handler) jobViews(r *http.Request, f store.JobFilter) ([]jobView, bool,
 		v := jobView{Job: j, Device: names[j.DeviceID], FromVersion: versions[j.DeviceID], Active: !j.State.Terminal(), Base: httpBase(r)}
 		v.Step, v.StepLabel = jobStep(j.State, j.Stage)
 		switch {
-		case j.IsPolicy():
+		case j.IsPolicy(), j.IsTemplate():
 			v.Step, v.StepLabel = policyStep(j.State)
 		case j.IsCommand():
 			v.Step, v.StepLabel = commandStep(j.State)
@@ -1292,7 +1292,7 @@ func groupTransactions(jobs []model.Job) []txView {
 	for _, j := range jobs {
 		t, ok := by[j.BatchID]
 		if !ok {
-			t = &txView{ID: j.BatchID, By: j.CreatedBy, Started: j.CreatedAt, Release: txTarget(j), Update: !j.IsCommand() && !j.IsPolicy() && !j.IsBackup(), first: j}
+			t = &txView{ID: j.BatchID, By: j.CreatedBy, Started: j.CreatedAt, Release: txTarget(j), Update: j.IsUpdate(), first: j}
 			by[j.BatchID] = t
 			order = append(order, j.BatchID)
 		}
@@ -1329,7 +1329,7 @@ func txTarget(j model.Job) string {
 	if j.IsCommand() {
 		return "Send " + cmdpolicy.Redacted(strings.TrimSpace(j.Commands)) // never the raw text: it may hold a secret
 	}
-	if j.IsPolicy() || j.IsBackup() {
+	if j.IsPolicy() || j.IsBackup() || j.IsTemplate() {
 		return j.Target()
 	}
 	return j.TargetRelease
