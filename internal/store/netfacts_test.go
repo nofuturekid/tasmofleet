@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -124,5 +125,64 @@ func TestUpdateIdentityFromMQTTNeverOverwritesAnHTTPIdentity(t *testing.T) {
 	}
 	if d, _ = s.GetDevice(ctx, id); d.Identity.Version != "15.0.0" || d.Identity.Family != model.ChipESP32 {
 		t.Fatalf("the HTTP identity was overwritten: %+v", d.Identity)
+	}
+}
+
+// Why (#417): devices identified over HTTP before 0.22.0 have identity_at set and no FWR facts.
+// Filling those facts later must not go through the identity writers: UpdateProbe would rewrite
+// the identity from a reading that may be older than the stored one, and UpdateIdentityFromMQTT
+// refuses once identity_at is set (that refusal protects the identity). The FWR writer touches
+// the facts column only, only while it is empty, and only for the device that was read.
+func TestUpdateFWRFactsFillsOnlyEmptyFactsOfAnIdentifiedDevice(t *testing.T) {
+	s, _, _ := newStore(t)
+	id, err := s.CreateDevice(ctx, model.Device{Name: "plug", Address: "192.0.2.10", MAC: "aa:bb:cc:00:00:01", Topic: "plug", Notes: "kept"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := ProbeGuard{Address: "192.0.2.10", MAC: "aa:bb:cc:00:00:01"}
+	ident := model.Identity{Family: model.ChipESP8266, Hardware: "ESP8266EX", Version: "15.0.0", Image: "release-tasmota", Variant: "tasmota", DetectedAt: time.Unix(1700000000, 0)}
+	if err := s.UpdateProbe(ctx, id, guard, ProbeResult{Identity: ident}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := s.GetDevice(ctx, id)
+	if before.Identity.FWR.Read() {
+		t.Fatalf("setup: facts already read: %+v", before.Identity.FWR)
+	}
+	f := model.FWRFacts{Version: "15.0.0(release-tasmota)", Core: "2_7_8", SDK: "2.2.2-dev(38a443e)", CPUFrequency: 80}
+
+	if err := s.UpdateFWRFacts(ctx, id, ProbeGuard{Address: "192.0.2.99", MAC: guard.MAC}, f); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a moved device: err = %v, want ErrConflict", err)
+	}
+	if err := s.UpdateFWRFacts(ctx, id, guard, f); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.GetDevice(ctx, id)
+	if after.Identity.FWR != f {
+		t.Fatalf("facts = %+v, want %+v", after.Identity.FWR, f)
+	}
+	// Everything but the facts and the update stamp is what it was: identity fields, stamp of the probe, notes.
+	want := before
+	want.Identity.FWR, want.UpdatedAt = f, after.UpdatedAt
+	if !reflect.DeepEqual(after, want) {
+		t.Fatalf("the writer changed more than the facts:\n got %+v\nwant %+v", after, want)
+	}
+
+	other := model.FWRFacts{Version: "99.0.0", Core: "x"}
+	if err := s.UpdateFWRFacts(ctx, id, guard, other); !errors.Is(err, ErrConflict) {
+		t.Fatalf("facts already read: err = %v, want ErrConflict (a probe's newer facts must win)", err)
+	}
+	if d, _ := s.GetDevice(ctx, id); d.Identity.FWR != f {
+		t.Fatalf("facts overwritten: %+v", d.Identity.FWR)
+	}
+}
+
+// Why (#417): a device HTTP never identified keeps the MQTT path (UpdateIdentityFromMQTT writes
+// the facts together with the identity); the FWR-only writer is for identified devices.
+func TestUpdateFWRFactsRefusesAnUnidentifiedDevice(t *testing.T) {
+	s, _, _ := newStore(t)
+	id, _ := s.CreateDevice(ctx, model.Device{Name: "plug", Address: "192.0.2.10", MAC: "aa:bb:cc:00:00:01"})
+	err := s.UpdateFWRFacts(ctx, id, ProbeGuard{Address: "192.0.2.10", MAC: "aa:bb:cc:00:00:01"}, model.FWRFacts{Core: "x"})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("err = %v, want ErrConflict", err)
 	}
 }

@@ -524,6 +524,33 @@ func (s *SQLite) UpdateIdentityFromMQTT(ctx context.Context, id model.DeviceID, 
 	return nil
 }
 
+// UpdateFWRFacts stores the StatusFWR facts of a Status 2 reading and nothing else (#417). Devices
+// identified over HTTP before the facts existed (0.22.0) have identity_at set and empty facts; the
+// identity writers cannot fill them (UpdateProbe rewrites the identity, UpdateIdentityFromMQTT refuses
+// once identity_at is set, which protects the identity). It writes only while the facts are empty (a
+// probe's facts are at least as new and win) and only for an identified device; unidentified devices
+// get their facts with their identity. Guarded like UpdateProbe: a device deleted, moved or rebound
+// since the read began is left alone. Empty facts change nothing. ErrConflict: nothing written.
+func (s *SQLite) UpdateFWRFacts(ctx context.Context, id model.DeviceID, g ProbeGuard, f model.FWRFacts) error {
+	if !f.Read() {
+		return fmt.Errorf("%w: no facts to store for device %d", ErrConflict, id)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE devices SET fwr_facts=?, updated_at=?
+		WHERE id=? AND address=? AND port=? AND mac=? AND identity_at<>0 AND fwr_facts=''`,
+		fwrJSON(f), toMS(s.now()), id, g.Address, g.Port, strings.ToLower(g.MAC))
+	if err != nil {
+		return mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: device %d changed, was deleted, is not identified or already has its facts", ErrConflict, id)
+	}
+	return nil
+}
+
 // UpdateGroupTopicFromMQTT stores the GroupTopic a device announced in INFO1 and the time it was
 // read, and nothing else, under the same guard as UpdateProbe plus the topic the message came
 // from (#239). It does not care whether HTTP identified the device: the announcement is newer

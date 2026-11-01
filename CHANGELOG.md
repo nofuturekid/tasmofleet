@@ -6,6 +6,10 @@ always upgrade automatically.
 
 ## Unreleased
 
+### Fixed
+
+- The Identity card no longer says "Most of Status 2 is not read yet" for good on devices identified before 0.22.0 (#417): devices that were probed before the Status 2 facts (core, SDK, CPU frequency, build date) were stored now get them read automatically, over HTTP while it works and over MQTT when it does not. One Status 2 per two seconds on the whole process, at most one per device per ten minutes (a failed read waits as long), only while the device is online. It is a read and writes only those facts; the identity fields stay as the last probe left them. No database migration
+
 ## 0.26.0 "Skerryvore" (2026-11-01)
 
 ### Upgrade notes

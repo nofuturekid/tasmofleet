@@ -30,6 +30,9 @@ func (a *runtime) setupTransport() {
 	a.svc.Router.SetMQTT(a.mqttCmd)
 	gr := newGroupTopicReader(a.svc.Inventory.List, a.tracker.Get, a.svc.Client, a.svc.Store, a.log)
 	a.goBG("group-topic", func() error { gr.run(a.bgContext); return nil })
+	// Status 2 facts of devices identified before they were stored (#417).
+	fr := newFWRFactsReader(a.svc.Inventory.List, a.tracker.Get, a.svc.Client, a.svc.Store, a.svc.Prober.announce, a.log)
+	a.goBG("fwr-facts", func() error { fr.run(a.bgContext); return nil })
 }
 
 var (
