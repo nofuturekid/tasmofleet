@@ -79,10 +79,13 @@ func (a *runtime) setupOTA() {
 	cfgM.RestoreOtaURL = a.cfg.OTARestoreURL
 	cfgM.PowerRestoreMaxAge = a.cfg.OTAPowerMaxAge
 	a.engine = ota.NewEngine(
-		ota.Options{Machine: cfgM, MaxParallel: a.cfg.OTAParallel, Power: a.deviceCmd, Audit: a.svc.Audit, Policy: a.policyApplier(),
+		ota.Options{Machine: cfgM, MaxParallel: a.cfg.OTAParallel, Power: a.deviceCmd, Audit: a.svc.Audit, Policy: a.policyApplier(), Templates: a.templateApplier(),
 			Commands: a.deviceCmd, Principals: principalResolver{local: a.svc.Store, dir: a.svc.Store}, Paths: a.updatePaths()},
 		a.svc.Store, a.svc.Store, ota.NewDeviceAPI(a.svc.Client), a.cache, a.backups, clock.Real{}, jobNotifier{rt: a},
 	)
+	if a.templates != nil {
+		a.templates.SetEngine(a.engine)
+	}
 	a.goBG("ota", func() error { return a.engine.Run(a.bgContext) })
 	if a.bus != nil {
 		a.bus.Subscribe([]mqttbus.Kind{mqttbus.KindUpgrade}, a.onUpgradeReport)

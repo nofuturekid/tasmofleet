@@ -372,7 +372,7 @@ var (
 	// ErrUnsafeName: the template name or ARCH cannot be sent safely.
 	ErrUnsafeName = errors.New("template name cannot be sent safely")
 	// ErrCommandRejected: the built command is not one the console policy (cmdpolicy) accepts unchanged,
-	// for example because it is longer than the 255 bytes it allows.
+	// for example because it is longer than the 512 bytes it allows for Template.
 	ErrCommandRejected = errors.New("template command rejected by the command policy")
 )
 

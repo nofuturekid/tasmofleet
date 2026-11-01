@@ -321,3 +321,18 @@ func TestTemplateJobDoesNotTrustAReadBackThatDiffers(t *testing.T) {
 		}
 	}
 }
+
+// Why: a failed template transaction is never replayed. Its plan (the layouts "have" and "want") belongs to
+// the preview the person confirmed; "Check again" opens a fresh preview with a new read and a new digest.
+// A generic retry would send a stale plan to a device that may have changed since.
+func TestRetryRefusesATemplateTransaction(t *testing.T) {
+	h, ft, _, _ := templateHarness(t, 2)
+	ft.verifyErr[1] = errors.New("still the old template")
+	id := submitTemplates(t, h, tplReq(1), tplReq(2))
+	h.run(t, h.e)
+	before := len(h.st.jobs)
+	_, err := h.e.SubmitRetry(as("local"), "alice", id, nil)
+	if !errors.Is(err, ErrNotRetryable) || len(h.st.jobs) != before {
+		t.Fatalf("err %v, jobs %d -> %d", err, before, len(h.st.jobs))
+	}
+}

@@ -83,6 +83,9 @@ type Request struct {
 	Group     policy.GroupKey
 	Reference model.DeviceID
 	Devices   []model.DeviceID
+	// Chosen: the person picked the reference (ref in the URL); false when it is the preselected most
+	// common one. Only the audit uses it.
+	Chosen bool
 }
 
 // PreviewRow is one device of a preview.
@@ -138,6 +141,10 @@ var (
 	ErrStaleDigest = errors.New("templates: the preview is out of date")
 	// ErrNothingToApply: no device of the request can be sent the template.
 	ErrNothingToApply = errors.New("templates: no device to apply the template to")
+	// ErrBadReference: the reference is unknown, not in the group, or could not be read live.
+	ErrBadReference = errors.New("templates: the reference device cannot be used")
+	// ErrNoEngine: this server runs no transactions (the OTA engine is off).
+	ErrNoEngine = errors.New("templates: this server cannot run transactions")
 )
 
 // Service is what the pages use. Reading methods are for operators, Apply for admins (the caller checks).

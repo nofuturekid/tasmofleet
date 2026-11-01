@@ -84,7 +84,7 @@ const (
 	// topic and header share the 1200-byte client buffer. 512 leaves that room and still fits the
 	// longest template of any family (55 pins).
 	maxTemplateLen = 512
-	maxNameLen    = 40
+	maxNameLen     = 40
 )
 
 // DefaultOperator are example commands at operator level, for display and

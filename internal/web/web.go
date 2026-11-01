@@ -41,6 +41,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/templates"
 	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
@@ -120,7 +121,9 @@ type Deps struct {
 	BuildMemory BuildMemory // optional: the update preview preselects the chip build chosen last time (#186)
 	// MQTTOnly, if set, says tasmofleet reaches the device over MQTT only (HTTP fails). A console or
 	// bulk command that can cut such a device off then names that consequence on its confirmation.
-	MQTTOnly      func(ctx context.Context, ids ...model.DeviceID) bool
+	MQTTOnly func(ctx context.Context, ids ...model.DeviceID) bool
+	// Templates serves the "GPIO templates" tab of the Policy page (#327); nil hides the tab.
+	Templates     templates.Service
 	FWReach       FWReachForgetter // optional: "Forget" on what the device reaches (D11)
 	MQTTPasswords MQTTPasswords    // optional: the MQTT password section of the device edit form (#257)
 	History       HealthHistory

@@ -44,6 +44,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/settings"
 	"github.com/nofuturekid/tasmofleet/internal/snapshot"
 	"github.com/nofuturekid/tasmofleet/internal/sysconfig"
+	"github.com/nofuturekid/tasmofleet/internal/templates"
 	"github.com/nofuturekid/tasmofleet/internal/web"
 )
 
@@ -131,6 +132,7 @@ type runtime struct {
 	policyLive      *policyReporter
 	livePause       *sysconfig.LivePause // Pause / Resume of the background policy reads
 	fixer           *policy.Fixer        // "Make compliant": sends and reads back; nil until setupSettings ran
+	templates       *templates.Manager   // the GPIO templates tab and its apply job (#327); nil until setupSettings ran
 	rules           *sysconfig.Rules
 	cache           firmware.Cache
 	restore         *restore.Manager
@@ -683,6 +685,9 @@ func (a *runtime) webDeps(guard web.Guard, rows []web.KV) web.Deps {
 		deps.Snapshots = a.snapshots
 	}
 	deps.MQTTOnly = a.onlyOverMQTT
+	if a.templates != nil {
+		deps.Templates = a.templates
+	}
 	if a.facts != nil {
 		deps.Transport = webFacts{a.facts} // the router\'s own view: the card shows what the router decides
 	}
