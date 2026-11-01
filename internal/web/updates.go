@@ -1231,7 +1231,7 @@ func fixCardOf(j jobView, base string) fixCard {
 
 func (h *handler) batchCancel(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.batchID(w, r)
-	if !ok {
+	if !ok || !h.needAdminForBatch(w, r, id) {
 		return
 	}
 	switch err := h.d.OTA.CancelBatch(r.Context(), actor(r), id); {
@@ -1251,6 +1251,9 @@ func (h *handler) jobCancel(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || n <= 0 {
 		h.notFound(w, r)
+		return
+	}
+	if j, err := h.d.Jobs.GetJob(r.Context(), model.JobID(n)); err == nil && !h.needAdminFor(w, r, j) {
 		return
 	}
 	switch err := h.d.OTA.Cancel(r.Context(), actor(r), model.JobID(n)); {
@@ -1463,6 +1466,9 @@ func (h *handler) batchRetryForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if len(p.Jobs) > 0 && !h.needAdminFor(w, r, p.Jobs[0].Job) {
+		return
+	}
 	if len(p.Jobs) > 0 && p.Jobs[0].Job.IsTemplate() {
 		h.refuseTemplateRetry(w, r)
 		return
@@ -1496,6 +1502,40 @@ func (h *handler) batchRetryForm(w http.ResponseWriter, r *http.Request) {
 	v := h.view(r, fmt.Sprintf("Retry transaction %d", p.Batch), "transactions", nil)
 	v.Crumbs = []ui.Crumb{{Label: "Updates", Path: "/transactions"}, {Label: txID(p.Batch), Path: "/transactions/" + bid(p.Batch)}, {Label: "Retry"}}
 	h.show(w, r, http.StatusOK, "transaction_retry", v, retryPageView(h.retryViewOf(v, page)))
+}
+
+// adminOnlyKind says which transactions only an admin may cancel or retry: GPIO template transactions
+// (#327: operators are read-only there) and, deny by default, any kind this build does not know. The
+// kinds that have always been open to operators stay open.
+func adminOnlyKind(k model.JobKind) bool {
+	switch k {
+	case "", "update", model.KindPolicy, model.KindCommand, model.KindBackup:
+		return false
+	}
+	return true
+}
+
+// needAdminFor refuses (403) an operator who cancels or retries a transaction of an admin-only kind.
+// It runs before anything else of the handler, so no kind-specific branch can skip it.
+func (h *handler) needAdminFor(w http.ResponseWriter, r *http.Request, j model.Job) bool {
+	if pr, _ := auth.FromContext(r.Context()); adminOnlyKind(j.Kind) && pr.Role < model.RoleAdmin {
+		h.message(w, r, http.StatusForbidden, h.view(r, "Not allowed", "transactions", "Only an admin can cancel or retry this transaction."))
+		return false
+	}
+	return true
+}
+
+// needAdminForBatch is needAdminFor for the transaction a request names.
+func (h *handler) needAdminForBatch(w http.ResponseWriter, r *http.Request, id model.BatchID) bool {
+	jobs, err := h.d.Jobs.ListJobs(r.Context(), store.JobFilter{BatchID: id, Limit: 1})
+	if err != nil {
+		h.fail(w, r, err)
+		return false
+	}
+	if len(jobs) == 0 {
+		return true // unknown transaction: the handler answers 404
+	}
+	return h.needAdminFor(w, r, jobs[0])
 }
 
 // refuseTemplateRetry: a template transaction is never re-run. The devices may have changed since the
@@ -1543,6 +1583,9 @@ func (h *handler) batchRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := h.batchID(w, r)
 	if !ok {
+		return
+	}
+	if !h.needAdminForBatch(w, r, id) {
 		return
 	}
 	if jobs, _, jerr := h.jobViews(r, store.JobFilter{BatchID: id}); jerr == nil && len(jobs) > 0 && jobs[0].Job.IsTemplate() {

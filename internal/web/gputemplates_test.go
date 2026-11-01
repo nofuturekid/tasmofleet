@@ -99,7 +99,8 @@ func gtEnv(t *testing.T, f *fakeTemplates) *env {
 // Why: only an admin may change devices. An operator reads the comparison but is offered no Apply,
 // no tick box, and the preview refuses them even when the form is posted by hand.
 func TestGPIOTemplatesTabIsReadOnlyForOperators(t *testing.T) {
-	e := gtEnv(t, gtFixture())
+	fake := gtFixture()
+	e := gtEnv(t, fake)
 	r, body := e.do(t, "GET", "/policy/templates", "operator", nil)
 	if r.StatusCode != 200 || !strings.Contains(body, "balcony-plug") || !strings.Contains(body, "Differs") {
 		t.Fatalf("operator tab: %d\n%s", r.StatusCode, body)
@@ -110,6 +111,11 @@ func TestGPIOTemplatesTabIsReadOnlyForOperators(t *testing.T) {
 	r, _ = e.do(t, "POST", "/policy/templates/preview", "operator", url.Values{"csrf": {"tok"}, "family": {"esp8266"}, "name": {"Gosund SP111"}, "ref": {"10"}, "pick": {"12"}})
 	if r.StatusCode != 403 {
 		t.Errorf("operator preview: %d, want 403", r.StatusCode)
+	}
+	f := fake
+	r, _ = e.do(t, "POST", "/policy/templates/apply", "operator", url.Values{"csrf": {"tok"}, "family": {"esp8266"}, "name": {"Gosund SP111"}, "ref": {"10"}, "pick": {"12"}, "confirm": {"1"}, "digest": {"abc123"}})
+	if r.StatusCode != 403 || f.gotApply != nil {
+		t.Errorf("operator apply: %d, applied=%v, want 403 and nothing applied", r.StatusCode, f.gotApply != nil)
 	}
 	_, adm := e.do(t, "GET", "/policy/templates", "admin", nil)
 	for _, want := range []string{"Apply reference to 1…", `name="pick" value="12"`, "most common, 2 of 3 read live", "Not judged", "Offline, no backup yet.", "GPIO templates"} {
