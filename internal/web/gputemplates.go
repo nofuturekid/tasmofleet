@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nofuturekid/tasmofleet/internal/auth"
 	"github.com/nofuturekid/tasmofleet/internal/model"
+	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/policy"
 	"github.com/nofuturekid/tasmofleet/internal/sysconfig"
 	"github.com/nofuturekid/tasmofleet/internal/tasmotacmd"
@@ -380,8 +382,10 @@ func (h *handler) gtGroupOf(g templates.GroupView, baseNeedsRef, admin bool, ran
 			row.UseRef = gtRefHref(q, g, d.ID)
 		}
 		switch {
-		case g.Reference != nil && d.ID == refID:
+		case g.Reference != nil && d.ID == refID && g.Reference.How == policy.RefChosen:
 			row.Chip, row.Tone = "Reference", ui.ToneAccent
+		case g.Reference != nil && d.ID == refID:
+			row.Chip, row.Tone = "Matches", ui.ToneOK // the most common layout: the reference is one of those that match
 		case d.Plan == nil && g.Reference != nil:
 			row.Chip, row.Tone = "Not judged", ui.ToneNeutral
 			row.Why = d.NotJudgedReason
@@ -708,7 +712,8 @@ func (h *handler) gtApply(w http.ResponseWriter, r *http.Request) {
 		h.gtPreviewRender(w, r, req, http.StatusUnprocessableEntity, false, true)
 		return
 	}
-	batch, refused, err := h.d.Templates.Apply(r.Context(), actor(r), req, r.PostForm.Get("digest"))
+	pr, _ := auth.FromContext(r.Context())
+	batch, refused, err := h.d.Templates.Apply(ota.WithActorKind(r.Context(), pr.Method), actor(r), req, r.PostForm.Get("digest"))
 	switch {
 	case errors.Is(err, templates.ErrStaleDigest):
 		h.gtPreviewRender(w, r, req, http.StatusConflict, true, false)
