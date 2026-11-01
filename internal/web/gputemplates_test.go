@@ -78,8 +78,12 @@ func gtFixture() *fakeTemplates {
 		ReadAt:    time.Date(2026, 11, 1, 15, 58, 0, 0, time.UTC),
 	}, prev: templates.Preview{
 		Group: key, Reference: a, ReferenceTemplate: ref, Digest: "abc123",
-		Rows: []templates.PreviewRow{{Device: func() templates.DeviceView { d := c; d.PowerOnStateText = "After the restart it follows PowerOnState 1 (on)."; return d }(), Plan: *c.Plan}},
-		Excluded: []templates.Excluded{{Device: b, Why: "matches the reference"}},
+		Rows: []templates.PreviewRow{{Device: func() templates.DeviceView {
+			d := c
+			d.PowerOnStateText = "After the restart it follows PowerOnState 1 (on)."
+			return d
+		}(), Plan: *c.Plan}},
+		Excluded:   []templates.Excluded{{Device: b, Why: "matches the reference"}},
 		Applicable: 1, BackupLine: "A backup is taken first; nothing is sent if it fails.", RestartLine: "Their relays can switch while the pins change.",
 	}}
 }

@@ -219,3 +219,32 @@ func TestTxnWording(t *testing.T) {
 		t.Errorf("a pending cancel reads %q", l)
 	}
 }
+
+// Why: an "Apply GPIO template" transaction (#327) stops at the first failure and is never re-run, so
+// its page must show for each device how far it got (a device whose Verify failed has been sent the
+// command; a stopped one has been sent nothing), word the counts as applied/failed/stopped, offer
+// "Check again…" instead of "Retry failed", and refuse the retry route.
+func TestTemplateTransactionShowsStepsStopAndCheckAgain(t *testing.T) {
+	e, _, j, _ := setupOTA(t)
+	now := time.Now()
+	cmd := `Template {"NAME":"Gosund SP111","GPIO":[1],"FLAG":0,"BASE":45}` + "\nhave a|0|1\nwant b|0|1"
+	j.jobs = []model.Job{
+		{ID: 1, BatchID: 9, DeviceID: 1, Kind: model.KindTemplate, Commands: cmd, State: model.JobSucceeded, CreatedBy: "adam", CreatedAt: now},
+		{ID: 2, BatchID: 9, DeviceID: 2, Kind: model.KindTemplate, Commands: cmd, State: model.JobFailed, LastError: "the device did not answer in time", CreatedAt: now},
+		{ID: 3, BatchID: 9, DeviceID: 3, Kind: model.KindTemplate, Commands: cmd, State: model.JobCancelled, LastError: "Nothing was sent: the transaction stopped after job 2 failed", CreatedAt: now},
+	}
+	_, body := e.do(t, "GET", "/transactions/9", "admin", nil)
+	for _, want := range []string{"<h1>Apply GPIO template</h1>", "started from Policy by adam on ", "<b>1</b> applied", "<b>1</b> stopped", "Check again…", ">Applied<", ">Not started<",
+		"Nothing was sent to this device", "Its backup from this run can be restored", `Template {&#34;NAME&#34;:&#34;Gosund SP111&#34;,…}`, "1 applied · 1 failed · 1 stopped"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the template page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "Retry failed") {
+		t.Error("a template transaction is checked again, not retried")
+	}
+	r, _ := e.do(t, "GET", "/transactions/9/retry", "admin", nil)
+	if r.StatusCode != 409 {
+		t.Errorf("retry of a template transaction: %d, want 409", r.StatusCode)
+	}
+}

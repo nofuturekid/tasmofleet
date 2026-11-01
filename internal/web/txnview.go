@@ -296,6 +296,14 @@ type txnPage struct {
 	Rows  []txnRow
 	Sel   *txnSel
 	Cards []fixCard
+
+	// Template: an "Apply GPIO template" transaction (#327): one card per device with its four steps.
+	Template   bool
+	SubPre     string // "started from Policy by adam on "
+	SubAt      time.Time
+	SubPost    string
+	TCards     []tmplCard
+	CheckAgain string // address of "Check again…" ("" = none)
 }
 
 // txnRow is one device of a transaction; the row links to its log.

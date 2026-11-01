@@ -1083,6 +1083,21 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 	p.CancelText = cancelText(b.Queued)
 	who := h.pr.Text(b.By)
 	switch {
+	case first.IsTemplate():
+		p.Template, p.Policy = true, false
+		p.Title = "Apply GPIO template"
+		p.SubPre, p.SubAt = "started from Policy by "+who+" on ", first.CreatedAt
+		p.SubPost = " · " + plural(b.Total, "device") + ", one at a time"
+		p.CancelText = "The device being changed finishes its current step; the " + plural(b.Queued, "queued device") + " will not be started."
+		// A failed template is not re-run: the person checks the devices again and gets a fresh preview.
+		p.RetryN = 0
+		p.State = strings.NewReplacer("done", "applied", "cancelled", "stopped").Replace(p.State)
+		if !b.Active && b.Failed+b.Canceled > 0 {
+			p.CheckAgain = b.Base + policyTemplatesPath
+			if ref := h.templateRefOf(r, b.Batch); ref != 0 {
+				p.CheckAgain += "?ref=" + devStr(ref)
+			}
+		}
 	case p.Policy:
 		changes := 0
 		for _, j := range b.Jobs {
@@ -1112,7 +1127,15 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 	if sel != nil {
 		p.LiveURL += "?job=" + jid(sel.Job.ID)
 	}
+	names := map[model.JobID]string{}
 	for _, j := range b.Jobs {
+		names[j.Job.ID] = j.Device
+	}
+	for _, j := range b.Jobs {
+		if p.Template {
+			p.TCards = append(p.TCards, templateCardOf(j, b.Base, names))
+			continue
+		}
 		if p.Policy {
 			p.Cards = append(p.Cards, fixCardOf(j, b.Base))
 			continue
@@ -1134,7 +1157,7 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 		}
 		p.Rows = append(p.Rows, row)
 	}
-	if sel != nil && !p.Policy {
+	if sel != nil && !p.Policy && !p.Template {
 		s := &txnSel{JobID: sel.Job.ID, DeviceID: sel.Job.DeviceID, Name: sel.Device,
 			CanCancel: sel.Active && !sel.Job.CancelRequested, CanRetry: sel.CanRetry && !b.Active}
 		s.Log = append(s.Log, sel.Log...)
@@ -1440,6 +1463,10 @@ func (h *handler) batchRetryForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if len(p.Jobs) > 0 && p.Jobs[0].Job.IsTemplate() {
+		h.refuseTemplateRetry(w, r)
+		return
+	}
 	pick := map[model.DeviceID]bool{}
 	for _, id := range h.formIDs(r) {
 		pick[id] = true
@@ -1469,6 +1496,12 @@ func (h *handler) batchRetryForm(w http.ResponseWriter, r *http.Request) {
 	v := h.view(r, fmt.Sprintf("Retry transaction %d", p.Batch), "transactions", nil)
 	v.Crumbs = []ui.Crumb{{Label: "Updates", Path: "/transactions"}, {Label: txID(p.Batch), Path: "/transactions/" + bid(p.Batch)}, {Label: "Retry"}}
 	h.show(w, r, http.StatusOK, "transaction_retry", v, retryPageView(h.retryViewOf(v, page)))
+}
+
+// refuseTemplateRetry: a template transaction is never re-run. The devices may have changed since the
+// preview, so the person checks them again on the GPIO templates tab and applies from a fresh preview.
+func (h *handler) refuseTemplateRetry(w http.ResponseWriter, r *http.Request) {
+	h.message(w, r, http.StatusConflict, h.view(r, "Retry not offered", "transactions", "A GPIO template is not re-run: use \"Check again…\" on the transaction to compare the devices and apply from a fresh preview."))
 }
 
 // retryViewOf is the retry page's data: the sentences per kind and one row per device.
@@ -1512,7 +1545,10 @@ func (h *handler) batchRetry(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if jobs, _, jerr := h.jobViews(r, store.JobFilter{BatchID: id}); jerr == nil && len(jobs) > 0 && (jobs[0].Job.IsCommand() || jobs[0].Job.IsBackup()) {
+	if jobs, _, jerr := h.jobViews(r, store.JobFilter{BatchID: id}); jerr == nil && len(jobs) > 0 && jobs[0].Job.IsTemplate() {
+		h.refuseTemplateRetry(w, r)
+		return
+	} else if jerr == nil && len(jobs) > 0 && (jobs[0].Job.IsCommand() || jobs[0].Job.IsBackup()) {
 		if pr, _ := auth.FromContext(r.Context()); pr.Role < model.RoleAdmin {
 			h.message(w, r, http.StatusForbidden, h.view(r, "Retry refused", "transactions", "Only an admin can retry a command or backup transaction."))
 			return
