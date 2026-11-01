@@ -155,6 +155,9 @@ func (h *handler) batchCancelConfirm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if len(p.Jobs) > 0 && !h.needAdminFor(w, r, p.Jobs[0].Job) {
+		return
+	}
 	back := "/transactions/" + strconv.FormatInt(int64(p.Batch), 10)
 	if !p.Active {
 		http.Error(w, "transaction is not running", http.StatusConflict)
@@ -185,6 +188,9 @@ func (h *handler) jobCancelConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		h.fail(w, r, err)
+		return
+	}
+	if !h.needAdminFor(w, r, j) {
 		return
 	}
 	if j.State.Terminal() {

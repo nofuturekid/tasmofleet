@@ -658,7 +658,7 @@ func (h *handler) gtPreviewOf(pv templates.Preview, req templates.Request, how s
 		p.Cancel = policyTemplatesPath + "?" + url.Values{"ref": {devStr(req.Reference)}}.Encode()
 	}
 	p.Title = "Apply the " + req.Group.Name + " template to " + plural(len(pv.Rows), "device")
-	p.Fields = append(gtGroupFields(req.Group, req.Reference, policy.RefHow(how)))
+	p.Fields = gtGroupFields(req.Group, req.Reference, policy.RefHow(how))
 	for _, row := range pv.Rows {
 		p.Fields = append(p.Fields, ui.KVRow{Key: "pick", Value: devStr(row.Device.ID)})
 		r := gtPrevRow{ID: row.Device.ID, Name: row.Device.Name, Href: h.devHrefOf(row.Device.ID), ReadAt: row.Device.ReadAt, Warning: row.Warning,

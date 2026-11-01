@@ -248,3 +248,52 @@ func TestTemplateTransactionShowsStepsStopAndCheckAgain(t *testing.T) {
 		t.Errorf("retry of a template transaction: %d, want 409", r.StatusCode)
 	}
 }
+
+// Why: operators are read-only for GPIO templates (#327), and a transaction of a kind this build does
+// not know must not be open to them either (default-deny). Every route that cancels or re-runs it
+// decides on the role first, whatever the kind-specific branches do afterwards; an update (the
+// original operator case) stays open.
+func TestCancelAndRetryOfTemplateAndUnknownKindsAreAdminOnly(t *testing.T) {
+	for _, kind := range []model.JobKind{model.KindTemplate, "mystery"} {
+		t.Run(string(kind), func(t *testing.T) {
+			e, o, j, _ := setupOTA(t)
+			j.jobs = []model.Job{{ID: 31, BatchID: 9, DeviceID: 1, Kind: kind, Commands: "Template {}", State: model.JobApplying, CreatedBy: "adam", CreatedAt: time.Now()}}
+			routes := []struct{ method, path string }{
+				{"GET", "/transactions/9/cancel"}, {"POST", "/transactions/9/cancel"},
+				{"GET", "/jobs/31/cancel"}, {"POST", "/jobs/31/cancel"},
+				{"GET", "/transactions/9/retry"}, {"POST", "/transactions/9/retry"},
+			}
+			for _, rt := range routes {
+				var form url.Values
+				if rt.method == "POST" {
+					form = url.Values{"csrf": {"tok"}}
+				}
+				if r, _ := e.do(t, rt.method, rt.path, "operator", form); r.StatusCode != 403 {
+					t.Errorf("operator %s %s: %d, want 403", rt.method, rt.path, r.StatusCode)
+				}
+			}
+			if len(o.cancelled) != 0 || len(o.cancelledBatches) != 0 {
+				t.Fatalf("an operator cancelled something: %v %v", o.cancelled, o.cancelledBatches)
+			}
+			for _, rt := range routes {
+				var form url.Values
+				if rt.method == "POST" {
+					form = url.Values{"csrf": {"tok"}}
+				}
+				if r, _ := e.do(t, rt.method, rt.path, "admin", form); r.StatusCode == 403 {
+					t.Errorf("admin %s %s: refused", rt.method, rt.path)
+				}
+			}
+			if kind == model.KindTemplate {
+				if r, _ := e.do(t, "GET", "/transactions/9/retry", "admin", nil); r.StatusCode != 409 {
+					t.Errorf("admin retry of a template transaction: %d, want 409 (checked again, never re-run)", r.StatusCode)
+				}
+			}
+		})
+	}
+	e, _, j, _ := setupOTA(t)
+	j.jobs = []model.Job{{ID: 32, BatchID: 10, DeviceID: 1, State: model.JobAwaitReboot, TargetRelease: "16.1.0", CreatedAt: time.Now()}}
+	if r, _ := e.do(t, "POST", "/transactions/10/cancel", "operator", url.Values{"csrf": {"tok"}}); r.StatusCode == 403 {
+		t.Error("an operator may still cancel a firmware update")
+	}
+}
