@@ -197,9 +197,9 @@ templ sbNarrow(d ShellData) {
 				<span class={ "sb-dot", templ.KV("bad", b.none()), templ.KV("warn", b.partial()) }></span>
 				<span class="sb-val">
 					if b.none() {
-						<b>Failed</b> <time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time>, { b.countText() }
+						<b>Failed</b> <time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time> <span class="sb-sep">·</span> { b.countText() }
 					} else {
-						<time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time>, { b.countText() }
+						<time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time> <span class="sb-sep">·</span> { b.countText() }
 					}
 				</span>
 			</div>
