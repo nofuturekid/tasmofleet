@@ -366,3 +366,30 @@ func TestClosedLoopbackAddrIsPrivilegedAndDistinct(t *testing.T) {
 		seen[addr] = true
 	}
 }
+
+// Why: simulated devices only download from loopback (the OTA download gadget must not reach the
+// network). A devenv that serves devices on a non-loopback address, for example next to a Home
+// Assistant app in a devcontainer, needs the app's firmware server host on the allow list, or every
+// update ends in "device did not start the upgrade" without a request ever arriving (#442).
+func TestSimulatorExtraCarriesTheAllowedDownloadHosts(t *testing.T) {
+	x := simulatorExtra(0.1, "172.30.32.1", "16.1.0", multiFlag{"172.30.32.1", "fw.lan"})
+	if got := strings.Join(x.AllowDownloadHosts, ","); got != "172.30.32.1,fw.lan" {
+		t.Errorf("allowed download hosts %q", got)
+	}
+	if x.BindAddr != "172.30.32.1" || x.TimeScale != 0.1 || x.FlashVersion != "16.1.0" {
+		t.Errorf("other options lost: %+v", x)
+	}
+	if none := simulatorExtra(1, "127.0.0.1", "16.1.0", nil); len(none.AllowDownloadHosts) != 0 {
+		t.Errorf("without the flag the gadget stays loopback-only, got %v", none.AllowDownloadHosts)
+	}
+}
+
+func TestDevenvHelpListsAllowDownloadHost(t *testing.T) {
+	var buf bytes.Buffer
+	if err := run(context.Background(), []string{"-h"}, io.Discard, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "-allow-download-host") {
+		t.Errorf("help does not list -allow-download-host:\n%s", buf.String())
+	}
+}

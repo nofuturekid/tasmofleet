@@ -50,6 +50,29 @@ was verified (2026-11-01), without VS Code:
    install, start, `ha backups restore <slug> --app local_tasmofleet`.
 6. Clean up: `docker rm -f -v tf-hadev` and remove the three volumes.
 
-Not covered by that run and still to do by hand when needed: a simulated device
-(`cmd/tasmofleet-devenv` on the host), an update through the mapped firmware port (set the firmware base URL to
-`http://<host>:8081` first; the firmware server only starts once it is set), and the UI in a browser.
+## Scripted run (CI) and the OTA run by hand
+
+`tools/ha-app-devcontainer-test.sh <ha-image>` does steps 1 to 6 above without a person: it starts the devcontainer,
+loads the image into a local registry, checks that the Supervisor accepts `config.yaml` (ports, `webui`, schema),
+installs and starts the app with the option `initial_admin_password` (the log must show the admin created from it),
+checks `/readyz` on the mapped port, and runs the backup, uninstall, install, restore round trip (the `secret.key` of
+the first install must come back). Every wait is bounded; the whole script is limited to 25 minutes. The workflow
+`.github/workflows/ha-app.yml` runs it nightly and by `workflow_dispatch`, never on pull requests, with no secrets.
+
+An update through the firmware port, done by hand on 2026-11-01 (#442), in the same devcontainer:
+
+1. Run `cmd/tasmofleet-devenv` inside the devcontainer, bound to the address of the Home Assistant network
+   (`-bind 172.30.32.1`, the gateway of the `hassio` Docker network) and with
+   `-allow-download-host 172.30.32.1`: the simulated devices only download from loopback unless the host is
+   named, and without it an update ends in "device did not start the upgrade" without a request ever arriving.
+2. Point the firmware sources at the devenv's fake upstream. A real user does not do this; with the real sources
+   the devices would be offered what upstream offers. In the app's data directory
+   (`/mnt/supervisor/apps/data/local_tasmofleet/` in the devcontainer) write `tasmofleet.env` with
+   `TASMOFLEET_FIRMWARE_UPSTREAM_OVERRIDE=<DEVENV_UPSTREAM_GITHUB_URL>` and restart the app.
+3. In the UI: sign in as `admin` (the option's password; the first sign-in asks for a new one), run the setup with the
+   device network `172.30.32.0/23`, then System, Firmware & updates, Firmware base URL
+   `http://172.30.32.1:8081` (the host address and the mapped host port), save, and restart the app (the page says
+   "Restart required").
+4. Add the simulated device (`DEVENV_DEVICE ... addr=` of an HTTP-only profile such as `plug-4m-http`), start an
+   update to the version `DEVENV_FW_VERSION`. The firmware request appears in the app log with the device host as
+   the client, the transaction ends "Updated to 16.1.0" and the device reports the new version.

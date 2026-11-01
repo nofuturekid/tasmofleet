@@ -8,6 +8,8 @@ always upgrade automatically.
 
 ### Added
 
+- Home Assistant app, phase 1 follow-up (#442): a scripted run of the app in a real Supervisor (`tools/ha-app-devcontainer-test.sh`, workflow `ha-app`, nightly and on demand, never on pull requests) installs the app in the Home Assistant devcontainer, starts it, checks `/readyz` and the backup/restore round trip. `tasmofleet-devenv` has a new flag `-allow-download-host` so simulated devices on a non-loopback address can download from a firmware server that is not on loopback (development only)
+
 - Home Assistant app, phase 1 (#442, part of #209): `deploy/homeassistant/tasmofleet/` holds the app (config, documentation, icon) with the web interface on `8080/tcp` (HTTPS, self-signed certificate, local sign-in) and the firmware server on `80/tcp` mapped to host port 8081. It is experimental and not published yet; there is no ingress, no Home Assistant sign-in and no automatic MQTT setup until the later phases. Inside an app (`SUPERVISOR_TOKEN` set) TasmoFleet reads the Supervisor's `/data/options.json` (option `initial_admin_password`) and logs plain text; a missing or malformed options file stops the start. Docker and Unraid installs are unchanged. The Dockerfile has a new target `ha` (root user and Home Assistant labels) that CI builds and smoke-tests; the default image is the same as before
 
 ### Changed

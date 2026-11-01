@@ -155,6 +155,11 @@ func fleetOfSize(n int) []simulator.DeviceSpec {
 	return specs
 }
 
+// simulatorExtra builds the simulator options from the flags.
+func simulatorExtra(scale float64, bind, fwVersion string, allowDownload []string) simulator.Extra {
+	return simulator.Extra{TimeScale: scale, BindAddr: bind, FlashVersion: fwVersion, AllowDownloadHosts: allowDownload}
+}
+
 func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	fs := flag.NewFlagSet("tasmofleet-devenv", flag.ContinueOnError)
 	fs.SetOutput(errOut)
@@ -170,6 +175,8 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	onlyMQTT := fs.Bool("only-mqtt-transport", false, "only the devices of -mqtt-transport, no base fleet: for the specs that need nothing else and should not pay for it")
 	overview := fs.Bool("overview-shapes", false, "add the device shapes of the Overview mockups (docs/design/device-overview): meters, several relays, Ethernet, sensors only, HTTP only")
 	designFile := fs.String("design-fixture", "", "JSON file (testdata/design/v2-fixture.json) with the prototype's 60 devices and releases; replaces the mixed fleet, -fleet-size and the release list, and enables POST /fixture/offline and /fixture/feed/{down,dl-down,slow,up} on the control server")
+	var allowDownload multiFlag
+	fs.Var(&allowDownload, "allow-download-host", "host (as written in the OtaUrl, repeatable) the simulated devices may download firmware from besides loopback; needed when -bind is not loopback and the firmware server is elsewhere, for example 172.30.32.1 for a Home Assistant app on the same host")
 	var redirects multiFlag
 	fs.Var(&redirects, "oidc-redirect", "redirect URI registered at the mock IdP (repeatable); enables the mock IdP")
 	fs.Usage = func() {
@@ -207,7 +214,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	}
 	defer func() { _ = broker.Close() }()
 	fleet, err := simulator.NewFleetWith(simulator.FleetOptions{FixturesDir: *fixtures, MQTTURL: broker.URL(), TelePeriod: *tele},
-		simulator.Extra{TimeScale: *scale, BindAddr: *bind, FlashVersion: *fwVersion})
+		simulatorExtra(*scale, *bind, *fwVersion, allowDownload))
 	if err != nil {
 		return err
 	}
