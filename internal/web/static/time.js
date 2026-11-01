@@ -45,11 +45,19 @@
       ? Object.assign({ day: "numeric", month: "short" }, HM)
       : Object.assign({ day: "numeric", month: "short", year: "numeric" }, HM)).format(d);
   }
+  // clock-day: today's instant is the bare clock time, any other day is dayText (#422). The server's
+  // fallback is ui.StampClockOrDayText.
+  function clockOrDayText(d) {
+    var now = new Date();
+    var same = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    return same ? fmt("time", HM).format(d) : dayText(d);
+  }
   // textOf is the text for a format key and an instant ("" when the key is unknown). "title"
   // leaves the text alone, so it is "" here and handled by the caller.
   function textOf(key, d) {
     if (key === "store") return storeText(d);
     if (key === "day") return dayText(d);
+    if (key === "clock-day") return clockOrDayText(d);
     return SPECS[key] ? fmt(key, SPECS[key]).format(d) : "";
   }
   function paint(root) {

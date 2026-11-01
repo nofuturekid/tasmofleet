@@ -6,10 +6,16 @@ always upgrade automatically.
 
 ## Unreleased
 
+### Changed
+
+- The device Overview arranges its cards in two column stacks (#421): Stability, Connection · Wi-Fi and "How TasmoFleet reaches this device" on the left, Identity and Activity on the right. Stability and Activity no longer stretch over the full width with mostly empty space; phones keep the order Stability, Identity, Connection, reach paths, Activity
+
 ### Fixed
 
 - The Identity card no longer says "Most of Status 2 is not read yet" for good on devices identified before 0.22.0 (#417): devices that were probed before the Status 2 facts (core, SDK, CPU frequency, build date) were stored now get them read automatically, over HTTP while it works and over MQTT when it does not. One Status 2 per two seconds on the whole process, at most one per device per ten minutes (a failed read waits as long), only while the device is online. It is a read and writes only those facts; the identity fields stay as the last probe left them. No database migration
 - The Overview Reachability tile no longer says "Reachable" for HTTP days after one successful health poll (#416): it reads the same HTTP state as the card "How TasmoFleet reaches this device" (reachable within 15 minutes, not reachable, or not checked lately) and shows how long ago HTTP last answered. No database migration
+- The Reachability tile on the device Overview no longer runs past its edge on a phone: "MQTT · HTTP" fits the half-width tile at 320 px (#420)
+- Stability's recent restarts show the date for restarts that are not from today ("Oct 28, 12:31 PM"); only today's keep the bare clock time (#422)
 
 ## 0.26.0 "Skerryvore" (2026-11-01)
 

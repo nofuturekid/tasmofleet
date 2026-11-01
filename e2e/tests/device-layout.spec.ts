@@ -1,4 +1,5 @@
 import { test, expect } from "../support/fixtures";
+import { realisticPolicyRules } from "../support/seed";
 import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
 // The device overview (maintainer feedback, items 7d, 9; #145): sibling cards never touch (they
@@ -18,6 +19,7 @@ test.beforeAll(async () => {
       TASMOFLEET_ADMIN_GROUPS: "adm",
       TASMOFLEET_MQTT_URL: env.vars.TASMOFLEET_MQTT_URL,
       TASMOFLEET_POLL_INTERVAL: "5s",
+      TASMOFLEET_POLICY_RULES: realisticPolicyRules, // a rule makes the fourth tile (Policy), which halves the Reachability tile on a phone
       TASMOFLEET_FIRMWARE_UPSTREAM_OVERRIDE: env.vars.DEVENV_UPSTREAM_GITHUB_URL,
       TASMOFLEET_FIRMWARE_LISTEN: `127.0.0.1:${fwPort}`,
       TASMOFLEET_FIRMWARE_BASE_URL: `http://127.0.0.1:${fwPort}`,
@@ -65,6 +67,53 @@ for (const width of [1440, 1100, 800, 600, 375]) {
     });
     expect(bad).toEqual([]);
   });
+}
+
+// #420: the Reachability value "MQTT · HTTP" ran past its half-width tile on a phone. Layout guard:
+// no tile text may reach past the tile it sits in, at the narrowest phone and the widest. The second
+// run puts the longest Reachability wordings (#416, #435) into the tile: it must wrap, not overflow.
+const reachWordings: [string, string][] = [
+  ["MQTT · HTTP", "Connected · Reachable"],
+  ["No live link", "HTTP not checked lately, last answered 3d 4h ago · MQTT not configured"],
+  ["MQTT", "Connected · HTTP not checked lately, last answered 3d 4h ago"],
+  ["Login refused", "HTTP not reachable, last answered 12d 23h ago"],
+];
+for (const width of [320, 375, 430, 768, 1280]) {
+  for (const [value, sub] of reachWordings) {
+    test(`overview tile values stay inside their tile at ${width}px: ${value}`, async ({ page }) => {
+      await page.setExtraHTTPHeaders(adam);
+      await page.setViewportSize({ width, height: 900 });
+      const href = await deviceHref(page, "esp32-dimmer");
+      await page.goto(app.url + href);
+      await expect(page.locator(".dev-tile").first()).toBeVisible();
+      await expect(page.locator(".dev-tile")).toHaveCount(4); // the phone layout with a half-width Reachability tile
+      // freeze the live refresh (it would put the real wording back) and show the wording under test
+      await page.evaluate(([v, s]) => {
+        document.querySelector("#devlive")?.removeAttribute("hx-trigger");
+        document.querySelector("[data-tile=reach] .dev-tile-v")!.textContent = v;
+        document.querySelector("[data-tile=reach] .dev-tile-s")!.textContent = s;
+      }, [value, sub]);
+      await page.evaluate(() => document.fonts.ready);
+      const bad = await page.evaluate(() => {
+        const out: string[] = [];
+        for (const tile of document.querySelectorAll(".dev-tile")) {
+          const t = tile.getBoundingClientRect();
+          for (const el of tile.querySelectorAll(".dev-tile-l, .dev-tile-v, .dev-tile-s")) {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            for (const r of range.getClientRects()) {
+              if (r.right > t.right + 0.5 || r.left < t.left - 0.5) {
+                out.push(`${tile.getAttribute("data-tile")} ${el.className} "${el.textContent}" reaches ${Math.round(r.right)} past the tile edge ${Math.round(t.right)}`);
+                break;
+              }
+            }
+          }
+        }
+        return out;
+      });
+      expect(bad).toEqual([]);
+    });
+  }
 }
 
 // Item 10 (#145): the overview shows a short Activity list and links to the complete, paged one,

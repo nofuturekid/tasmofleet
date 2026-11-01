@@ -156,8 +156,10 @@ templ restartDialog(t deviceTabs, oob bool) {
 	@ui.Dialog(ui.DialogData{ID: "dlg-restart", Title: "Restart " + t.Name + "?", Body: "Its relays switch off for a few seconds.", Action: t.Base + devPath(t.ID, "/restart"), CSRF: t.CSRF, Verb: "Restart", OOB: oob})
 }
 
-// deviceOverviewPage is the overview tab (#145): the live tiles, the relay box, Identity next to
-// Connection and the Activity list. Offline dims everything but Activity.
+// deviceOverviewPage is the overview tab (#145, #421): the live tiles, the relay box, then two card
+// stacks: Stability, Connection and the reach paths on the left, Identity and Activity on the right
+// (phones keep the reading order Stability, Identity, Connection, paths, Activity through the rank
+// classes). Offline dims everything but Activity.
 templ deviceOverviewPage(p deviceOverview) {
 	@deviceHeader(p.Tabs)
 	if u := p.Updating; u != nil {
@@ -168,16 +170,11 @@ templ deviceOverviewPage(p deviceOverview) {
 	}
 	@liveRegion(p.Live)
 	@ui.CardStacks(2) {
-		if p.Stab != nil {
-			@ui.CardStack(ui.SpanAll) {
+		@ui.CardStack(1) {
+			if p.Stab != nil {
 				@stabilityCard(*p.Stab, nil)
 			}
-		}
-		@ui.CardStack(1) {
-			@identityCard(p.Ident)
-		}
-		@ui.CardStack(1) {
-			<section id="devconn" class={ "devcard", dimClass(p.Live.Off) } data-dim aria-disabled={ ariaBool(p.Live.Off) } aria-labelledby="dc-conn">
+			<section id="devconn" class={ "devcard", dimClass(p.Live.Off), ui.StackRank(3) } data-dim aria-disabled={ ariaBool(p.Live.Off) } aria-labelledby="dc-conn">
 				<h2 id="dc-conn">{ p.Conn.Title }</h2>
 				@ui.KV(p.Conn.Rows)
 			</section>
@@ -185,7 +182,8 @@ templ deviceOverviewPage(p deviceOverview) {
 				@pathsCard(*p.Paths)
 			}
 		}
-		@ui.CardStack(ui.SpanAll) {
+		@ui.CardStack(1) {
+			@identityCard(p.Ident)
 			@devActBox(p.Activity, nil)
 		}
 	}
@@ -336,7 +334,7 @@ templ sensorBoxView(l liveView) {
 // devActBox is the Activity list: state changes and transactions of the device, newest first.
 // It is history, so an offline device does not dim it.
 templ devActBox(a devActivity, attrs templ.Attributes) {
-	<section id="devact" class="devcard" aria-labelledby="dc-act" { attrs... }>
+	<section id="devact" class={ "devcard", ui.StackRank(5) } aria-labelledby="dc-act" { attrs... }>
 		<div class="devcard-head">
 			<h2 id="dc-act">Activity</h2>
 			<a class="btn btn-link" href={ templ.SafeURL(a.All) }>All activity</a>
@@ -391,7 +389,7 @@ templ deviceHistoryPage(p historyView) {
 
 // identityCard is the Identity card; "Refresh identity" asks the device again and swaps the card.
 templ identityCard(c identCard) {
-	<section id="identity" class={ "devcard", dimClass(c.Off) } data-dim aria-disabled={ ariaBool(c.Off) } aria-labelledby="dc-ident">
+	<section id="identity" class={ "devcard", dimClass(c.Off), ui.StackRank(2) } data-dim aria-disabled={ ariaBool(c.Off) } aria-labelledby="dc-ident">
 		<div class="devcard-head">
 			<h2 id="dc-ident">Identity</h2>
 			if c.CanProbe {
@@ -442,7 +440,7 @@ templ identityFWR(c identCard) {
 // stabilityCard is the Stability card of the Overview (#325): the verdict as a badge, a notice only
 // when there is a problem, then the numbers behind it. attrs: hx-swap-oob on a live refresh.
 templ stabilityCard(c stabCard, attrs templ.Attributes) {
-	<section id="stability" class="devcard stab-card" aria-labelledby="dc-stab" { attrs... }>
+	<section id="stability" class={ "devcard", "stab-card", ui.StackRank(1) } aria-labelledby="dc-stab" { attrs... }>
 		<div class="stab-head">
 			<h2 id="dc-stab">Stability</h2>
 			<span class={ "bdg", stabTone(c.Level) }>{ c.Level.Label() }</span>
@@ -493,7 +491,7 @@ templ stabilityCard(c stabCard, attrs templ.Attributes) {
 			<ul class="stab-boots">
 				for _, b := range c.Boots {
 					<li>
-						<span class="when"><time data-visual-mask { ui.StampAttrs(b.At, ui.StampClock)... }>{ b.AtText }</time></span>
+						<span class="when"><time data-visual-mask { ui.StampAttrs(b.At, ui.StampClockOrDay)... }>{ b.AtText }</time></span>
 						<span>
 							{ b.Label }
 							if b.Raw != "" {

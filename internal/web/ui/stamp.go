@@ -24,6 +24,10 @@ var (
 	// year when it is not this year). time.js decides today and yesterday in the browser's zone and
 	// repaints across midnight; the fallback text comes from StampDayText, not from a Layout.
 	StampDay = StampFmt{"day", ""}
+	// StampClockOrDay is the stamp of a list that spans days (#422): today's entry is the bare clock time,
+	// any other day is what StampDay writes ("Yesterday 21:10", "19 Aug, 20:02"). The fallback text comes
+	// from StampClockOrDayText.
+	StampClockOrDay = StampFmt{"clock-day", ""}
 	// StampLog is a log column: 24-hour with seconds in any locale (time.js "clock-24").
 	StampLog = StampFmt{"clock-24", "15:04:05"}
 	// StampTitle changes only the title of the element (full date, time and zone), not its text:
@@ -61,4 +65,14 @@ func StampDayText(now, t time.Time) string {
 		return t.Format("2 Jan, 15:04")
 	}
 	return t.Format("2 Jan 2006, 15:04")
+}
+
+// StampClockOrDayText is the fallback text of a StampClockOrDay: the clock time for today, else
+// StampDayText. Same boundaries as time.js.
+func StampClockOrDayText(now, t time.Time) string {
+	const day = "2006-01-02"
+	if t = t.In(now.Location()); t.Format(day) == now.Format(day) {
+		return t.Format("15:04")
+	}
+	return StampDayText(now, t)
 }

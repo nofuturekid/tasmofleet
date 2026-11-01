@@ -166,6 +166,37 @@ for (const [name, where] of dayStamps) {
   }
 }
 
+// #422: the Stability card's recent restarts list spans days. Today's restart is the browser's clock
+// time; an older one carries its date, or it reads like a restart from today.
+test("Stability's recent restarts: the clock for today, the date for an older day", async ({ browser }) => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(join(app.dataDir, "tasmofleet.db"));
+  let id: number;
+  try {
+    db.exec("PRAGMA busy_timeout=5000");
+    id = (db.prepare("SELECT id FROM devices ORDER BY id LIMIT 1").get() as { id: number }).id;
+    const ins = db.prepare("INSERT INTO device_boots (device_id, at, boot_count, reason) VALUES (?, ?, 1, 'Power On')");
+    ins.run(id, seededAt);
+    ins.run(id, seededAt - 3 * 24 * 3600_000);
+  } finally {
+    db.close();
+  }
+  const { ctx, page } = await pageAt(browser, sameLocalDay());
+  await page.goto(app.url + "/devices/" + id);
+  const times = page.locator("#stability .stab-boots .when time");
+  await expect(times).toHaveCount(2);
+  const [today, older] = await times.evaluateAll((els) =>
+    els.map((e) => {
+      const d = new Date(e.getAttribute("datetime")!);
+      return [e.textContent, new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(d), new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(d)];
+    }),
+  );
+  expect(today[0], "today's restart is only the clock time").toBe(today[1]);
+  expect(older[0], "an older restart carries its date").toBe(older[2]);
+  expect(older[0]).not.toBe(older[1]);
+  await ctx.close();
+});
+
 test("the transaction log's time is the browser's 24-hour clock", async ({ browser }) => {
   const { ctx, page } = await pageAt(browser, sameLocalDay());
   await page.goto(app.url + "/transactions/900");

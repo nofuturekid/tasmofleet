@@ -387,7 +387,7 @@ func stabCardOf(now time.Time, r stability.Result, boots []model.DeviceBoot, hl 
 			if i == stabilityRecent {
 				break
 			}
-			sb := stabBoot{At: b.At, AtText: ui.StampText(b.At, ui.StampClock), Label: stability.Classify(b.Reason).Label}
+			sb := stabBoot{At: b.At, AtText: ui.StampClockOrDayText(now, b.At), Label: stability.Classify(b.Reason).Label}
 			if b.Reason != "" && b.Reason != sb.Label {
 				sb.Raw = b.Reason
 			}

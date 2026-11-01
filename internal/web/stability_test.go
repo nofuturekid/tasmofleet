@@ -191,3 +191,24 @@ func TestNeedsAttentionNamesTheAverageThatMadeTheLinkWeak(t *testing.T) {
 		t.Errorf("attention: %s", att)
 	}
 }
+
+// Why (#422): the restarts list holds up to five entries over days. A restart from three days ago
+// that shows only "12:31" reads like one from today; today's keeps the clock time, an older one
+// carries its date (same rule as the other day stamps of the page).
+func TestRecentRestartsCarryTheDateWhenNotToday(t *testing.T) {
+	now := time.Date(2026, 10, 22, 14, 0, 0, 0, time.UTC)
+	boots := []model.DeviceBoot{
+		{DeviceID: 1, At: now.Add(-2 * time.Hour), Reason: "Software/System restart"},
+		{DeviceID: 1, At: time.Date(2026, 10, 19, 12, 31, 0, 0, time.UTC), Reason: "Power On"},
+	}
+	c := stabCardOf(now, stability.Result{Level: stability.Stable}, boots, model.Health{}, "")
+	if len(c.Boots) != 2 {
+		t.Fatalf("boots: %d", len(c.Boots))
+	}
+	if c.Boots[0].AtText != "12:00" {
+		t.Errorf("today's restart: %q, want the clock time only", c.Boots[0].AtText)
+	}
+	if c.Boots[1].AtText != "19 Oct, 12:31" {
+		t.Errorf("older restart: %q, want the date with the clock time", c.Boots[1].AtText)
+	}
+}

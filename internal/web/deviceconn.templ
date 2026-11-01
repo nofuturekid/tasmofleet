@@ -8,7 +8,7 @@ import "github.com/nofuturekid/tasmofleet/internal/web/ui"
 // swaps the summaries and the lists by id (pathsLive), never the folds, so an open fold stays open.
 // The Forget button is the admin's: a viewer without it sees the card read-only.
 templ pathsCard(c pathCard) {
-	<section id="devpaths" class="devcard" aria-labelledby="dc-paths">
+	<section id="devpaths" class={ "devcard", ui.StackRank(4) } aria-labelledby="dc-paths">
 		<div class="devcard-head"><h2 id="dc-paths">How TasmoFleet reaches this device</h2></div>
 		<details class="fold">
 			@pathSummary("devpaths-facts-sum", c.FactsSummary(), nil)

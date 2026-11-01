@@ -56,3 +56,25 @@ func TestStampDayAttrs(t *testing.T) {
 		t.Errorf("StampLog = %+v: the log column is 24-hour with seconds", StampLog)
 	}
 }
+
+// Why (#422): a list of recent events spans days. Today's entry is read against the clock on the
+// wall, so it keeps the bare clock time; an older one with only a clock time reads as if it were
+// today (three days ago looked like "12:31"), so it must carry its date.
+func TestStampClockOrDayText(t *testing.T) {
+	now := time.Date(2026, 10, 22, 14, 0, 0, 0, time.UTC)
+	at := func(y int, m time.Month, d, h, min int) time.Time { return time.Date(y, m, d, h, min, 0, 0, time.UTC) }
+	for _, c := range []struct {
+		name string
+		t    time.Time
+		want string
+	}{
+		{"earlier today keeps the clock", at(2026, 10, 22, 0, 4), "00:04"},
+		{"yesterday evening carries its day", at(2026, 10, 21, 23, 59), "Yesterday 23:59"},
+		{"three days ago carries the date", at(2026, 10, 19, 12, 31), "19 Oct, 12:31"},
+		{"an earlier year carries the year", at(2025, 10, 19, 12, 31), "19 Oct 2025, 12:31"},
+	} {
+		if got := StampClockOrDayText(now, c.t); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}

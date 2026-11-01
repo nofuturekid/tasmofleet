@@ -226,8 +226,7 @@ func TestIdentityRowsFollowTheMockup(t *testing.T) {
 	e.inv.devs[1] = d
 	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
 	i := strings.Index(body, `id="dc-ident"`)
-	j := strings.Index(body, `id="dc-conn"`)
-	ident := body[i:j]
+	ident := body[i : i+strings.Index(body[i:], `</section>`)] // the card, wherever the stacks put it
 	if strings.Contains(ident, "<dt>Chip</dt>") || !strings.Contains(ident, "2 MB") {
 		t.Errorf("identity:\n%s", ident)
 	}
@@ -635,5 +634,41 @@ func TestReachTileAndConnectionCardAgreeOnHTTP(t *testing.T) {
 				t.Fatalf("tile %q disagrees with card %q", tile.Value, card.Value)
 			}
 		})
+	}
+}
+
+// Why (#421): two short cards used to sit full width at 40 % use. Stability, Connection and the
+// reach paths stack on the left, Identity and Activity on the right, so nothing stretches; the
+// rank classes keep the phone reading order Stability, Identity, Connection, paths, Activity.
+func TestOverviewCardsSitInTwoStacksWithThePhoneOrder(t *testing.T) {
+	f := mqttFacts(time.Now(), model.MQTTPasswordOwn)
+	e := setupWith(t, func(d *Deps) {
+		d.Transport = fakeFacts{f: map[model.DeviceID]transport.Facts{1: f}}
+		d.Stability = fakeStab{}
+	})
+	_, body := e.do(t, "GET", "/devices/1", "admin", nil)
+	i := strings.Index(body, `<div class="cstacks cstacks-2">`)
+	if i < 0 {
+		t.Fatal("no two-column stack container")
+	}
+	stacks := strings.Split(body[i:], `<div class="cstack">`)
+	if len(stacks) != 3 {
+		t.Fatalf("want 2 stacks, got %d", len(stacks)-1)
+	}
+	for n, want := range [][]string{{`id="stability"`, `id="devconn"`, `id="devpaths"`}, {`id="identity"`, `id="devact"`}} {
+		last := -1
+		for _, id := range want {
+			at := strings.Index(stacks[n+1], id)
+			if at < 0 || at < last {
+				t.Errorf("stack %d: %s missing or out of order", n+1, id)
+			}
+			last = at
+		}
+	}
+	for id, rank := range map[string]string{"stability": "r1", "identity": "r2", "devconn": "r3", "devpaths": "r4", "devact": "r5"} {
+		at := strings.Index(body, `id="`+id+`"`)
+		if at < 0 || !strings.Contains(body[at:at+200], " "+rank+`"`) {
+			t.Errorf("%s lacks phone rank %s", id, rank)
+		}
 	}
 }

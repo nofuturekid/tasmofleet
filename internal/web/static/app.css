@@ -8837,12 +8837,14 @@ body:has(.dv-list .bulkbar:not([hidden])) {
   .dev-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  /* "MQTT · HTTP" stays on one line in a half-width tile; a lone last tile takes the whole row */
+  /* "MQTT · HTTP" must fit a half-width tile at 320 px (#420): the smaller size keeps it on one line,
+     and it may wrap at a space (no nowrap) rather than run past the tile edge when text is larger.
+     A lone last tile takes the whole row */
   .dev-tile-v {
     font-size: 20px;
   }
   .dev-tile[data-tile="reach"] .dev-tile-v {
-    white-space: nowrap;
+    font-size: 17px;
   }
   .dev-tile:last-child:nth-child(odd) {
     grid-column: 1 / -1;
