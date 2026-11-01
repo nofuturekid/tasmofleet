@@ -88,6 +88,7 @@ type gtGroup struct {
 	Rows               []gtDevice
 	Apply              *gtApply
 	Rank               string
+	Fine               string // a line under the rows
 }
 
 type gtApply struct {
@@ -207,12 +208,25 @@ func (h *handler) gtBuild(ov, base templates.Overview, chosen []model.DeviceID, 
 	p := gtView{ReadAt: ov.ReadAt, Throttled: ov.Throttled}
 	var rank int
 	groupsShown, notJudged := 0, len(ov.NotJudged)
-	cannot := 0
+	cannot, needRef := 0, 0
 	baseNeeds := map[policy.GroupKey]bool{}
 	for _, g := range base.Groups {
 		baseNeeds[g.Key] = g.NeedsReference
 	}
-	for _, g := range ov.Groups {
+	// Groups that need a look come first: a deviating device, then a reference to choose, then the rest;
+	// the service's order (family, name) is kept inside each tier.
+	tier := func(g templates.GroupView) int {
+		switch {
+		case slices.ContainsFunc(g.Devices, func(d templates.DeviceView) bool { return d.Plan != nil && !d.Plan.Matches }):
+			return 0
+		case g.NeedsReference:
+			return 1
+		}
+		return 2
+	}
+	ordered := slices.Clone(ov.Groups)
+	sort.SliceStable(ordered, func(i, j int) bool { return tier(ordered[i]) < tier(ordered[j]) })
+	for _, g := range ordered {
 		if len(g.Devices) < 2 {
 			it := gtListItem{Title: groupTitle(g.Key), Chip: chipLabel(g.Key.Family)}
 			if len(g.Devices) == 1 {
@@ -226,6 +240,9 @@ func (h *handler) gtBuild(ov, base templates.Overview, chosen []model.DeviceID, 
 		gg, differ, cant := h.gtGroupOf(g, baseNeeds[g.Key], admin, rank, q)
 		p.Differ += differ
 		cannot += cant
+		if g.NeedsReference {
+			needRef++
+		}
 		p.Groups = append(p.Groups, gg)
 	}
 	for _, g := range ov.BuiltIn {
@@ -243,6 +260,12 @@ func (h *handler) gtBuild(ov, base templates.Overview, chosen []model.DeviceID, 
 	p.Summary = plural(groupsShown, "group") + " · " + plural(p.Differ, "device") + " differ"
 	if p.Differ == 1 {
 		p.Summary = plural(groupsShown, "group") + " · 1 device differs"
+	}
+	if needRef > 0 {
+		p.Summary += " · " + plural(needRef, "group") + " need a reference"
+		if needRef == 1 {
+			p.Summary = strings.Replace(p.Summary, "1 group need a reference", "1 group needs a reference", 1)
+		}
 	}
 	if cannot > 0 {
 		p.Summary += " · " + strconv.Itoa(cannot) + " cannot be changed here"
@@ -279,23 +302,34 @@ func gtStacks(p gtView) [][]gtCardRef {
 	if len(p.OneDevice) > 0 {
 		cards = append(cards, gtCardRef{Group: -1, Fold: "one"})
 	}
+	// size is the card's height in lines of text, close enough to put the next card under the shorter stack.
 	size := func(c gtCardRef) int {
 		switch {
 		case c.Group >= 0:
-			n := 3
-			for _, d := range p.Groups[c.Group].Rows {
+			g := p.Groups[c.Group]
+			n := 4
+			if g.Fine != "" {
+				n += 2
+			}
+			for _, d := range g.Rows {
 				n += 2 + len(d.Diff)
+				if d.Why != "" {
+					n += 2
+				}
 				if d.Pins != nil {
-					n += 3
+					n += 2
+					if d.Pins.Open {
+						n += len(d.Pins.Rows) + 2
+					}
 				}
 			}
 			return n
 		case c.Fold == "notjudged":
-			return 3 + len(p.NotJudged)
+			return 6 + 2*len(p.NotJudged)
 		case c.Fold == "builtin":
-			return 3 + len(p.BuiltIn)
+			return 6 + len(p.BuiltIn)
 		}
-		return 2
+		return 3
 	}
 	stacks := make([][]gtCardRef, 2)
 	var h [2]int
@@ -363,12 +397,13 @@ func (h *handler) gtGroupOf(g templates.GroupView, baseNeedsRef, admin bool, ran
 			}
 		}
 		gg.Note = noteChoose(order, counts)
+		gg.Fine = "Differences are shown against variant A until you choose. Nothing can be applied without a reference."
 	} else {
 		gg.Note = gtNoteOf(g, baseNeedsRef, q, h)
 	}
 
+	variantShown := map[int]bool{} // the diff of a variant is listed once, under its first device
 	canApply := admin && g.Reference != nil
-	pinsOpen := true
 	for _, d := range g.Devices {
 		row := gtDevice{ID: d.ID, Name: d.Name, Href: h.devHrefOf(d.ID), Meta: "live", WantWord: "reference", At: time.Time{}}
 		if d.Source == templates.SourceBackup {
@@ -405,14 +440,14 @@ func (h *handler) gtGroupOf(g templates.GroupView, baseNeedsRef, admin bool, ran
 			differ++
 			row.Pick = canApply
 			if d.Reading.Template != nil && refT != nil {
-				row.Pins = gtPinTable(fam, d.Name, *refT, *d.Reading.Template, pinsOpen)
-				pinsOpen = false
+				row.Pins = gtPinTable(fam, d.Name, *refT, *d.Reading.Template, false)
 			}
 		case g.Reference == nil && live:
 			i := variant[d.Reading.Template.Fingerprint()]
 			row.Chip, row.Tone = "Variant "+variantLetter(i), ui.ToneNeutral
 			row.WantWord = "variant A"
-			if i > 0 && firstLive != nil {
+			if i > 0 && firstLive != nil && !variantShown[i] {
+				variantShown[i] = true
 				if diff, err := policy.DiffTemplates(g.Key.Family, *d.Reading.Template, *firstLive); err == nil {
 					row.Diff = gtDiffLines(diff)
 				}
@@ -423,8 +458,21 @@ func (h *handler) gtGroupOf(g templates.GroupView, baseNeedsRef, admin bool, ran
 		}
 		gg.Rows = append(gg.Rows, row)
 	}
+	if differ == 1 { // one device differs: its pin table is open, with more it stays a line to open
+		for i := range gg.Rows {
+			if gg.Rows[i].Pins != nil {
+				gg.Rows[i].Pins.Open = true
+			}
+		}
+	}
 	if canApply && differ > 0 {
 		gg.Apply = &gtApply{FormID: "gt-f-" + strconv.Itoa(rank), N: differ, Fields: gtGroupFields(g.Key, refID, g.Reference.How)}
+		// The devices without a tick box go along, so the preview can say why each one is not included.
+		for _, row := range gg.Rows {
+			if !row.Pick {
+				gg.Apply.Fields = append(gg.Apply.Fields, ui.KVRow{Key: "pick", Value: devStr(row.ID)})
+			}
+		}
 	}
 	return gg, differ, cannot
 }
@@ -654,7 +702,7 @@ func (h *handler) gtPreviewRender(w http.ResponseWriter, r *http.Request, req te
 func (h *handler) gtPreviewOf(pv templates.Preview, req templates.Request, how string, v view) gtPreview {
 	fam := string(req.Group.Family)
 	p := gtPreview{Base: v.Base, CSRF: v.CSRF, Group: req.Group.Name, Ref: pv.Reference.Name, RefHref: h.devHrefOf(pv.Reference.ID),
-		RefHow: "Chosen", RefAt: pv.Reference.ReadAt, Digest: pv.Digest, Backup: pv.BackupLine, Restart: pv.RestartLine, N: len(pv.Rows),
+		RefHow: "Chosen", RefAt: pv.Reference.ReadAt, Digest: pv.Digest, Backup: pv.BackupLine, Restart: strings.TrimPrefix(pv.RestartLine, "Each device restarts once. "), N: len(pv.Rows),
 		Count: plural(len(pv.Rows), "device"), Cancel: policyTemplatesPath}
 	if how == string(policy.RefMostCommon) {
 		p.RefHow = "Most common"

@@ -1053,7 +1053,7 @@ func (h *handler) batchPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nav := "transactions"
-	if p.Policy {
+	if p.Policy || p.Template {
 		nav = "policy" // started from the policy page: Devices / Policy / TX-…
 	}
 	v := h.view(r, p.ID, nav, nil)
@@ -1087,7 +1087,8 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 		p.Template, p.Policy = true, false
 		p.Title = "Apply GPIO template"
 		p.SubPre, p.SubAt = "started from Policy by "+who+" on ", first.CreatedAt
-		p.SubPost = " · " + plural(b.Total, "device") + ", one at a time"
+		p.SubPost = " · " + h.templateFacts(r, b.Batch) + plural(b.Total, "device") + ", one at a time"
+		p.Bar.Stopped = b.Canceled
 		p.CancelText = "The device being changed finishes its current step; the " + plural(b.Queued, "queued device") + " will not be started."
 		// A failed template is not re-run: the person checks the devices again and gets a fresh preview.
 		p.RetryN = 0

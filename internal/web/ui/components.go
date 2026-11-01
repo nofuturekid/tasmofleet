@@ -268,6 +268,8 @@ type TxnData struct {
 	ID, Title, State, Summary, Href string
 	StateTone                       Tone
 	OK, Failed, Active, Total       int
+	// Stopped devices were never started (a template transaction stops after the first failure); drawn grey.
+	Stopped int
 }
 
 // TxnRowData is one row of the transaction history.
@@ -384,8 +386,8 @@ func complianceSegments(match, deviate, unknown int) []barSeg {
 // txnSegments are the transaction bar's parts: succeeded, failed, running. The devices still
 // waiting (Total minus the three) are the empty rest of the bar, as in the prototype.
 func txnSegments(t TxnData) []barSeg {
-	rest := max(t.Total-t.OK-t.Failed-t.Active, 0)
-	segs := segments(1, part{t.OK, ToneOK}, part{t.Failed, ToneDanger}, part{t.Active, ToneAccent}, part{rest, toneRest})
+	rest := max(t.Total-t.OK-t.Failed-t.Active-t.Stopped, 0)
+	segs := segments(1, part{t.OK, ToneOK}, part{t.Failed, ToneDanger}, part{t.Active, ToneAccent}, part{t.Stopped, ToneNeutral}, part{rest, toneRest})
 	out := segs[:0]
 	for _, s := range segs {
 		if s.Tone != toneRest {

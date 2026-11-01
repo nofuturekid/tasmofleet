@@ -233,8 +233,9 @@ func TestTemplateTransactionShowsStepsStopAndCheckAgain(t *testing.T) {
 		{ID: 2, BatchID: 9, DeviceID: 2, Kind: model.KindTemplate, Commands: cmd, State: model.JobFailed, LastError: "the device did not answer in time", CreatedAt: now},
 		{ID: 3, BatchID: 9, DeviceID: 3, Kind: model.KindTemplate, Commands: cmd, State: model.JobCancelled, LastError: "Nothing was sent: the transaction stopped after job 2 failed", CreatedAt: now},
 	}
+	e.aud.Record(t.Context(), model.AuditEvent{Action: "policy.template.start", Target: "transaction:9", Detail: `{"group":"esp8266 Gosund SP111","reference":1,"how":"chosen"}`})
 	_, body := e.do(t, "GET", "/transactions/9", "admin", nil)
-	for _, want := range []string{"<h1>Apply GPIO template</h1>", "started from Policy by adam on ", "<b>1</b> applied", "<b>1</b> stopped", "Check again…", ">Applied<", ">Not started<",
+	for _, want := range []string{"Gosund SP111, reference kitchen (chosen) · 3 devices, one at a time", "<h1>Apply GPIO template</h1>", "started from Policy by adam on ", "<b>1</b> applied", "<b>1</b> stopped", "Check again…", ">Applied<", ">Not started<",
 		"Nothing was sent to this device", "Its backup from this run can be restored", `Template {&#34;NAME&#34;:&#34;Gosund SP111&#34;,…}`, "1 applied · 1 failed · 1 stopped"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the template page lacks %q", want)
