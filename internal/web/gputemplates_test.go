@@ -112,12 +112,16 @@ func TestGPIOTemplatesTabIsReadOnlyForOperators(t *testing.T) {
 	if r.StatusCode != 403 {
 		t.Errorf("operator preview: %d, want 403", r.StatusCode)
 	}
-	// the preview changes nothing, so "Check again…" can link to it; it is still admin-only
-	if r, _ := e.do(t, "GET", "/policy/templates/preview?family=esp8266&name=Gosund+SP111&ref=10&pick=12", "operator", nil); r.StatusCode != 403 {
-		t.Errorf("operator GET preview: %d, want 403", r.StatusCode)
+	// The preview and "Read again" read devices live: only POST (with the CSRF token), never a GET a page can be made to send.
+	for _, path := range []string{"/policy/templates/preview", "/policy/templates/read", "/policy/templates/apply"} {
+		for _, role := range []string{"operator", "admin"} {
+			if r, _ := e.do(t, "GET", path+"?family=esp8266&name=Gosund+SP111&ref=10&pick=12", role, nil); r.StatusCode != 404 && r.StatusCode != 405 { // the app answers a wrong method with its 404 page
+				t.Errorf("%s GET %s: %d, want the route not to answer a GET", role, path, r.StatusCode)
+			}
+		}
 	}
-	if r, body := e.do(t, "GET", "/policy/templates/preview?family=esp8266&name=Gosund+SP111&ref=10&how=chosen&pick=12", "admin", nil); r.StatusCode != 200 || !strings.Contains(body, "Back up, apply and restart 1 device") {
-		t.Errorf("admin GET preview: %d\n%s", r.StatusCode, body)
+	if fake.refreshed || fake.gotPrev != nil || fake.gotApply != nil {
+		t.Error("a GET read the devices live or applied something")
 	}
 	f := fake
 	r, _ = e.do(t, "POST", "/policy/templates/apply", "operator", url.Values{"csrf": {"tok"}, "family": {"esp8266"}, "name": {"Gosund SP111"}, "ref": {"10"}, "pick": {"12"}, "confirm": {"1"}, "digest": {"abc123"}})

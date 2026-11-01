@@ -3,7 +3,6 @@ package web
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -223,19 +222,26 @@ func (h *handler) templateBackup(r *http.Request, j model.Job) tmplBackup {
 	return tmplBackup{At: best.TakenAt, Href: httpBase(r) + "/devices/" + devStr(j.DeviceID) + "/backups"}
 }
 
-// templateCheckAgain is the address of "Check again…": the preview of the same group and reference for
-// the devices of the transaction, read afresh (the preview drops those that match now or cannot take
-// the template, and the new digest covers what it finds). The group and reference come from the
-// transaction's start record; without it the link opens the tab.
-func (h *handler) templateCheckAgain(r *http.Request, batch model.BatchID, jobs []jobView) string {
+// checkAgain is "Check again…": a POST form to the preview of the same group and reference for the
+// devices of the transaction. The preview reads the devices live, so it is never a plain link.
+type checkAgain struct {
+	Action string
+	Fields []ui.KVRow
+}
+
+// templateCheckAgain builds it from the transaction's start record (the group and the reference).
+// Without the record the form cannot name a group, and "Check again…" opens the tab instead (Action
+// is then the tab's address and Fields stay empty: the templ draws a link).
+func (h *handler) templateCheckAgain(r *http.Request, batch model.BatchID, jobs []jobView) checkAgain {
 	d, ok := h.templateStartOf(r, batch)
 	family, name, cut := strings.Cut(d.Group, " ")
 	if !ok || !cut || d.Reference <= 0 {
-		return policyTemplatesPath
+		return checkAgain{Action: policyTemplatesPath}
 	}
-	q := url.Values{"family": {family}, "name": {name}, "ref": {strconv.FormatInt(d.Reference, 10)}, "how": {d.How}}
+	c := checkAgain{Action: policyTemplatesPath + "/preview", Fields: []ui.KVRow{{Key: "family", Value: family}, {Key: "name", Value: name},
+		{Key: "ref", Value: strconv.FormatInt(d.Reference, 10)}, {Key: "how", Value: d.How}}}
 	for _, j := range jobs {
-		q.Add("pick", devStr(j.Job.DeviceID))
+		c.Fields = append(c.Fields, ui.KVRow{Key: "pick", Value: devStr(j.Job.DeviceID)})
 	}
-	return policyTemplatesPath + "/preview?" + q.Encode()
+	return c
 }

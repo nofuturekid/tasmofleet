@@ -1071,7 +1071,7 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 	// devices in the order they were added to the transaction (the store lists the newest first)
 	sort.SliceStable(b.Jobs, func(i, j int) bool { return b.Jobs[i].Job.ID < b.Jobs[j].Job.ID })
 	first := b.Jobs[0].Job
-	p := txnPage{Base: b.Base, Batch: b.Batch, ID: txID(b.Batch), Title: txTitle(first, b.Total), Policy: first.IsPolicy(), Active: b.Active,
+	p := txnPage{CSRF: h.d.Guard.CSRFToken(r), Base: b.Base, Batch: b.Batch, ID: txID(b.Batch), Title: txTitle(first, b.Total), Policy: first.IsPolicy(), Active: b.Active,
 		Total: b.Total, Done: b.Done, Running: b.Running, Queued: b.Queued, Failed: b.Failed, Canceled: b.Canceled, CancelPending: b.CancelPending,
 		RetryOf: b.RetryOf, RetriedBy: b.RetriedBy}
 	p.State, p.StateTone = txResult(b.Done, b.Running, b.Queued, b.Failed, b.Canceled)
@@ -1094,7 +1094,8 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 		p.RetryN = 0
 		p.State = strings.NewReplacer("done", "applied", "cancelled", "stopped").Replace(p.State)
 		if !b.Active && b.Failed+b.Canceled > 0 {
-			p.CheckAgain = b.Base + h.templateCheckAgain(r, b.Batch, b.Jobs)
+			c := h.templateCheckAgain(r, b.Batch, b.Jobs)
+			p.CheckAgain = &c
 		}
 	case p.Policy:
 		changes := 0

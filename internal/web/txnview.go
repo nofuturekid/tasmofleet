@@ -303,7 +303,7 @@ type txnPage struct {
 	SubAt      time.Time
 	SubPost    string
 	TCards     []tmplCard
-	CheckAgain string // address of "Check again…" ("" = none)
+	CheckAgain *checkAgain // "Check again…" (nil = none)
 }
 
 // txnRow is one device of a transaction; the row links to its log.

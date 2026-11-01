@@ -41,8 +41,7 @@ func (h *handler) registerGPIOTemplates(route func(string, func(http.Handler) ht
 		}
 		h.gtRender(w, r, true)
 	})
-	// The preview changes nothing, so it also answers GET: "Check again…" on a transaction is a link to it.
-	route("GET "+policyTemplatesPath+"/preview", adm, h.gtPreview)
+	// POST only: the preview reads the devices live, so it is not a link anyone can send (CSRF).
 	route("POST "+policyTemplatesPath+"/preview", adm, h.gtPreview)
 	route("POST "+policyTemplatesPath+"/apply", adm, h.gtApply)
 }
@@ -654,14 +653,14 @@ type gtPreview struct {
 }
 
 func parseGroupKey(r *http.Request) (policy.GroupKey, model.DeviceID, []model.DeviceID, bool) {
-	k := policy.GroupKey{Family: model.ChipFamily(r.Form.Get("family")), Name: r.Form.Get("name")}
-	n, err := strconv.ParseInt(r.Form.Get("ref"), 10, 64)
+	k := policy.GroupKey{Family: model.ChipFamily(r.PostForm.Get("family")), Name: r.PostForm.Get("name")}
+	n, err := strconv.ParseInt(r.PostForm.Get("ref"), 10, 64)
 	if k.Family == "" || k.Name == "" || err != nil || n <= 0 {
 		return k, 0, nil, false
 	}
 	var ids []model.DeviceID
 	seen := map[model.DeviceID]bool{}
-	for _, s := range r.Form["pick"] {
+	for _, s := range r.PostForm["pick"] {
 		if m, err := strconv.ParseInt(s, 10, 64); err == nil && m > 0 && !seen[model.DeviceID(m)] {
 			seen[model.DeviceID(m)] = true
 			ids = append(ids, model.DeviceID(m))
@@ -681,7 +680,7 @@ func (h *handler) gtForm(w http.ResponseWriter, r *http.Request) (templates.Requ
 		h.message(w, r, http.StatusBadRequest, h.view(r, "Nothing to apply", "policy", "Choose a group, a reference and at least one device on the GPIO templates tab."))
 		return templates.Request{}, false
 	}
-	return templates.Request{Group: k, Reference: ref, Devices: ids, Chosen: r.Form.Get("how") == string(policy.RefChosen)}, true
+	return templates.Request{Group: k, Reference: ref, Devices: ids, Chosen: r.PostForm.Get("how") == string(policy.RefChosen)}, true
 }
 
 func (h *handler) gtPreview(w http.ResponseWriter, r *http.Request) {
@@ -700,7 +699,7 @@ func (h *handler) gtPreviewRender(w http.ResponseWriter, r *http.Request, req te
 	}
 	v := h.view(r, "Apply GPIO template", "policy", nil)
 	v.Crumbs = []ui.Crumb{{Label: "Devices", Path: "/devices"}, {Label: "Policy", Path: policyPath}, {Label: "GPIO templates", Path: policyTemplatesPath}, {Label: "Apply"}}
-	p := h.gtPreviewOf(pv, req, r.Form.Get("how"), v)
+	p := h.gtPreviewOf(pv, req, r.PostForm.Get("how"), v)
 	p.Stale, p.NeedTick = stale, needTick
 	h.show(w, r, status, "policy_templates_preview", v, gpioPreviewPage(p))
 }

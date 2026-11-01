@@ -246,8 +246,10 @@ func TestTemplateTransactionShowsStepsStopAndCheckAgain(t *testing.T) {
 	if strings.Contains(body, "Retry failed") {
 		t.Error("a template transaction is checked again, not retried")
 	}
-	// "Check again…" opens a fresh preview of the same group and reference for the devices of the transaction
-	for _, want := range []string{`/policy/templates/preview?`, "family=esp8266", "name=Gosund+SP111", "ref=1", "how=chosen", "pick=1", "pick=2", "pick=3"} {
+	// "Check again…" is a POST form (the preview reads devices live, so never a link) to the preview of the
+	// same group and reference for the devices of the transaction
+	for _, want := range []string{`method="post" action="/tf/policy/templates/preview"`, `name="csrf" value="tok"`, `name="family" value="esp8266"`, `name="name" value="Gosund SP111"`,
+		`name="ref" value="1"`, `name="how" value="chosen"`, `name="pick" value="1"`, `name="pick" value="2"`, `name="pick" value="3"`, ">Check again…</button>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Check again lacks %q", want)
 		}

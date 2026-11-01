@@ -123,3 +123,15 @@ test("template transaction: operators cannot cancel or retry it", async ({ page 
   const r = await page.request.get(app.url + "/transactions/1/retry", { headers: admin });
   expect(r.status()).toBe(409);
 });
+
+// Why: the preview and "Read again" read the devices live and Apply changes them, so none may be
+// triggered cross-site: a POST without the CSRF token is refused, and a GET is not served at all.
+test("templates routes: no CSRF token is refused, a GET does nothing", async ({ page }) => {
+  const form = { family: "esp8266", name: "NOUS A1T", ref: "1", pick: "2", confirm: "1", digest: "x" };
+  for (const p of ["/policy/templates/preview", "/policy/templates/read", "/policy/templates/apply"]) {
+    const post = await page.request.post(app.url + p, { headers: admin, form });
+    expect(post.status(), "POST " + p).toBe(403);
+    const get = await page.request.get(app.url + p + "?family=esp8266&name=x&ref=1&pick=2", { headers: admin });
+    expect([404, 405], "GET " + p).toContain(get.status());
+  }
+});

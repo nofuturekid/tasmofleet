@@ -153,8 +153,16 @@ templ txnBody(p txnPage) {
 					data-dlg-dismiss="Keep running"
 				>Cancel remaining</a>
 			}
-			if p.CheckAgain != "" {
-				<a class="btn" href={ templ.SafeURL(p.CheckAgain) }>Check again…</a>
+			if p.CheckAgain != nil && len(p.CheckAgain.Fields) > 0 {
+				<form method="post" action={ templ.SafeURL(p.Base + p.CheckAgain.Action) } class="pol-inline">
+					<input type="hidden" name="csrf" value={ p.CSRF }/>
+					for _, f := range p.CheckAgain.Fields {
+						<input type="hidden" name={ f.Key } value={ f.Value }/>
+					}
+					<button type="submit" class="btn">Check again…</button>
+				</form>
+			} else if p.CheckAgain != nil {
+				<a class="btn" href={ templ.SafeURL(p.Base + p.CheckAgain.Action) }>Check again…</a>
 			}
 			if p.Template {
 				@ui.Button(ui.Btn{Label: "Back to policy", Kind: "primary", Href: p.Base + policyTemplatesPath})
