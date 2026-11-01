@@ -150,6 +150,7 @@ type Deps struct {
 	Settings     SettingsService    // optional (M2-2): per-device settings editor
 	Policy       PolicyService      // optional (M2-2): nil hides the policy view
 	PolicyFix    PolicyFix          // optional: "Make compliant" on the policy page
+	Templates    templates.Service  // optional: the GPIO templates tab of the policy page (#327; needs Policy)
 	CommandBatch PolicyFix          // optional: "Send command" to several devices (admin)
 	BackupBatch  BackupBatch        // optional: "Back up" several devices (admin)
 	Restore      RestoreService     // optional: nil without backups (M2-5)
@@ -331,6 +332,7 @@ func Handler(d Deps) (http.Handler, error) {
 	h.registerPolicyDev(route, op)
 	h.registerPolicyLivePause(route, adm)
 	h.registerPolicyFix(route, adm)
+	h.registerGPIOTemplates(route, op, adm)
 	h.registerBulkCommand(route, adm)
 	h.registerBulkAction(route, adm)
 	h.registerPolicyRules(route, op, adm)

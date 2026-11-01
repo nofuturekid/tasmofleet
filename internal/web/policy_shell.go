@@ -75,10 +75,15 @@ func (h *handler) policyHead(v view, specs []sysconfig.RuleSpec, invalid int, re
 }
 
 // policyTabs lists the tabs of the policy pages. History is the version history of the rules.
-func (h *handler) policyTabs(base, current string, rules, deviating int) []ui.Tab {
-	return []ui.Tab{
+// The GPIO templates tab (#327) is there when the service is; its badge (the devices that differ)
+// is only known on its own page, the other pages show the tab without one.
+func (h *handler) policyTabs(base, current string, rules, deviating, templates int) []ui.Tab {
+	tabs := []ui.Tab{
 		{Label: "Rules", Href: base + policyPath, Current: current == "rules", Badge: rules},
 		{Label: "Deviating devices", Href: base + policyDevPath, Current: current == "deviations", Badge: deviating},
-		{Label: "History", Href: base + policyHistoryPath, Current: current == "history"},
 	}
+	if h.d.Templates != nil {
+		tabs = append(tabs, ui.Tab{Label: "GPIO templates", Href: base + policyTemplatesPath, Current: current == "templates", Badge: templates})
+	}
+	return append(tabs, ui.Tab{Label: "History", Href: base + policyHistoryPath, Current: current == "history"})
 }

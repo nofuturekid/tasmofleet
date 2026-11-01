@@ -15185,3 +15185,292 @@ details.devcard > summary {
     grid-column: 2;
   }
 }
+
+/* GPIO templates tab, preview and transaction (#327) */
+/* tab bar: summary, when read, Read again */
+.gt-bar .gt-sum {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.gt-read {
+  font-size: 12.5px;
+  color: var(--color-text-2);
+}
+.gt-intro {
+  margin: 0 0 var(--sp-16);
+  font-size: 12.5px;
+  color: var(--color-text-2);
+}
+
+/* group card */
+.gt-card .sch h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-6);
+}
+.gt-n {
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--color-text-2);
+}
+.gt-choose {
+  color: var(--color-warn-fg);
+}
+.gt-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gt-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: var(--sp-4);
+  padding: var(--sp-8) 0;
+  border-top: var(--hair-w) solid var(--color-border);
+}
+.gt-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.gt-sel {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+.gt-main {
+  min-width: 0;
+}
+.gt-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4) var(--sp-8);
+  font-size: 13px;
+}
+.gt-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.gt-meta {
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+.gt-act {
+  margin-left: auto;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.gt-diff {
+  list-style: none;
+  margin: var(--sp-6) 0 0;
+  padding: 0;
+  font-size: 12.5px;
+}
+.gt-diff li + li {
+  margin-top: var(--sp-2);
+}
+.gt-pin {
+  display: inline-block;
+  min-width: 4.5em;
+  font: 600 12px var(--font-mono);
+}
+.gt-want {
+  color: var(--color-ok-fg);
+  font-weight: 600;
+}
+.gt-why {
+  margin: var(--sp-4) 0 0;
+  font-size: 12.5px;
+  color: var(--color-text-2);
+}
+.gt-fine {
+  margin: var(--sp-6) 0 0;
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+.gt-foot {
+  margin-top: var(--sp-10);
+}
+
+/* pin table inside a row */
+.gt-pins {
+  margin-top: var(--sp-8);
+}
+.gt-pins > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--color-text-2);
+}
+.gt-ptab {
+  width: 100%;
+  margin-top: var(--sp-6);
+  border-collapse: collapse;
+  font: 400 12px var(--font-mono);
+}
+.gt-ptab th,
+.gt-ptab td {
+  padding: 3px var(--sp-8);
+  text-align: left;
+  border-top: var(--hair-w) solid var(--color-border);
+}
+.gt-ptab thead th {
+  font: 600 11.5px var(--font-sans);
+  color: var(--color-text-2);
+  border-top: 0;
+}
+.gt-ptab tr.gt-bad td,
+.gt-ptab tr.gt-bad th {
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  font-weight: 600;
+}
+
+/* plain lists: Not judged, Built-in modules, one device, Not included */
+.gt-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+}
+.gt-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-8);
+  padding: var(--sp-6) 0;
+  border-top: var(--hair-w) solid var(--color-border);
+}
+.gt-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.gt-list .gt-why {
+  margin: 0;
+  flex: 1 1 14rem;
+}
+.gt-acts {
+  margin-top: var(--sp-10);
+}
+/* a card that is only a fold */
+.gt-fold > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+}
+.gt-fold > summary::-webkit-details-marker {
+  display: none;
+}
+.gt-fold > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin: 0 4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+.gt-fold[open] > summary::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+.gt-fold-in {
+  margin-top: var(--sp-12);
+}
+
+/* preview */
+.gt-cmd {
+  margin: var(--sp-4) 0 0;
+  padding: var(--sp-8) var(--sp-10);
+  border-radius: var(--r-code);
+  background: var(--color-surface-2);
+  font: 400 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.gt-card .sys-subhead {
+  margin: 0 0 var(--sp-4);
+}
+.gt-restart {
+  margin: 0;
+  padding: var(--sp-8) var(--sp-10);
+  border-radius: var(--r-code);
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+  font-size: 12.5px;
+}
+.gt-steps {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+.gt-steps li + li {
+  margin-top: var(--sp-6);
+}
+.gt-ptab-2 {
+  margin-top: 0;
+}
+.gt-foot-form {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.gt-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  margin-right: auto;
+  font-size: 13px;
+}
+.pol-page > .banner {
+  margin-bottom: var(--sp-16);
+}
+
+/* transaction: one card per device in column stacks; the steps are the change rows */
+.gt-txn {
+  margin-top: var(--sp-16);
+}
+.gt-step {
+  font-family: var(--font-sans);
+}
+.gt-step a {
+  font-family: var(--font-sans);
+}
+.gt-cmd-d > summary {
+  cursor: pointer;
+  font: 400 12.5px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.gt-stopped {
+  color: var(--color-text-2);
+}
+/* the pin table stays a table on a phone: three short columns fit 375px, phone cards would split each pin into a box */
+@media (max-width: 44.99rem) {
+  table.gt-ptab {
+    display: table;
+  }
+  table.gt-ptab thead {
+    display: table-header-group;
+    position: static;
+  }
+  table.gt-ptab tbody {
+    display: table-row-group;
+  }
+  table.gt-ptab tr,
+  table.gt-ptab tbody tr:hover {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  table.gt-ptab th,
+  table.gt-ptab td {
+    display: table-cell;
+    padding: 3px var(--sp-6);
+    text-align: left;
+  }
+}

@@ -103,7 +103,7 @@ func (h *handler) devRender(w http.ResponseWriter, r *http.Request, status int, 
 	if repErr == nil {
 		h.devFill(&p, rep)
 	}
-	p.Head.Tabs = h.policyTabs(v.Base, "deviations", len(st.Specs), p.Head.Fleet.Deviating)
+	p.Head.Tabs = h.policyTabs(v.Base, "deviations", len(st.Specs), p.Head.Fleet.Deviating, 0)
 	if live && repErr == nil && p.Head.Line != nil && p.Head.Line.State != "failed" {
 		v.Flash = "Live check finished · " + deviateText(p.Head.Fleet.Deviating)
 	}

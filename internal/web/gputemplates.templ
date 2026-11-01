@@ -1,0 +1,352 @@
+package web
+
+import "github.com/nofuturekid/tasmofleet/internal/web/ui"
+
+// policyTemplatesPage is GET /policy/templates: the summary bar, the groups as cards in two column
+// stacks, and the folds (Not judged, Built-in modules, Used by one device). Mockup: gpio-templates-mockup/1 and 1b.
+templ policyTemplatesPage(p gtView) {
+	<div class="pol-page">
+		@policyShell(p.Head) {
+			<div class="pol-dev-bar gt-bar">
+				<p class="gt-sum" role="status">{ p.Summary }</p>
+				if !p.ReadAt.IsZero() {
+					<span class="gt-read">Read live <time { ui.StampAttrs(p.ReadAt, ui.StampShort)... }>{ ui.StampText(p.ReadAt, ui.StampShort) }</time></span>
+				}
+				<form method="post" action={ templ.SafeURL(p.Base + policyTemplatesPath + "/read") } class="pol-inline">
+					<input type="hidden" name="csrf" value={ p.CSRF }/>
+					<button type="submit" class="btn btn-sm">Read again</button>
+				</form>
+			</div>
+			<p class="gt-intro">Devices are grouped by template name and chip family. Each group is compared against its most common template, or the one you choose; the choice is not stored.</p>
+			if p.Empty {
+				@ui.Empty("No devices yet.", "Add devices to compare their GPIO templates.")
+			} else {
+				@ui.CardStacks(2) {
+					for _, st := range p.Stacks {
+						@ui.CardStack(1) {
+							for _, c := range st {
+								if c.Group >= 0 {
+									@gtGroupCard(p, p.Groups[c.Group], c.Rank)
+								} else if c.Fold == "notjudged" {
+									@gtNotJudged(p, c.Rank)
+								} else if c.Fold == "builtin" {
+									@gtBuiltIn(p, c.Rank)
+								} else {
+									@gtOneDevice(p, c.Rank)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	</div>
+}
+
+templ gtGroupCard(p gtView, g gtGroup, rank string) {
+	<section class={ "scard", rank, "gt-card" } aria-label={ g.Title }>
+		<div class="sch">
+			<div>
+				<h2>{ g.Title } <span class="bdg t-neutral">{ g.Chip }</span> <span class="gt-n">{ g.Count }</span></h2>
+				<p class="cnote">
+					if g.Note.Choose != "" {
+						<b class="gt-choose">{ g.Note.Choose }</b>
+					}
+					{ g.Note.Text }
+					if g.Note.Back != "" {
+						<a href={ templ.SafeURL(p.Base + g.Note.Back) }>Back to most common</a>{ g.Note.Tail }
+					}
+				</p>
+			</div>
+			if g.Apply != nil {
+				<div class="cbd">
+					<button type="submit" form={ g.Apply.FormID } class="btn btn-sm btn-primary">Apply reference to { itoa(g.Apply.N) }…</button>
+				</div>
+			}
+		</div>
+		<div class="sbody sbody-plain">
+			if g.Apply != nil {
+				<form id={ g.Apply.FormID } method="post" action={ templ.SafeURL(p.Base + policyTemplatesPath + "/preview") }>
+					<input type="hidden" name="csrf" value={ p.CSRF }/>
+					for _, f := range g.Apply.Fields {
+						<input type="hidden" name={ f.Key } value={ f.Value }/>
+					}
+				</form>
+			}
+			<ul class="gt-rows">
+				for _, d := range g.Rows {
+					@gtRow(p, g, d)
+				}
+			</ul>
+		</div>
+	</section>
+}
+
+templ gtRow(p gtView, g gtGroup, d gtDevice) {
+	<li class="gt-row">
+		if d.Pick && g.Apply != nil {
+			<label class="hit gt-sel"><input type="checkbox" name="pick" value={ devStr(d.ID) } form={ g.Apply.FormID } checked aria-label={ "Apply the reference to " + d.Name }/></label>
+		} else {
+			<span class="gt-sel" aria-hidden="true"></span>
+		}
+		<div class="gt-main">
+			<div class="gt-line">
+				<a class="mono gt-name" href={ templ.SafeURL(p.Base + d.Href) }>{ d.Name }</a>
+				if d.Chip != "" {
+					{ " " }
+					@ui.Badge(d.Tone, d.Chip)
+				}
+				<span class="gt-meta">
+					{ d.Meta }
+					if !d.At.IsZero() {
+						{ " " }<time { ui.StampAttrs(d.At, ui.StampShort)... }>{ ui.StampText(d.At, ui.StampShort) }</time>
+					}
+				</span>
+				if d.UseRef != "" {
+					<a class="gt-act" href={ templ.SafeURL(p.Base + d.UseRef) }>Use as reference</a>
+				}
+			</div>
+			if len(d.Diff) > 0 {
+				<ul class="gt-diff">
+					for _, l := range d.Diff {
+						<li><span class="gt-pin">{ l.Pin }</span> has <span class="mono pol-dev-bad">{ l.Have }</span>, { d.WantWord } <span class="mono">{ l.Want }</span></li>
+					}
+				</ul>
+			}
+			if d.Pins != nil {
+				<details class="gt-pins" open?={ d.Pins.Open }>
+					<summary>{ d.Pins.Summary }</summary>
+					<table class="gt-ptab">
+						<thead>
+							<tr><th scope="col">Pin</th><th scope="col">Reference</th><th scope="col">{ d.Pins.Device }</th></tr>
+						</thead>
+						<tbody>
+							for _, r := range d.Pins.Rows {
+								<tr class={ templ.KV("gt-bad", r.Bad) }><th scope="row">{ r.Pin }</th><td>{ r.Ref }</td><td>{ r.Dev }</td></tr>
+							}
+						</tbody>
+					</table>
+					<p class="gt-fine">{ d.Pins.Fine }</p>
+				</details>
+			}
+			if d.Why != "" {
+				<p class="gt-why">{ d.Why }</p>
+			}
+		</div>
+	</li>
+}
+
+templ gtNotJudged(p gtView, rank string) {
+	<section class={ "scard", rank, "gt-card" } aria-label="Not judged">
+		<div class="sch">
+			<div>
+				<h2>Not judged <span class="gt-n">{ plural(len(p.NotJudged), "device") }</span></h2>
+				<p class="cnote">No live reading and no backup, or nothing to compare against.</p>
+			</div>
+		</div>
+		<div class="sbody sbody-plain">
+			<ul class="gt-list">
+				for _, d := range p.NotJudged {
+					<li><a class="mono" href={ templ.SafeURL(p.Base + d.Href) }>{ d.Name }</a><span class="gt-why">{ d.Why }</span></li>
+				}
+			</ul>
+			if p.CanBackup && len(p.BackupIDs) > 0 {
+				<form method="post" action={ templ.SafeURL(p.Base + "/devices/bulk/backup") } class="gt-acts">
+					<input type="hidden" name="csrf" value={ p.CSRF }/>
+					for _, id := range p.BackupIDs {
+						<input type="hidden" name="id" value={ devStr(id) }/>
+					}
+					<button type="submit" class="btn btn-sm">Back up these { itoa(len(p.BackupIDs)) }</button>
+				</form>
+			}
+		</div>
+	</section>
+}
+
+templ gtBuiltIn(p gtView, rank string) {
+	<section class={ "scard", rank, "gt-card" } aria-label="Built-in modules">
+		<details class="gt-fold" open>
+			<summary><span><b>Built-in modules</b> <span class="gt-n">{ plural(len(p.BuiltIn), "device") }</span></span></summary>
+			<div class="gt-fold-in">
+				<ul class="gt-list">
+					for _, d := range p.BuiltIn {
+						<li><a class="mono" href={ templ.SafeURL(p.Base + d.Href) }>{ d.Name }</a><span class="gt-why">{ d.Why }</span></li>
+					}
+				</ul>
+				<p class="gt-fine">These use a built-in module, not a template; they are listed only. Switching them to a template would also clear their per-pin settings.</p>
+			</div>
+		</details>
+	</section>
+}
+
+templ gtOneDevice(p gtView, rank string) {
+	<section class={ "scard", rank, "gt-card" } aria-label="Used by one device">
+		<details class="gt-fold">
+			<summary><span><b>Used by one device</b> <span class="gt-n">{ plural(len(p.OneDevice), "template") }</span></span></summary>
+			<div class="gt-fold-in">
+				<ul class="gt-list">
+					for _, d := range p.OneDevice {
+						<li><span>{ d.Title }</span> <span class="bdg t-neutral">{ d.Chip }</span><a class="mono" href={ templ.SafeURL(p.Base + d.Href) }>{ d.Name }</a></li>
+					}
+				</ul>
+			</div>
+		</details>
+	</section>
+}
+
+// gpioPreviewPage is POST /policy/templates/preview: what will be sent to each device, nothing sent
+// yet. Mockup: gpio-templates-mockup/2.
+templ gpioPreviewPage(p gtPreview) {
+	<div class="pol-page">
+		@ui.PageHeader(p.Title, "Nothing has been changed on any device yet. These are the exact commands; each device is backed up first and restarts once.") {
+		}
+		if p.Stale {
+			@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: "The devices changed since you looked: this is the new plan. Check it and confirm again.", Alert: true})
+		}
+		if p.NeedTick {
+			@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: "Tick the box to confirm that these devices may restart.", Alert: true})
+		}
+		if p.N == 0 {
+			@ui.Empty("Nothing to apply.", "No selected device can be sent the template: they already match, or cannot take it.")
+			<div class="pol-fix-foot"><a class="btn" href={ templ.SafeURL(p.Base + p.Cancel) }>Back to GPIO templates</a></div>
+			@gtExcluded(p)
+		} else {
+			<div class="banner tone-warn" role="status">
+				<span class="banner-dot"></span>
+				<div class="banner-text"><b>{ p.Count } restart.</b> { p.Restart }</div>
+			</div>
+			@ui.CardStacks(3) {
+				@ui.CardStack(2) {
+					for i, r := range p.Rows {
+						@gtPrevCard(p, r, "r" + itoa(i+2))
+					}
+				}
+				@ui.CardStack(1) {
+					@gtWhatHappens(p)
+					@gtReferenceCard(p)
+					@gtExcluded(p)
+				}
+			}
+			<form method="post" action={ templ.SafeURL(p.Base + policyTemplatesPath + "/apply") } class="pol-fix-foot gt-foot-form">
+				<input type="hidden" name="csrf" value={ p.CSRF }/>
+				<input type="hidden" name="digest" value={ p.Digest }/>
+				for _, f := range p.Fields {
+					<input type="hidden" name={ f.Key } value={ f.Value }/>
+				}
+				<label class="gt-confirm"><input type="checkbox" name="confirm" value="1" required/> I checked the changes; { p.Count } may restart now.</label>
+				<a class="btn" href={ templ.SafeURL(p.Base + p.Cancel) }>Cancel</a>
+				<button type="submit" class="btn btn-primary">Back up, apply and restart { p.Count }</button>
+			</form>
+		}
+	</div>
+}
+
+templ gtPrevCard(p gtPreview, r gtPrevRow, rank string) {
+	<section class={ "scard", rank, "gt-card" } aria-label={ r.Name }>
+		<div class="sch">
+			<div>
+				<h2><a href={ templ.SafeURL(p.Base + r.Href) }>{ r.Name }</a></h2>
+				<p class="cnote">{ r.Meta } <time { ui.StampAttrs(r.ReadAt, ui.StampShort)... }>{ ui.StampText(r.ReadAt, ui.StampShort) }</time></p>
+			</div>
+		</div>
+		<div class="sbody sbody-plain">
+			<div>
+				<h3 class="sys-subhead">Changes</h3>
+				<ul class="gt-diff">
+					for _, l := range r.Diff {
+						<li><span class="gt-pin">{ l.Pin }</span> <span class="mono">{ l.Have }</span> → <span class="mono gt-want">{ l.Want }</span></li>
+					}
+				</ul>
+			</div>
+			<div>
+				<h3 class="sys-subhead">Sends</h3>
+				<pre class="gt-cmd">{ r.Cmd }</pre>
+				<p class="gt-fine"><span class="mono">Module 0</span> is not sent: the device already runs its template.</p>
+			</div>
+			if r.Warning != "" {
+				<p class="gt-restart">{ r.Warning }</p>
+			}
+			<p class="gt-restart"><b>Restarts once.</b> Relays can switch while the pins change. { r.Restart }</p>
+		</div>
+	</section>
+}
+
+templ gtWhatHappens(p gtPreview) {
+	<section class="scard r1 gt-card" aria-label="What happens">
+		<div class="sch">
+			<div>
+				<h2>What happens</h2>
+				<p class="cnote">One device at a time, in this order.</p>
+			</div>
+		</div>
+		<div class="sbody sbody-plain">
+			<ol class="gt-steps">
+				<li><b>Backup first.</b> { p.Backup }</li>
+				<li><b>Read again.</b> Module and Template are read live; if they changed since this preview, the device is left alone.</li>
+				<li><b>Send and restart.</b> The command is sent; the device restarts once to use the new pins.</li>
+				<li><b>Verify.</b> Up to 2 minutes for the device to come back with exactly the reference template.</li>
+			</ol>
+			<p class="gt-restart"><b>If a device fails, the rest are not started.</b> Its backup stays on the device's Backups tab for a restore.</p>
+		</div>
+	</section>
+}
+
+templ gtReferenceCard(p gtPreview) {
+	<section class="scard gt-card" aria-label="Reference">
+		<div class="sch">
+			<div>
+				<h2>Reference</h2>
+				<p class="cnote">{ p.RefHow }: <a class="mono" href={ templ.SafeURL(p.Base + p.RefHref) }>{ p.Ref }</a>, read live <time { ui.StampAttrs(p.RefAt, ui.StampShort)... }>{ ui.StampText(p.RefAt, ui.StampShort) }</time></p>
+			</div>
+		</div>
+		<div class="sbody sbody-plain">
+			<table class="gt-ptab gt-ptab-2">
+				<thead>
+					<tr><th scope="col">Pin</th><th scope="col">Function</th></tr>
+				</thead>
+				<tbody>
+					for _, r := range p.RefPins {
+						<tr><th scope="row">{ r.Pin }</th><td>{ r.Ref }</td></tr>
+					}
+				</tbody>
+			</table>
+			<p class="gt-fine">{ p.RefFine }</p>
+		</div>
+	</section>
+}
+
+templ gtExcluded(p gtPreview) {
+	if len(p.Excluded) > 0 {
+		<section class="scard gt-card" aria-label="Not included">
+			<div class="sch">
+				<div>
+					<h2>Not included <span class="gt-n">{ plural(len(p.Excluded), "device") }</span></h2>
+				</div>
+			</div>
+			<div class="sbody sbody-plain">
+				<ul class="gt-list">
+					for _, e := range p.Excluded {
+						<li><a class="mono" href={ templ.SafeURL(p.Base + e.Href) }>{ e.Name }</a><span class="gt-why">{ e.Why }</span></li>
+					}
+				</ul>
+			</div>
+		</section>
+	}
+}
+
+// gpioStartedPage answers Apply when the engine left devices out; otherwise the answer is the transaction page.
+templ gpioStartedPage(base string, s fixStarted) {
+	<div class="pol-page">
+		@ui.PageHeader("Apply GPIO template", "Transaction "+txID(s.Batch)+" was started.") {
+			<a class="btn btn-primary" href={ templ.SafeURL(base + "/transactions/" + vstr(int64(s.Batch))) }>Open the transaction</a>
+			<a class="btn" href={ templ.SafeURL(base + policyTemplatesPath) }>Back to GPIO templates</a>
+		}
+		@ui.Card("Left out", "These devices were not included.") {
+			<ul class="pol-fix-left">
+				for _, x := range s.Skipped {
+					<li>{ x.Label }: { x.Reason }</li>
+				}
+			</ul>
+		}
+	</div>
+}

@@ -269,7 +269,7 @@ func (h *handler) policyData(r *http.Request, v view, o policyOpts) (policyView,
 	p.Head = h.policyHead(v, valid, len(invalid), rep, repErr)
 	p.Head.HasVersions = len(st.History) > 0
 	p.Head.Show = p.HasRules || p.Head.HasVersions
-	p.Head.Tabs = h.policyTabs(v.Base, "rules", len(st.Specs), p.Head.Fleet.Deviating)
+	p.Head.Tabs = h.policyTabs(v.Base, "rules", len(st.Specs), p.Head.Fleet.Deviating, 0)
 	if repErr == nil {
 		p.Alert = requiredAlert(rep, st.Specs)
 		if p.Admin && h.d.PolicyFix != nil {
