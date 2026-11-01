@@ -621,7 +621,7 @@ func TestSetupTokenSurvivesFormErrorsAndStaysPrivate(t *testing.T) {
 	}
 	b := e.browser()
 	r := b.get("/setup/account?token=" + url.QueryEscape(tok))
-	if got := r.hdr.Get("Referrer-Policy"); got != "no-referrer" {
+	if got := r.hdr.Get("Referrer-Policy"); got != "origin" {
 		t.Errorf("Referrer-Policy on the setup page = %q", got)
 	}
 	csrf := b.cookie(CookieInsecure + "-csrf")
@@ -717,5 +717,40 @@ func TestSetupLinkIgnoresACreatorNamedFirstStart(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "token=") {
 		t.Errorf("restart printed a setup link for it: %s", logs.String())
+	}
+}
+
+// Why (#429): on plain HTTP via an IP a browser sends no Sec-Fetch-Site, so the
+// CSRF check falls back to the Origin header. Under the Fetch spec a form POST
+// from a page with Referrer-Policy no-referrer carries "Origin: null", which
+// the check rightly rejects, so the first-run setup could not be finished. The
+// setup page must therefore use a policy under which the browser serialises a
+// real Origin (same-origin POST), while "Origin: null" and foreign origins
+// stay rejected: the protection is not loosened.
+func TestSetupFormWorksOverPlainHTTPWithoutFetchMetadata(t *testing.T) {
+	e, _, _, tok, _ := setupEnv(t)
+	b := e.browser()
+	page := b.get("/setup/account?token=" + url.QueryEscape(tok))
+	policy := page.hdr.Get("Referrer-Policy")
+	// Fetch spec, "serializing a request origin": no-referrer gives "null";
+	// any other policy keeps the origin on a same-origin non-CORS POST.
+	browserOrigin := e.srv.URL
+	if policy == "no-referrer" {
+		browserOrigin = "null"
+	}
+	const pw = "plain http first password"
+	form := func() url.Values {
+		return url.Values{"csrf": {b.cookie(CookieInsecure + "-csrf")}, "token": {tok}, "password": {pw}, "confirm": {pw}}
+	}
+	noFetchMeta := func(origin string) map[string]string {
+		return map[string]string{"Sec-Fetch-Site": "", "Origin": origin}
+	}
+	for _, bad := range []string{"null", "http://evil.example"} {
+		if r := b.do(http.MethodPost, "/setup/account", form(), noFetchMeta(bad)); r.code != http.StatusForbidden || !strings.Contains(r.body, "cross-origin") {
+			t.Fatalf("Origin %q must stay rejected: %d %q", bad, r.code, r.body)
+		}
+	}
+	if r := b.do(http.MethodPost, "/setup/account", form(), noFetchMeta(browserOrigin)); r.code != http.StatusSeeOther || r.loc != "/setup" {
+		t.Fatalf("setup POST as the browser sends it (policy %q, Origin %q): %d %q %q", policy, browserOrigin, r.code, r.loc, r.body)
 	}
 }

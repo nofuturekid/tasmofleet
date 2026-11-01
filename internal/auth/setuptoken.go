@@ -135,13 +135,18 @@ func (s *Service) restoreSetupToken(claimed []byte) {
 	s.setupMu.Unlock()
 }
 
-// noReferrer keeps the token in the page URL out of Referer headers, also
-// same-origin ones (the global policy is same-origin).
-func noReferrer(w http.ResponseWriter) { w.Header().Set("Referrer-Policy", "no-referrer") }
+// setupReferrerPolicy keeps the token in the page URL out of Referer headers,
+// also same-origin ones (the global policy is same-origin): "origin" sends
+// only scheme://host, never path or query. It must not be no-referrer: the
+// Fetch spec then serialises a form POST's Origin as "null", which the CSRF
+// check rejects on plain HTTP, where browsers send no Sec-Fetch-Site (#429).
+const setupReferrerPolicy = "origin"
+
+func setupReferrer(w http.ResponseWriter) { w.Header().Set("Referrer-Policy", setupReferrerPolicy) }
 
 // setupAccountPage is GET /setup/account?token=...
 func (s *Service) setupAccountPage(w http.ResponseWriter, r *http.Request) {
-	noReferrer(w)
+	setupReferrer(w)
 	ctx := r.Context()
 	if !s.setupPending(ctx) {
 		s.redirectLocal(w, r, "/login")
@@ -166,7 +171,7 @@ func (s *Service) setupAccountPage(w http.ResponseWriter, r *http.Request) {
 // confirm, display_name, email). The CSRF middleware has checked the form
 // token (pre-session cookie, like the sign-in).
 func (s *Service) setupAccountSubmit(w http.ResponseWriter, r *http.Request) {
-	noReferrer(w)
+	setupReferrer(w)
 	ctx := r.Context()
 	if !s.setupPending(ctx) {
 		s.redirectLocal(w, r, "/login")

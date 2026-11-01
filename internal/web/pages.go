@@ -408,7 +408,7 @@ func (p *Pages) OneTimePassword(w http.ResponseWriter, r *http.Request, status i
 
 // SetupAccount renders setup step 1 (screens setup, setup-v-tokenerr, setup-v-error, N12): without
 // a valid token where to find the link, with it the first admin's password form. The token is
-// only ever in the hidden form field; package auth sends Referrer-Policy: no-referrer.
+// only ever in the hidden form field; package auth sends Referrer-Policy: origin.
 func (p *Pages) SetupAccount(w http.ResponseWriter, r *http.Request, status int, d auth.SetupAccountData) {
 	title := "Create the first admin account"
 	if d.NeedToken {
