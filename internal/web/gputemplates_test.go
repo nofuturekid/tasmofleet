@@ -189,6 +189,10 @@ func TestGPIOTemplatesPreviewShowsCommandBackupAndRestart(t *testing.T) {
 			t.Errorf("preview misses %q", want)
 		}
 	}
+	// Apply judges the same request as the preview, or the digest (which covers the excluded devices) cannot match.
+	if !strings.Contains(body, `name="pick" value="11"`) || !strings.Contains(body, `name="pick" value="12"`) {
+		t.Error("the apply form does not carry every device of the previewed request")
+	}
 	if f.gotPrev == nil || len(f.gotPrev.Devices) != 2 {
 		t.Errorf("preview request %+v", f.gotPrev)
 	}

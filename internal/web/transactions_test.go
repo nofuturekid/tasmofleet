@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/model"
+	"github.com/nofuturekid/tasmofleet/internal/ota"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -296,5 +297,17 @@ func TestCancelAndRetryOfTemplateAndUnknownKindsAreAdminOnly(t *testing.T) {
 	j.jobs = []model.Job{{ID: 32, BatchID: 10, DeviceID: 1, State: model.JobAwaitReboot, TargetRelease: "16.1.0", CreatedAt: time.Now()}}
 	if r, _ := e.do(t, "POST", "/transactions/10/cancel", "operator", url.Values{"csrf": {"tok"}}); r.StatusCode == 403 {
 		t.Error("an operator may still cancel a firmware update")
+	}
+}
+
+// Why: if the engine refuses a retry because the transaction is a GPIO template one (which is never
+// replayed), the person gets the pointer to "Check again…", not a 500 page.
+func TestRetryRefusedByTheEngineAsNotRetryableSaysCheckAgain(t *testing.T) {
+	e, o, j, _ := setupOTA(t)
+	j.jobs = []model.Job{{ID: 40, BatchID: 11, DeviceID: 1, State: model.JobFailed, CreatedAt: time.Now()}}
+	o.retryErr = ota.ErrNotRetryable
+	r, body := e.do(t, "POST", "/transactions/11/retry", "admin", url.Values{"csrf": {"tok"}})
+	if r.StatusCode != 409 || !strings.Contains(body, "Check again") {
+		t.Fatalf("%d %s", r.StatusCode, body)
 	}
 }
