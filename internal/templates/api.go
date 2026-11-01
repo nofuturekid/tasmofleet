@@ -112,7 +112,7 @@ type Preview struct {
 	// ReferenceTemplate is the template the devices get (the reference's reading).
 	ReferenceTemplate policy.GPIOTemplate
 	// Rows are the devices that are sent the template, sorted by device id.
-	Rows      []PreviewRow
+	Rows []PreviewRow
 	// Excluded are the devices of the request that get nothing: the reference, matching devices, refusals.
 	Excluded []Excluded
 	// Applicable is len(Rows).
