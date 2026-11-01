@@ -14,6 +14,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/health"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -26,6 +27,7 @@ type overviewIn struct {
 	Health model.Health
 	Tele   health.Telemetry
 	Facts  snapFacts
+	HTTP   transport.HTTPState // the state the connection card shows (app.TransportFacts)
 	Policy *policyCard
 	Now    time.Time
 }
@@ -172,11 +174,13 @@ type reach struct {
 	MQTTOK   bool
 	LWTOff   bool
 	HTTPOK   bool
-	HTTPWord string
+	HTTPWord string // the HTTP clause of the tile, e.g. "Reachable" or "not checked lately, last answered 3d 4h ago"
+	HTTPBad  bool   // HTTP is known to fail
 }
 
-// reachOf words the channels; the Reachability tile and nothing else reads it.
-func reachOf(d model.Device, hl model.Health) reach {
+// reachOf words the channels; the Reachability tile and nothing else reads it. HTTP is the state
+// the connection card shows; a SeenHTTP of days ago must not read as "Reachable" (#416).
+func reachOf(d model.Device, hl model.Health, hs transport.HTTPState, now time.Time) reach {
 	r := reach{MQTTOn: d.MQTT == model.MQTTOurs || hl.LWT != "" || !hl.SeenMQTT.IsZero(), HTTPWord: "Not polled yet"}
 	r.MQTTOK = hl.LWT == "Online" || hl.LWT == "" && !hl.SeenMQTT.IsZero() && hl.State == model.HealthOnline
 	r.LWTOff = hl.LWT == "Offline"
@@ -185,16 +189,22 @@ func reachOf(d model.Device, hl model.Health) reach {
 		r.HTTPWord = "Refuses the stored credentials"
 	case hl.State == model.HealthOffline || hl.State == model.HealthUnknown && !hl.LastSeen.IsZero():
 		r.HTTPWord = "No response"
-	case !hl.SeenHTTP.IsZero():
-		r.HTTPWord, r.HTTPOK = "Reachable", true
+	case hs.State == transport.HTTPOK:
+		r.HTTPWord, r.HTTPOK = httpWord(hs), true
+	case hs.State == transport.HTTPFailing:
+		r.HTTPWord, r.HTTPBad = "not reachable", true
+	case hl.SeenHTTP.IsZero():
+		r.HTTPWord = "not polled yet"
+	default:
+		r.HTTPWord = "not checked lately, last answered " + humanDuration(max(now.Sub(hl.SeenHTTP), 0)) + " ago"
 	}
 	return r
 }
 
 // reachTile is Reachability: "MQTT · HTTP", "HTTP" with "MQTT not configured" for a device we do
 // not watch over MQTT, "Offline" when it does not answer.
-func reachTile(d model.Device, hl model.Health) tile {
-	r := reachOf(d, hl)
+func reachTile(d model.Device, hl model.Health, hs transport.HTTPState, now time.Time) tile {
+	r := reachOf(d, hl, hs, now)
 	tl := tile{Key: "reach", Label: "Reachability"}
 	switch {
 	case hl.State == model.HealthOffline:
@@ -217,11 +227,18 @@ func reachTile(d model.Device, hl model.Health) tile {
 	case r.MQTTOK && r.HTTPOK:
 		tl.Value, tl.Tone, tl.Sub = "MQTT · HTTP", ui.ToneOK, "Connected · Reachable"
 	case r.MQTTOK:
-		tl.Value, tl.Tone, tl.Sub = "MQTT", ui.ToneOK, "Connected · HTTP not polled yet"
-	case r.MQTTOn:
+		tl.Value, tl.Tone, tl.Sub = "MQTT", ui.ToneOK, "Connected · HTTP "+r.HTTPWord
+		if r.HTTPBad {
+			tl.Tone = ui.ToneWarn
+		}
+	case r.MQTTOn && r.HTTPOK:
 		tl.Value, tl.Tone, tl.Sub = "HTTP", ui.ToneWarn, "Reachable · MQTT not connected"
-	default:
+	case r.MQTTOn:
+		tl.Value, tl.Tone, tl.Sub = "No live link", ui.ToneWarn, "HTTP "+r.HTTPWord+" · MQTT not connected"
+	case r.HTTPOK:
 		tl.Value, tl.Tone, tl.Sub = "HTTP", ui.ToneOK, "Reachable · MQTT not configured"
+	default:
+		tl.Value, tl.Tone, tl.Sub = "No live link", ui.ToneWarn, "HTTP "+r.HTTPWord+" · MQTT not configured"
 	}
 	return tl
 }
@@ -254,7 +271,7 @@ func policyTile(c *policyCard, off bool) *tile {
 // tilesOf is the tile row in its fixed order; tiles that do not apply are left out.
 func tilesOf(in overviewIn) []tile {
 	tiles := powerTiles(in.Tele)
-	tiles = append(tiles, linkTile(in), uptimeTile(in.Health, in.Now), reachTile(in.Dev, in.Health))
+	tiles = append(tiles, linkTile(in), uptimeTile(in.Health, in.Now), reachTile(in.Dev, in.Health, in.HTTP, in.Now))
 	if p := policyTile(in.Policy, in.Health.State == model.HealthOffline); p != nil {
 		tiles = append(tiles, *p)
 	}
@@ -341,7 +358,7 @@ func sensorBoxOf(in overviewIn) *sensorBox {
 	}
 	switch {
 	case len(box.Cells) > 0:
-	case !reachOf(in.Dev, in.Health).MQTTOn:
+	case !reachOf(in.Dev, in.Health, in.HTTP, in.Now).MQTTOn:
 		box.Note = "Sensor readings come from MQTT telemetry. This device does not report to TasmoFleet's MQTT broker."
 	default:
 		box.Note = "No sensor readings yet."
@@ -497,7 +514,7 @@ func (h *handler) overviewOf(r *http.Request, v view, d model.Device, just *rela
 	}
 	facts := h.factsOf(ctx, d)
 	tele := h.telemetryOf(d.ID)
-	in := overviewIn{Dev: d, Health: hl, Tele: tele, Facts: facts, Policy: h.policyOf(r, v, d.ID), Now: h.d.Clock.Now()}
+	in := overviewIn{Dev: d, Health: hl, Tele: tele, Facts: facts, HTTP: tf.HTTP, Policy: h.policyOf(r, v, d.ID), Now: h.d.Clock.Now()}
 	off := p.Tabs.offline() // an update silences the device on purpose: that is not "offline"
 	p.Live = liveView{ActSig: p.Activity.Sig, ID: d.ID, Base: v.Base, CSRF: v.CSRF, Off: off, Tiles: tilesOf(in),
 		Box: relayBoxOf(hl, tele, d.RelayNames, h.d.DeviceCmd != nil && !off && p.Updating == nil)}

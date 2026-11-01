@@ -121,6 +121,11 @@ func TestFactsHTTPState(t *testing.T) {
 		{"success after failure", model.Health{SeenHTTP: factsNow.Add(-time.Minute)}, fakeMemory{transport.HTTPFailUnreachable, since, true},
 			transport.HTTPState{State: transport.HTTPOK}},
 		{"memory without failure", model.Health{}, fakeMemory{}, transport.HTTPState{}},
+		// #416 decision: a router HTTP success only clears the remembered failure (Memory.Clear); it
+		// does not refresh SeenHTTP, which stays "last successful health poll". So after the clear
+		// HTTP is "not checked lately" until the next poll, never "ok" on the router's say-so
+		// (a parsed error answer also clears, and proves reachability, not that HTTP works).
+		{"failure cleared by a router answer, stale poll", model.Health{SeenHTTP: factsNow.Add(-2 * time.Hour)}, fakeMemory{}, transport.HTTPState{}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

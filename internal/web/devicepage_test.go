@@ -12,6 +12,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/policy"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
 // Tests of the design v2 device tabs (WP P3): what the overview, the console, the settings,
@@ -49,6 +50,7 @@ func TestDeviceOverviewShowsTheTilesFromRealData(t *testing.T) {
 		hh.fakeHealth[1] = model.Health{DeviceID: 1, State: model.HealthOnline, LastSeen: time.Now(), SeenHTTP: time.Now(), RSSI: 78, UptimeSec: 3700, LWT: "Online", Power: map[string]string{"POWER": "ON"}}
 		d.Health, d.Policy, d.PolicyFix = hh, fp, &fakeFix{}
 		d.DeviceCmd = &fakeCmd{}
+		d.Transport = fakeFacts{f: map[model.DeviceID]transport.Facts{1: {Now: time.Now(), HTTP: transport.HTTPState{State: transport.HTTPOK}}}}
 	})
 	e.bk.list = []model.Backup{{ID: 9, DeviceID: 1, Kind: model.BackupSnapshot, TakenAt: time.Now()}}
 	e.bk.data = []byte(snapshotDoc)

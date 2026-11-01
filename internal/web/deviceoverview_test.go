@@ -16,6 +16,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/policy"
 	"github.com/nofuturekid/tasmofleet/internal/store"
+	"github.com/nofuturekid/tasmofleet/internal/transport"
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
@@ -120,18 +121,19 @@ func TestReachTileSaysWhichChannelsAnswer(t *testing.T) {
 		name       string
 		d          model.Device
 		hl         model.Health
+		http       transport.HTTPState
 		value, sub string
 		tone       ui.Tone
 	}{
-		{"both", ours, onlineHealth(nil), "MQTT · HTTP", "Connected · Reachable", ui.ToneOK},
-		{"HTTP only", model.Device{}, model.Health{State: model.HealthOnline, LastSeen: now0, SeenHTTP: now0}, "HTTP", "Reachable · MQTT not configured", ui.ToneOK},
-		{"on our broker but silent", ours, model.Health{State: model.HealthOnline, LastSeen: now0, SeenHTTP: now0}, "HTTP", "Reachable · MQTT not connected", ui.ToneWarn},
-		{"offline", ours, model.Health{State: model.HealthOffline, LastSeen: now0, LWT: "Offline"}, "Offline", "MQTT LWT offline · HTTP no answer", ui.ToneNeutral},
-		{"never answered", model.Device{}, model.Health{State: model.HealthUnknown}, "Unknown", "The device has not answered yet", ui.ToneNeutral},
+		{"both", ours, onlineHealth(nil), httpFresh, "MQTT · HTTP", "Connected · Reachable", ui.ToneOK},
+		{"HTTP only", model.Device{}, model.Health{State: model.HealthOnline, LastSeen: now0, SeenHTTP: now0}, httpFresh, "HTTP", "Reachable · MQTT not configured", ui.ToneOK},
+		{"on our broker but silent", ours, model.Health{State: model.HealthOnline, LastSeen: now0, SeenHTTP: now0}, httpFresh, "HTTP", "Reachable · MQTT not connected", ui.ToneWarn},
+		{"offline", ours, model.Health{State: model.HealthOffline, LastSeen: now0, LWT: "Offline"}, transport.HTTPState{}, "Offline", "MQTT LWT offline · HTTP no answer", ui.ToneNeutral},
+		{"never answered", model.Device{}, model.Health{State: model.HealthUnknown}, transport.HTTPState{}, "Unknown", "The device has not answered yet", ui.ToneNeutral},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := reachTile(tc.d, tc.hl)
+			got := reachTile(tc.d, tc.hl, tc.http, now0)
 			if got.Value != tc.value || got.Sub != tc.sub || got.Tone != tc.tone {
 				t.Fatalf("got %q / %q / %q", got.Value, got.Sub, got.Tone)
 			}
@@ -594,5 +596,44 @@ func TestLiveRefreshLeavesAnUnchangedActivityBoxAlone(t *testing.T) {
 	_, unknown := e.do(t, "GET", "/devices/1/live", "operator", nil)
 	if !strings.Contains(unknown, `id="devact"`) {
 		t.Error("without a signature the box is always sent")
+	}
+}
+
+var httpFresh = transport.HTTPState{State: transport.HTTPOK}
+
+// Why (#416): the tile said "Reachable" for days after ONE successful health poll since start,
+// while the card "How TasmoFleet reaches this device" (same facts) correctly said "Not checked
+// lately". Tile and card must read the same HTTP state, and an old contact shows its age.
+func TestReachTileAndConnectionCardAgreeOnHTTP(t *testing.T) {
+	ours := model.Device{MQTT: model.MQTTOurs}
+	stale := now0.Add(-3*24*time.Hour - 4*time.Hour)
+	tests := []struct {
+		name     string
+		seen     time.Time
+		http     transport.HTTPState
+		cardWord string
+		tileSub  string
+	}{
+		{"fresh", now0.Add(-time.Minute), httpFresh, "Reachable", "Connected · Reachable"},
+		{"stale", stale, transport.HTTPState{}, "Not checked lately", "Connected · HTTP not checked lately, last answered 3d 4h ago"},
+		{"never polled", time.Time{}, transport.HTTPState{}, "Not checked lately", "Connected · HTTP not polled yet"},
+		{"failing", stale, transport.HTTPState{State: transport.HTTPFailing, Kind: transport.HTTPFailUnreachable, Since: now0.Add(-time.Hour)}, "Not reachable", "Connected · HTTP not reachable"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hl := onlineHealth(nil)
+			hl.SeenHTTP = tc.seen
+			card := httpRow(transport.Facts{HTTP: tc.http, Now: now0})
+			tile := reachTile(ours, hl, tc.http, now0)
+			if card.Value != tc.cardWord {
+				t.Fatalf("card %q, want %q", card.Value, tc.cardWord)
+			}
+			if tile.Sub != tc.tileSub {
+				t.Fatalf("tile sub %q, want %q", tile.Sub, tc.tileSub)
+			}
+			if (tc.http.State == transport.HTTPOK) != (tile.Value == "MQTT · HTTP") {
+				t.Fatalf("tile %q disagrees with card %q", tile.Value, card.Value)
+			}
+		})
 	}
 }
