@@ -41,6 +41,8 @@ type settings struct {
 	// kv holds every setting changed by a command, by lower-case key
 	// ("teleperiod", "setoption3", ...). Unchanged settings replay the capture.
 	kv map[string]string
+	// tplJSON is the stored user template as JSON (tplState), "" = as captured (template.go).
+	tplJSON string
 }
 
 func (s settings) clone() settings {

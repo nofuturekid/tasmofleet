@@ -16,7 +16,8 @@ import (
 // in support.ino). State lives in the settings kv like every other setting, so it follows the same
 // RAM/flash rules; a device nobody changed replays its capture byte for byte.
 //
-//	kv["template"]  the stored user template (JSON of tplState)
+//	settings.tplJSON  the stored user template (JSON of tplState); not in kv, because it holds device-supplied
+//	                  text and kv values are concatenated into replies elsewhere (CodeQL go/unsafe-quoting)
 //	kv["module"]    the active module, "0" = the user template
 //	kv["gpio.<n>"]  Gpio override of physical pin n (only for User slots)
 //
@@ -63,12 +64,12 @@ func (d *simDevice) initTemplate() error {
 		if _, ok := d.moduleList()[t.Base]; !ok {
 			return fmt.Errorf("simulator: template base %d is not a module of this capture", t.Base)
 		}
-		d.persisted.kv["template"] = encodeTpl(tplState{Name: t.Name, GPIO: slices.Clone(t.GPIO), Flag: t.Flag, Base: t.Base})
+		d.persisted.tplJSON = encodeTpl(tplState{Name: t.Name, GPIO: slices.Clone(t.GPIO), Flag: t.Flag, Base: t.Base})
 	} else if cur, ok := d.captureTemplate(); ok && known && len(cur.GPIO) != pins {
 		// A synthetic profile changes the chip but keeps the captured pin map; fit the array so the
 		// device is at least self-consistent.
 		cur.GPIO = append(slices.Clone(cur.GPIO), make([]int, max(0, pins-len(cur.GPIO)))...)[:pins]
-		d.persisted.kv["template"] = encodeTpl(cur)
+		d.persisted.tplJSON = encodeTpl(cur)
 	}
 	if m := d.spec.Module; m != nil {
 		if _, ok := d.moduleList()[*m]; *m != 0 && !ok {
@@ -98,7 +99,7 @@ func (d *simDevice) captureTemplate() (tplState, bool) {
 }
 
 func (d *simDevice) templateLocked() (tplState, bool) {
-	if s, ok := d.runtime.kv["template"]; ok {
+	if s := d.runtime.tplJSON; s != "" {
 		var t tplState
 		if json.Unmarshal([]byte(s), &t) == nil {
 			return t, true
@@ -169,7 +170,7 @@ func (d *simDevice) templateCmdLocked(base string, idx int, hasIdx bool, data st
 	if !have {
 		return nil, false
 	}
-	_, touchedT := d.runtime.kv["template"]
+	touchedT := d.runtime.tplJSON != ""
 	_, touchedM := d.runtime.kv["module"]
 	switch base {
 	case "template":
@@ -186,7 +187,7 @@ func (d *simDevice) templateCmdLocked(base string, idx int, hasIdx bool, data st
 		if err != nil {
 			return []byte(`{"Template":"Invalid JSON or Bad Chip Type"}`), true
 		}
-		d.set("template", encodeTpl(nt))
+		d.runtime.tplJSON = encodeTpl(nt)
 		d.afterChangeLocked(d.moduleNumberLocked() == 0)
 		return d.templateReply(nt), true
 	case "module":
