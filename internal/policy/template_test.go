@@ -1,12 +1,15 @@
 package policy
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/nofuturekid/tasmofleet/internal/cmdpolicy"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/tasmotacmd"
 )
@@ -823,5 +826,99 @@ func TestDiffNamesTheADCNotGPIO17(t *testing.T) {
 	lines, _ = DiffTemplates(model.ChipESP32, e, w)
 	if len(lines) != 1 || lines[0].Text != "GPIO17: None -> Relay1" {
 		t.Errorf("%+v", lines)
+	}
+}
+
+func TestSafeTemplateNameMatchesTheConsoleRules(t *testing.T) {
+	// The planner builds its command from device text; it must refuse everything cmdpolicy refuses in a typed
+	// command line (separators and their look-alikes, control and invisible characters, encoded ';', bad UTF-8),
+	// plus what breaks the JSON around the name. A weaker check would let through what the console blocks.
+	for _, name := range []string{"", "a;b", "a\uff1bb", "a\u037eb", "a%3Bb", "a%3bb", "a\xffb", "a\u2028b", "a\u00a0b", "a\u200bb", "a\rb", "a\u0085b", `a"b`, `a\b`} {
+		if SafeTemplateName(name) {
+			t.Errorf("name %q accepted", name)
+		}
+		if _, err := BuildTemplateCommand(GPIOTemplate{Name: name, GPIO: []int{0}, Base: 1}, ""); !errors.Is(err, ErrUnsafeName) {
+			t.Errorf("build accepts %q: %v", name, err)
+		}
+	}
+}
+
+func TestBuildCommandRefusesOutOfRangeNumbers(t *testing.T) {
+	// The numbers are printed with strconv, so a value outside what the device stores would be sent as is:
+	// a minus sign or a seventh digit is not a pin map.
+	ok := GPIOTemplate{Name: "x", GPIO: []int{0, 65535}, Flag: 65535, Base: 255}
+	if _, err := BuildTemplateCommand(ok, ""); err != nil {
+		t.Fatalf("limits refused: %v", err)
+	}
+	for name, mut := range map[string]func(*GPIOTemplate){
+		"negative GPIO": func(g *GPIOTemplate) { g.GPIO = []int{-1} },
+		"GPIO 65536":    func(g *GPIOTemplate) { g.GPIO = []int{65536} },
+		"negative FLAG": func(g *GPIOTemplate) { g.Flag = -1 },
+		"FLAG 65536":    func(g *GPIOTemplate) { g.Flag = 65536 },
+		"BASE 0":        func(g *GPIOTemplate) { g.Base = 0 },
+		"BASE 256":      func(g *GPIOTemplate) { g.Base = 256 },
+		"no GPIO":       func(g *GPIOTemplate) { g.GPIO = nil },
+	} {
+		g := ok
+		mut(&g)
+		if _, err := BuildTemplateCommand(g, ""); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
+func TestBuiltCommandPassesTheConsolePolicy(t *testing.T) {
+	// What the planner sends must be a command cmdpolicy accepts unchanged: same length limit, same characters,
+	// and Canonical (what actually reaches a device) must not rewrite it.
+	for _, d := range []TemplateDevice{nous(t, 1), fixtureDevice(t, 2, "office-monitor-guest", model.ChipESP32), fixtureDevice(t, 3, "livingroom-readinglamp", model.ChipESP8266)} {
+		cmd, err := BuildTemplateCommand(*d.Template, d.Template.Arch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cmdpolicy.Classify(cmd); err != nil {
+			t.Errorf("%s: cmdpolicy refuses the built command: %v", d.Template.Name, err)
+		}
+		if canon, err := cmdpolicy.Canonical(cmd); err != nil || canon != cmd {
+			t.Errorf("%s: canonical %q %v", d.Template.Name, canon, err)
+		}
+	}
+}
+
+func TestBuildCommandRefusesWhatIsTooLongForTheConsole(t *testing.T) {
+	// cmdpolicy refuses command lines over 255 bytes. A big template (many pins with four- and five-digit values)
+	// can exceed that; it must be refused with its own reason, not cut or sent around the policy.
+	long := GPIOTemplate{Name: "Big", GPIO: make([]int, 55), Base: 1}
+	for i := range long.GPIO {
+		long.GPIO[i] = 12345
+	}
+	if _, err := BuildTemplateCommand(long, ""); !errors.Is(err, ErrCommandRejected) {
+		t.Fatalf("err %v", err)
+	}
+	ref := fixtureDevice(t, 1, "office-monitor-guest", model.ChipESP32)
+	big := *ref.Template
+	big.GPIO = slices.Repeat([]int{12345}, 36)
+	ref.Template = &big
+	dev := fixtureDevice(t, 2, "office-monitor-guest", model.ChipESP32)
+	ref.Hardware, dev.Hardware = "ESP32-D0WD-V3", "ESP32-D0WD-V3" // same hardware: the red pins are not the reason
+	p := plan(t, ref, dev, PlanOptions{})
+	if p.Refusal != RefuseCommand || len(p.Commands) != 0 || p.Restarts {
+		t.Errorf("%+v", p)
+	}
+}
+
+func TestSafeArchCharacterClasses(t *testing.T) {
+	// ARCH is letters, digits and '_': the neighbours of each range in ASCII ('@' '[' '`' '{' '/' ':') are not.
+	for _, c := range "AZaz09_" {
+		if !safeArch("E" + string(c)) {
+			t.Errorf("%q refused", c)
+		}
+	}
+	for _, c := range "@[`{/:-. " {
+		if safeArch("E" + string(c)) {
+			t.Errorf("%q accepted", c)
+		}
+	}
+	if safeArch("") {
+		t.Error("empty accepted")
 	}
 }

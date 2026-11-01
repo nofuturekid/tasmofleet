@@ -181,18 +181,8 @@ func parse(cmd string) (parsed, string) {
 	// part is classified on its own (classifyBacklog), so nothing hides in it.
 	head, _, _ := strings.Cut(cmd, " ")
 	backlog := strings.EqualFold(strings.TrimRight(head, "0123456789"), "backlog")
-	for _, r := range cmd {
-		switch {
-		case r == ' ':
-		case r == ';' && backlog:
-		case semicolonLookalikes[r]:
-			return parsed{}, "contains a command separator"
-		case !unicode.IsPrint(r):
-			return parsed{}, "contains a control or invisible character"
-		}
-	}
-	if strings.Contains(strings.ToLower(cmd), "%3b") {
-		return parsed{}, "contains an encoded command separator"
+	if why := unsafeText(cmd, backlog); why != "" {
+		return parsed{}, why
 	}
 	name, args, _ := strings.Cut(cmd, " ")
 	if len(name) > maxNameLen || !validName(name) {
@@ -218,6 +208,35 @@ func parse(cmd string) (parsed, string) {
 		p.base = canon // SO19 is SetOption19
 	}
 	return p, ""
+}
+
+// unsafeText says why s may not be part of a command line, or "". Only a space is allowed as white space;
+// ';' is allowed when the line is a Backlog (each part is classified on its own).
+func unsafeText(s string, backlog bool) string {
+	for _, r := range s {
+		switch {
+		case r == ' ':
+		case r == ';' && backlog:
+		case semicolonLookalikes[r]:
+			return "contains a command separator"
+		case !unicode.IsPrint(r):
+			return "contains a control or invisible character"
+		}
+	}
+	if strings.Contains(strings.ToLower(s), "%3b") {
+		return "contains an encoded command separator"
+	}
+	return ""
+}
+
+// UnsafeText says why s may not be part of a command that code builds from text it did not type itself
+// (a template name read from a device), or "" when it may. It is the check Classify applies to every
+// character of a command line, so a builder that uses it cannot be more permissive than the console.
+func UnsafeText(s string) string {
+	if !utf8.ValidString(s) {
+		return "not valid UTF-8"
+	}
+	return unsafeText(s, false)
 }
 
 func validName(s string) bool {

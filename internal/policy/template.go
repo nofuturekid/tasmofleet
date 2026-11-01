@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 
+	"github.com/nofuturekid/tasmofleet/internal/cmdpolicy"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/tasmotacmd"
 )
@@ -367,47 +367,67 @@ func DiffTemplates(family model.ChipFamily, have, want GPIOTemplate) ([]DiffLine
 	return out, nil
 }
 
-// SafeTemplateName reports whether name may be sent inside a Template command: non-empty, printable,
-// and without the characters that break the JSON (" and \) or split the command line (;).
+// Errors of BuildTemplateCommand, for errors.Is.
+var (
+	// ErrUnsafeName: the template name or ARCH cannot be sent safely.
+	ErrUnsafeName = errors.New("template name cannot be sent safely")
+	// ErrCommandRejected: the built command is not one the console policy (cmdpolicy) accepts unchanged,
+	// for example because it is longer than the 255 bytes it allows.
+	ErrCommandRejected = errors.New("template command rejected by the command policy")
+)
+
+// SafeTemplateName reports whether name may be sent inside a Template command. It holds the console's
+// rules for every character (cmdpolicy.UnsafeText: no separator or look-alike, no control or invisible
+// character, no encoded ';', valid UTF-8) and, because the name sits inside a JSON string, no quote or backslash.
 func SafeTemplateName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, r := range name {
-		if r == '"' || r == '\\' || r == ';' || !unicode.IsPrint(r) || unicode.Is(unicode.Cf, r) {
-			return false
-		}
-	}
-	return true
+	return name != "" && cmdpolicy.UnsafeText(name) == "" && !strings.ContainsAny(name, `"\`)
 }
+
+// Limits of the stored numbers: 16-bit pin values and FLAG, 8-bit module number.
+const (
+	maxPinValue = 0xFFFF
+	maxBase     = 0xFF
+)
 
 // BuildTemplateCommand builds the Template command for a device from the parsed fields only:
 // NAME, ARCH (only if targetArch, the ARCH the target itself reported, is not empty), GPIO, FLAG, BASE.
-// Nothing else of the reply is passed on, CMND least of all (T8).
+// Nothing else of the reply is passed on, CMND least of all (T8). Every number is checked against the
+// width the device stores, and the finished command must pass cmdpolicy unchanged (ErrCommandRejected).
 func BuildTemplateCommand(t GPIOTemplate, targetArch string) (string, error) {
 	if !SafeTemplateName(t.Name) {
-		return "", fmt.Errorf("template name %q cannot be sent safely", t.Name)
+		return "", fmt.Errorf("%w: name %q", ErrUnsafeName, t.Name)
 	}
-	if len(t.GPIO) == 0 || t.Base < 1 {
-		return "", errors.New("template is incomplete")
+	if targetArch != "" && !safeArch(targetArch) {
+		return "", fmt.Errorf("%w: arch %q", ErrUnsafeName, targetArch)
+	}
+	if len(t.GPIO) == 0 || t.Base < 1 || t.Base > maxBase || t.Flag < 0 || t.Flag > maxPinValue {
+		return "", errors.New("template is incomplete or out of range")
 	}
 	var b strings.Builder
 	b.WriteString(`Template {"NAME":"` + t.Name + `"`)
 	if targetArch != "" {
-		if !safeArch(targetArch) {
-			return "", fmt.Errorf("arch %q cannot be sent safely", targetArch)
-		}
 		b.WriteString(`,"ARCH":"` + targetArch + `"`)
 	}
 	b.WriteString(`,"GPIO":[`)
 	for i, v := range t.GPIO {
+		if v < 0 || v > maxPinValue {
+			return "", fmt.Errorf("template: GPIO[%d] = %d is out of range", i, v)
+		}
 		if i > 0 {
 			b.WriteByte(',')
 		}
 		b.WriteString(strconv.Itoa(v))
 	}
 	b.WriteString(`],"FLAG":` + strconv.Itoa(t.Flag) + `,"BASE":` + strconv.Itoa(t.Base) + `}`)
-	return b.String(), nil
+	cmd := b.String()
+	canon, err := cmdpolicy.Canonical(cmd)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrCommandRejected, err)
+	}
+	if canon != cmd {
+		return "", fmt.Errorf("%w: the policy would rewrite it", ErrCommandRejected)
+	}
+	return cmd, nil
 }
 
 // safeArch accepts what Tasmota's ARCH looks like (ESP8266, ESP32S3, ...): letters, digits and '_'.
@@ -437,6 +457,7 @@ const (
 	RefuseArch          Refusal = "arch"            // both reported ARCH, they differ (T7)
 	RefuseMinimal       Refusal = "minimal"         // Template is read-only there (T14)
 	RefuseUnsafeName    Refusal = "unsafe-name"
+	RefuseCommand       Refusal = "command"  // the command is not one the console policy accepts, e.g. over 255 bytes
 	RefuseEthernet      Refusal = "ethernet" // wired board, the change touches an ETH_* pin
 	RefuseMQTTOnly      Refusal = "mqtt-only"
 	RefuseRedPin        Refusal = "red-pin" // assigns a pin Tasmota marks dangerous to a device with other hardware
@@ -523,8 +544,11 @@ func PlanApply(ref Reference, dev TemplateDevice, opts PlanOptions) ApplyPlan {
 		return refuse(p, RefuseRedPin, "the change assigns a pin that is dangerous on some hardware (flash or PSRAM) and the device's hardware (%q) is not known to equal the reference's (%q)", dev.Hardware, ref.Device.Hardware)
 	}
 	cmd, err := BuildTemplateCommand(rt, dt.Arch)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrUnsafeName):
 		return refuse(p, RefuseUnsafeName, "%v", err)
+	case err != nil:
+		return refuse(p, RefuseCommand, "%v", err)
 	}
 	if dev.Wired && touchesEthernet(dev.Family, diff) {
 		return refuse(p, RefuseEthernet, "the change touches an Ethernet pin of a wired device; it would cut the device off")

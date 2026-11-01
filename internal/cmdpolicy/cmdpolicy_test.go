@@ -803,3 +803,54 @@ func TestFilesystemCommandsAreAdminDeviceWrites(t *testing.T) {
 		}
 	}
 }
+
+// TestUnsafeText is the one check every caller that builds a command from text it did not type
+// itself (the GPIO template planner, #327) uses: the characters parse refuses in a command line are
+// refused there, too, so the two cannot drift apart.
+func TestUnsafeText(t *testing.T) {
+	bad := map[string]string{
+		"semicolon":          "a;b",
+		"fullwidth ;":        "a\uff1bb",
+		"greek question ;":   "a\u037eb",
+		"arabic ;":           "a\u061bb",
+		"newline":            "a\nb",
+		"carriage return":    "a\rb",
+		"tab":                "a\tb",
+		"NUL":                "a\x00b",
+		"DEL":                "a\x7fb",
+		"bidi override":      "a\u202eb",
+		"zero width":         "a\u200bb",
+		"no-break space":     "a\u00a0b",
+		"encoded semicolon":  "a%3bb",
+		"encoded upper":      "a%3Bb",
+		"invalid UTF-8":      "a\xffb",
+		"line separator":     "a\u2028b",
+		"private use":        "a\ue000b",
+		"unassigned control": "a\u0085b",
+	}
+	for name, s := range bad {
+		if UnsafeText(s) == "" {
+			t.Errorf("%s: %q accepted", name, s)
+		}
+	}
+	for _, s := range []string{"", "NOUS A1T", "Shelly 2.5", "Plüg 1", "a-b_c/d(e)", "日本", "50% off"} {
+		if why := UnsafeText(s); why != "" {
+			t.Errorf("%q refused: %s", s, why)
+		}
+	}
+}
+
+// TestUnsafeTextIsWhatClassifyRefuses ties the helper to parse: whatever it flags, a command line made of
+// it is malformed, and whatever it passes is not refused for its characters.
+func TestUnsafeTextIsWhatClassifyRefuses(t *testing.T) {
+	for _, s := range []string{"a;b", "a\uff1bb", "a\nb", "a\u202eb", "a%3bb", "a\x00b"} {
+		if _, err := Classify("Topic " + s); !errors.Is(err, ErrInvalid) {
+			t.Errorf("Classify accepts %q that UnsafeText flags", s)
+		}
+	}
+	for _, s := range []string{"NOUS A1T", "Plüg 1"} {
+		if _, err := Classify("Topic " + s); err != nil {
+			t.Errorf("Classify refuses %q: %v", s, err)
+		}
+	}
+}
