@@ -170,7 +170,46 @@ templ backupRowItem(p backupsView, b backupRow) {
 				}
 			}
 		</div>
+		if b.Files != nil {
+			@filesFold(b.Files)
+		}
 	</div>
+}
+
+// filesFold is the Files block of a run: a native details element, so Enter and Space open it
+// from the keyboard. It never shows file contents.
+templ filesFold(f *filesView) {
+	<details class="fold bk-files">
+		<summary>Files <span class="meta">{ f.Meta }</span></summary>
+		if f.Problem != "" {
+			<p class="bk-reason">{ f.Problem }</p>
+		} else {
+			<div class="bk-fl">
+				for _, r := range f.Rows {
+					<div class={ "bk-fl-row", templ.KV("is-skipped", r.Skipped) }>
+						<span class="bk-fl-path">{ r.Path }</span>
+						if len(r.Tags) > 0 {
+							<span class="bk-fl-tags">
+								for _, t := range r.Tags {
+									<span class={ "bdg", "t-" + string(t.Tone) } if t.Title != "" { title={ t.Title } }>{ t.Text }</span>
+								}
+							</span>
+						}
+						<span class="bk-fl-size">{ r.Size }</span>
+						if r.Why != "" {
+							<span class="bk-fl-why">{ r.Why }</span>
+						}
+					</div>
+				}
+			</div>
+			<p class="bk-fl-note">{ f.Note }</p>
+			if f.Download != "" {
+				<div class="bk-fl-acts">
+					<a class="btn btn-sm" href={ templ.SafeURL(f.Download) } title="Download the files archive (admins only, recorded in the audit log)">Download files (.tar)</a>
+				</div>
+			}
+		}
+	</details>
 }
 
 // backupDeleteDialog is the one delete dialog of the rows; dialog.js fills it from the Delete

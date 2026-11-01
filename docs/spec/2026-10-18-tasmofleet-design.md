@@ -1359,6 +1359,19 @@ No migration, no store contract change and no new dependency.
    and the orphan handling cover the archive unchanged. Order inside a run: dump, snapshot, `UfsType`,
    `UfsList` per folder (name order), one `GET /ufsd` per file.
 
+   **Files fold on the Backups tab.** A run row with an archive has a native `details` fold ("Files",
+   summary "n stored · size · m skipped"; keyboard: Enter/Space). Inside: the stored files with their size,
+   then the skipped ones with the reason; `Changed` / `New` compare each file's SHA-256 with the manifest of
+   the newest earlier run that has an archive (runs without one, or with a damaged one, are skipped; the first
+   run with files has no badges); `tlskey` carries "Private key"; the filesystem line and a sentence that
+   contents are never shown and the archive is as secret as the settings dump. Admins get "Download files
+   (.tar)", the existing audited `GET /backups/{id}` with the archive row's id (`kind: files` in the audit
+   detail); operators see names and sizes only. A damaged or missing archive shows "archive damaged" / "archive
+   file missing" in the fold and never fails the page. A run without an archive says why in the row's detail
+   line (no filesystem, firmware older than 14.6.0, needs HTTP); a run with neither archive nor note, when an
+   earlier run of the device has one, says "no files were stored for this run" (the files step crashed
+   between the rows), a run before every archive says nothing.
+
    Read API for the UI and for restore (`*backup.Manager`, not part of `Service`):
    `RunFiles(ctx, id) (RunFiles, error)` (archive row, manifest, or `Note` = why not; any file id of the
    run names it), `OpenFilesArchive(ctx, id) (*FilesArchive, error)` (`ErrNoFilesArchive`, `ErrIntegrity`,

@@ -12851,6 +12851,90 @@ main.bare {
     margin-left: var(--sp-8);
   }
 }
+/* a run's Files block (#324), folded into the row: last child, under the text and the actions */
+.bk-list .bk-row > details.bk-files {
+  flex: 0 0 calc(100% - 44px);
+  min-width: 0;
+  margin: 0 0 var(--sp-6) 44px;
+}
+.bk-list .bk-row > details.bk-files > summary {
+  min-height: 36px;
+  font-size: 13px;
+  font-weight: 600;
+}
+@media (max-width: 44.99rem) {
+  .bk-list .bk-row > details.bk-files {
+    flex-basis: calc(100% - var(--sp-8));
+    margin-left: var(--sp-8);
+  }
+}
+.bk-fl {
+  display: flex;
+  flex-direction: column;
+}
+.bk-fl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 2px var(--sp-12);
+  padding: 6px 0;
+  border-top: var(--hair-w) solid var(--color-border);
+  font-size: 12.5px;
+}
+.bk-fl-path {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.bk-fl-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.bk-fl-size {
+  font-family: var(--font-mono);
+  color: var(--color-text-2);
+  text-align: right;
+  min-width: 64px;
+}
+.bk-fl-why {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+.bk-fl-row.is-skipped .bk-fl-path {
+  color: var(--color-text-2);
+}
+.bk-fl-note {
+  margin: var(--sp-8) 0 0;
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+.bk-fl-acts {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--sp-8);
+}
+/* Maintainer decision (#324, 2026-11-01): inside the fold the list is about half the content width,
+   badge and size right after the name, not names far left and sizes far right (#419 rule). */
+.bk-files .bk-fl {
+  max-width: max(50%, 26rem);
+}
+.bk-files .bk-fl-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.bk-files .bk-fl-path {
+  min-width: 0;
+}
+.bk-files .bk-fl-size {
+  min-width: 0;
+  text-align: left;
+}
+.bk-files .bk-fl-why {
+  flex-basis: 100%;
+}
 .btn.bk-keep {
   padding: 0 var(--sp-10);
   gap: 7px;

@@ -59,8 +59,9 @@ type backupRow struct {
 	Failed bool   // a failed attempt: nothing was stored
 	Reason string // why it failed (never credentials)
 
-	Download, Restore string // links; empty when the viewer may not or the run has no dump
-	DeleteText        string // the delete dialog's text; empty: no Delete
+	Download, Restore string     // links; empty when the viewer may not or the run has no dump
+	Files             *filesView // the run's Files fold; nil: none
+	DeleteText        string     // the delete dialog's text; empty: no Delete
 }
 
 // restoreRow is one recent restore of the device.
@@ -90,6 +91,8 @@ func shortDate(t time.Time) string { return t.Local().Format("2 Jan 2006, 15:04"
 type backupRun struct {
 	model.Backup
 	Gaps string
+	// FilesWhy is the reason a run has no files when its dump note does not say (see runFilesInfo).
+	FilesWhy string
 }
 
 // backupRuns groups a device's backup files into runs, newest first: one row per run, keyed
@@ -99,7 +102,7 @@ func backupRuns(list []model.Backup) []backupRun {
 	var runs []backupRun
 	seen := map[time.Time]int{}
 	for _, b := range list {
-		if b.Kind == model.BackupDecoded {
+		if b.Kind == model.BackupDecoded || b.Kind == model.BackupFiles { // the files archive belongs to its run's row
 			continue
 		}
 		i, ok := seen[b.TakenAt]
@@ -139,7 +142,7 @@ func runDetail(r backupRun) string {
 	if t := backupTriggerText(r.Trigger, r.TriggerRef); t != "" {
 		parts = append(parts, t)
 	}
-	// The files sentence is data for the Files block that waits for its mockup (#324).
+	// The files sentence is worded below, after the size.
 	if note := backup.WithoutFilesNote(r.Note); note != "" && snapshotGaps(note) == "" {
 		parts = append(parts, note)
 	}
@@ -150,6 +153,13 @@ func runDetail(r backupRun) string {
 		parts = append(parts, "Tasmota "+r.Version)
 	}
 	parts = append(parts, humanBytes(r.Size))
+	why := r.FilesWhy
+	if why == "" {
+		why = filesWhyText(backup.FilesNoteOf(r.Note))
+	}
+	if why != "" {
+		parts = append(parts, why)
+	}
 	return strings.Join(parts, " · ")
 }
 
@@ -193,11 +203,14 @@ func (h *handler) backupsPage(w http.ResponseWriter, r *http.Request) {
 	newest := backup.NewestRun(list)
 	runs := backupRuns(list)
 	var total int64
+	filesOf := h.runFilesInfos(r.Context(), runs, v.Base, v.IsAdmin)
 	for _, run := range runs {
 		b := run.Backup
 		total += b.Size
+		info := filesOf[b.ID]
+		run.FilesWhy = info.Why
 		row := backupRow{ID: b.ID, Taken: b.TakenAt, Detail: runDetail(run), File: storedFileName(b.Path), Size: humanBytes(b.Size),
-			Newest: b.TakenAt.Equal(newest), Kept: b.Kept, Pruned: ret.IsPruned(b)}
+			Newest: b.TakenAt.Equal(newest), Kept: b.Kept, Pruned: ret.IsPruned(b), Files: info.View}
 		row.Missing = h.fileMissing(b)
 		if v.IsAdmin && !row.Missing {
 			row.Download = fmt.Sprintf("%s/backups/%d", v.Base, b.ID)
