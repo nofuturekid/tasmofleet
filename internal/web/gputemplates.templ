@@ -213,7 +213,7 @@ templ gpioPreviewPage(p gtPreview) {
 		} else {
 			<div class="banner tone-warn" role="status">
 				<span class="banner-dot"></span>
-				<div class="banner-text"><b>{ p.Count } restart.</b> { p.Restart }</div>
+				<div class="banner-text"><b>{ p.Count } { restartVerb(p.N) }.</b> { p.Restart }</div>
 			</div>
 			@ui.CardStacks(3) {
 				@ui.CardStack(2) {
@@ -349,4 +349,11 @@ templ gpioStartedPage(base string, s fixStarted) {
 			</ul>
 		}
 	</div>
+}
+
+func restartVerb(n int) string {
+	if n == 1 {
+		return "restarts"
+	}
+	return "restart"
 }

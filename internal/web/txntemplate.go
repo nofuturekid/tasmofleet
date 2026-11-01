@@ -92,7 +92,7 @@ func templateCardOf(j jobView, base string, names map[model.JobID]string) tmplCa
 		readNote, verifyNote, sent = " · unchanged since the preview", " · template matches", true
 	case model.JobFailed:
 		switch err := j.Job.LastError; {
-		case strings.HasPrefix(err, "backup failed") || strings.Contains(err, "cannot take backups"):
+		case strings.HasPrefix(err, "backup failed") || strings.Contains(err, "cannot take backups") || strings.Contains(err, "only an active admin"):
 			steps = [4]st{failed, notStarted, notStarted, notStarted}
 		case earlyFailure(err):
 			steps = [4]st{done, failed, notStarted, notStarted}
