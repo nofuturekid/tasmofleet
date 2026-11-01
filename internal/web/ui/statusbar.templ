@@ -92,13 +92,13 @@ templ sbWide(d ShellData) {
 	}
 	@sbJobs(d.Status)
 	if b := d.Status.Backup; b != nil {
-		<div class={ "sb-i", "sb-stale", templ.KV("t-bad", !b.ok()) }>
-			<span class={ "sb-dot", templ.KV("bad", !b.ok()) }></span>
+		<div class={ "sb-i", "sb-stale", templ.KV("t-bad", b.none()), templ.KV("t-warn", b.partial()) }>
+			<span class={ "sb-dot", templ.KV("bad", b.none()), templ.KV("warn", b.partial()) }></span>
 			<span>
-				if b.ok() {
-					<b>Backup</b> <time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time> <span class="sb-sep">·</span> OK
+				if b.none() {
+					<b>Backup failed</b> <time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time> <span class="sb-sep">·</span> { b.countText() }
 				} else {
-					<b>Backup failed</b> <time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time> <span class="sb-sep">·</span> { b.failedText() }
+					<b>Backup</b> <time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time> <span class="sb-sep">·</span> { b.countText() }
 				}
 			</span>
 		</div>
@@ -158,7 +158,7 @@ templ sbNarrow(d ShellData) {
 		<span class="sb-sum">
 			<span class="sb-sum-data">
 				{ sumText(d.Status) }<small>{ sumSub(d.Status) }
-					if d.Status.level() == statusWarn {
+					if d.Status.brokerDown() {
 						since <time { StampAttrs(d.Status.Broker.Since, StampDay)... }>{ d.Status.dayText(d.Status.Broker.Since) }</time>
 					}
 				</small>
@@ -192,14 +192,14 @@ templ sbNarrow(d ShellData) {
 		}
 		@sbSheetJobs(d.Status)
 		if b := d.Status.Backup; b != nil {
-			<div class={ "sb-i", "sb-row", "sb-stale", templ.KV("t-bad", !b.ok()) }>
+			<div class={ "sb-i", "sb-row", "sb-stale", templ.KV("t-bad", b.none()), templ.KV("t-warn", b.partial()) }>
 				<span class="sb-lab">Backup</span>
-				<span class={ "sb-dot", templ.KV("bad", !b.ok()) }></span>
+				<span class={ "sb-dot", templ.KV("bad", b.none()), templ.KV("warn", b.partial()) }></span>
 				<span class="sb-val">
-					if b.ok() {
-						<time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time>, OK
+					if b.none() {
+						<b>Failed</b> <time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time>, { b.countText() }
 					} else {
-						<b>Failed</b> <time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time>, { b.failedText() }
+						<time { StampAttrs(b.At, StampDay)... }>{ d.Status.dayText(b.At) }</time>, { b.countText() }
 					}
 				</span>
 			</div>

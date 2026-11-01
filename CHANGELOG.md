@@ -14,6 +14,10 @@ always upgrade automatically.
 
 - Small buttons (`.btn-sm`) and the small control height are one size now: `.btn-sm`, link buttons and the icon-sized small button use the `--ctl-sm` token (32 px on desktop, was 28 px for pagers and toolbars and a separate 32 px for `.btn-sm`), so they can no longer drift apart. On phones all of them are 40 px, the touch size (#329)
 
+### Fixed
+
+- The status bar no longer reads a partly failed scheduled backup run as "Backup failed". A run that backed up some devices says "Backup · 19 of 27 backed up · 8 failed" in the warning colour, red "Backup failed" is kept for a run that backed up no device, and an all-good run shows "Backup · 27 of 27 backed up" in the normal colour. The phone sheet uses the same counts (#406)
+
 ### Removed
 
 - The `details.m-fold` stylesheet rules and the e2e helper `openFolds`: no page has used the phone-only fold since the design v2 port (#329)

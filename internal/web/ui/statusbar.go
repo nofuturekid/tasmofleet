@@ -61,11 +61,13 @@ const (
 	statusBad
 )
 
+func (s StatusBar) brokerDown() bool { return s.Broker != nil && !s.Broker.Connected }
+
 func (s StatusBar) level() statusLevel {
 	switch {
-	case s.Backup != nil && s.Backup.Failed > 0:
+	case s.Backup != nil && s.Backup.none():
 		return statusBad
-	case s.Broker != nil && !s.Broker.Connected:
+	case s.brokerDown(), s.Backup != nil && s.Backup.partial():
 		return statusWarn
 	case len(s.Jobs) > 0:
 		return statusRun
@@ -102,9 +104,12 @@ func (s StatusBar) dotClass() string {
 func (s StatusBar) summary() (text, sub string) {
 	switch s.level() { //nolint:exhaustive // the other levels are the default
 	case statusBad:
-		return "Last backup failed", " · " + strconv.Itoa(s.Backup.Failed) + " of " + strconv.Itoa(s.Backup.Total)
+		return "Last backup failed", " · " + s.Backup.countText()
 	case statusWarn:
-		return "Broker disconnected", ""
+		if s.brokerDown() {
+			return "Broker disconnected", ""
+		}
+		return "Backup partly failed", " · " + s.Backup.countText()
 	case statusRun:
 		j := s.Jobs[0]
 		switch n := len(s.Jobs) + s.More - 1; {
@@ -137,11 +142,19 @@ func (j StatusJob) sheetText() string {
 	return j.progress() + " devices"
 }
 
-func (b StatusBackup) ok() bool { return b.Failed == 0 }
+// none is a run that backed up no device at all: the only case that reads "Backup failed" (#406).
+func (b StatusBackup) none() bool { return b.Total > 0 && b.Failed >= b.Total }
 
-// failedText is "3 of 58 devices".
-func (b StatusBackup) failedText() string {
-	return strconv.Itoa(b.Failed) + " of " + strconv.Itoa(b.Total) + " devices"
+// partial is a run where some devices were backed up and some were not.
+func (b StatusBackup) partial() bool { return b.Failed > 0 && !b.none() }
+
+// countText is "19 of 27 backed up", with " · 8 failed" when some failed.
+func (b StatusBackup) countText() string {
+	t := strconv.Itoa(b.Total-b.Failed) + " of " + strconv.Itoa(b.Total) + " backed up"
+	if b.Failed > 0 {
+		t += " · " + strconv.Itoa(b.Failed) + " failed"
+	}
+	return t
 }
 
 // dayText is a time as the bar words it: "Today 03:00", "Yesterday 21:10", else a date.

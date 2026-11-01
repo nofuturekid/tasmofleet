@@ -167,31 +167,44 @@ func TestStatusBarJobWithoutTransactionPagesHasNoLink(t *testing.T) {
 	}
 }
 
-// Why: the last scheduled backup run is the quiet fact that goes wrong silently; a failure turns
-// the bar's edge red and names how many devices, but never why (error texts stay out of the bar).
+// Why: a run that backed up 19 of 27 devices is not a failed run (#406). The bar must say how many
+// devices are safe, use the warning colour for a partly failed run, and keep red and "Backup failed"
+// for a run where nothing was backed up. The phone sheet words it the same way.
 func TestStatusBarBackupRun(t *testing.T) {
 	done := time.Date(2026, 10, 31, 3, 0, 0, 0, time.UTC)
-	e := setupWith(t, func(d *Deps) {
-		d.ScheduledBackup = func() BackupRunInfo { return BackupRunInfo{Finished: done, LastTotal: 58, LastFailed: 3} }
-	})
-	_, body := e.do(t, "GET", "/devices", "operator", nil)
-	bar := barOf(body)
-	for _, want := range []string{"<b>Backup failed</b>", "3 of 58 devices", "t-bad", "sb-edge sb-bad", "Last backup failed"} {
-		if !strings.Contains(bar, want) {
-			t.Errorf("failed run: bar lacks %q", want)
+	run := func(total, failed int) (bar string) {
+		e := setupWith(t, func(d *Deps) {
+			d.ScheduledBackup = func() BackupRunInfo { return BackupRunInfo{Finished: done, LastTotal: total, LastFailed: failed} }
+		})
+		_, body := e.do(t, "GET", "/devices", "operator", nil)
+		return barOf(body)
+	}
+	check := func(name, bar string, want, wantNot []string) {
+		t.Helper()
+		for _, w := range want {
+			if !strings.Contains(bar, w) {
+				t.Errorf("%s: bar lacks %q: %s", name, w, bar)
+			}
+		}
+		for _, w := range wantNot {
+			if strings.Contains(bar, w) {
+				t.Errorf("%s: bar must not contain %q: %s", name, w, bar)
+			}
 		}
 	}
-	e = setupWith(t, func(d *Deps) {
-		d.ScheduledBackup = func() BackupRunInfo { return BackupRunInfo{Finished: done, LastTotal: 58} }
-	})
-	_, body = e.do(t, "GET", "/devices", "operator", nil)
-	if bar := barOf(body); !strings.Contains(bar, "<b>Backup</b>") || !strings.Contains(bar, "OK") || strings.Contains(bar, "t-bad") || !strings.Contains(bar, "All good") {
-		t.Errorf("ok run: %s", bar)
-	}
-	e = setupWith(t, func(d *Deps) {
+	check("all ok", run(58, 0),
+		[]string{"<b>Backup</b>", "58 of 58 backed up", "All good"},
+		[]string{"t-bad", "t-warn", "sb-bad", "sb-warn", "failed"})
+	check("partly failed", run(27, 8),
+		[]string{"<b>Backup</b>", "19 of 27 backed up", "8 failed", "t-warn", "sb-edge sb-warn", "Backup partly failed"},
+		[]string{"Backup failed", "t-bad", "sb-bad"})
+	check("none ok", run(58, 58),
+		[]string{"<b>Backup failed</b>", "0 of 58 backed up", "t-bad", "sb-edge sb-bad", "Last backup failed"},
+		[]string{"t-warn"})
+	e := setupWith(t, func(d *Deps) {
 		d.ScheduledBackup = func() BackupRunInfo { return BackupRunInfo{Running: true, Done: 12, Total: 58} }
 	})
-	_, body = e.do(t, "GET", "/devices", "operator", nil)
+	_, body := e.do(t, "GET", "/devices", "operator", nil)
 	if bar := barOf(body); !strings.Contains(bar, "<b>Backup</b> 12 of 58 devices") {
 		t.Errorf("a running scheduled backup is not shown as a job: %s", bar)
 	}
