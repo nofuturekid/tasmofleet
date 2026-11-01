@@ -6,6 +6,7 @@ cost internal/cmdpolicy 21
 cost internal/mqttcmd 395
 cost internal/transport 45
 cost internal/tasmota 300
+cost internal/restore 1000
 internal/fwselect decide.go 10
 internal/fwselect detect.go 47
 internal/fwselect family.go 15
@@ -53,3 +54,9 @@ internal/tasmota parse.go 28
 internal/tasmota safeboot.go 8
 internal/tasmota tasmota.go 1
 internal/tasmota upload.go 36
+internal/restore files.go 91
+internal/restore flow.go 110
+internal/restore lockout.go 29
+internal/restore replace.go 95
+internal/restore restore.go 62
+internal/restore steps.go 2
