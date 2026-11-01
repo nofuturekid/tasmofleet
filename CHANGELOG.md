@@ -6,6 +6,10 @@ always upgrade automatically.
 
 ## Unreleased
 
+### Added
+
+- The "Devices without a backup" tile on Settings, Backups now opens the device list narrowed to exactly those devices. The list has a new "No backup" chip (`?chip=nobackup`) with the tile's count, so the two always agree (#381, thanks @Noschvie)
+
 ## 0.25.0 "Cape Point" (2026-10-31)
 
 ### Upgrade notes

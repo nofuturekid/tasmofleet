@@ -59,6 +59,7 @@ type deviceRow struct {
 	ViaMQTT    bool
 	Outdated   bool // a newer stable release is in the cached feed
 	Deviations int  // policy values that differ from a rule
+	NoBackup   bool // no backup run (set by annotateBackups on the device list only)
 	// Stab is the stability verdict of an online device (annotateStability); nil = not judged.
 	Stab *stability.Result
 }
@@ -196,6 +197,9 @@ func (h *handler) devicesPageData(r *http.Request, v view) (devicesPage, error) 
 	facts := h.fleetFacts(r.Context(), actor(r))
 	facts.annotate(rows)
 	h.annotateStability(r.Context(), rows)
+	if err := h.annotateBackups(r.Context(), rows); err != nil {
+		return devicesPage{}, err
+	}
 	fams, tags := map[string]int{}, map[string]int{}
 	var shown []deviceRow
 	for _, row := range rows {
@@ -218,6 +222,9 @@ func (h *handler) devicesPageData(r *http.Request, v view) (devicesPage, error) 
 	}
 	p.RowsData.None = len(rows) == 0
 	p.Summary = h.fleetSummaryFor(r.Context(), v, rows, facts)
+	if _, ok := h.d.Backups.(BackupStorage); !ok { // nothing to filter on: no chip that is always 0
+		p.Summary.Chips = slices.DeleteFunc(p.Summary.Chips, func(c chipCount) bool { return c.Key == chipNoBackup })
+	}
 	if v.IsAdmin {
 		p.RowsData.AddHref = base + "/devices/new"
 		if v.Features.Discovery {

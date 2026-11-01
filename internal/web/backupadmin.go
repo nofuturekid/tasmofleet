@@ -102,12 +102,41 @@ type BackupUnreferenced interface {
 	Unreferenced(ctx context.Context) ([]backup.UnreferencedFile, error)
 }
 
+// withoutBackup is the one definition of "device without a backup": a live device (Device 0 is
+// the deleted devices' row) with no backup run. The Backups tab's tile counts with it and the
+// device list's "No backup" chip filters with it, so the click shows what the tile counted (#381).
+func withoutBackup(u store.BackupUsage) bool { return u.Device != 0 && u.Runs == 0 }
+
+// annotateBackups sets deviceRow.NoBackup, the fact the "No backup" chip filters on. Without a
+// backup service nothing is marked (and the chip is not offered, see devicesPageData).
+func (h *handler) annotateBackups(ctx context.Context, rows []deviceRow) error {
+	bs, ok := h.d.Backups.(BackupStorage)
+	if !ok {
+		return nil
+	}
+	usage, err := bs.Usage(ctx)
+	if err != nil {
+		return err
+	}
+	none := map[model.DeviceID]bool{}
+	for _, u := range usage {
+		if withoutBackup(u) {
+			none[u.Device] = true
+		}
+	}
+	for i := range rows {
+		rows[i].NoBackup = none[rows[i].Device.ID]
+	}
+	return nil
+}
+
 // sysStorageTop is how many devices the storage table lists (largest first).
 const sysStorageTop = 10
 
 // sysStorage is the Storage part of Settings -> Backups.
 type sysStorage struct {
 	Runs, Kept, Without int
+	WithoutHref         string // the device list narrowed to those devices (the tile's link)
 	Size                string
 	Rows                []sysStorageRow
 	More                int // devices with backups beyond the top rows
@@ -171,13 +200,14 @@ func (h *handler) sysStorageOf(r *http.Request, base string) (*sysStorage, error
 		if u.Device == 0 {
 			continue // the deleted devices count in the totals; their runs are listed below
 		}
-		if u.Runs == 0 {
+		if withoutBackup(u) {
 			st.Without++
 			continue
 		}
 		st.Rows = append(st.Rows, sysStorageRow{Name: u.Name, Href: fmt.Sprintf("%s/devices/%d/backups", base, u.Device),
 			Runs: u.Runs, Size: humanBytes(u.Bytes), Last: u.Last, When: storeDate(now, u.Last), bytes: u.Bytes})
 	}
+	st.WithoutHref = base + "/devices?chip=" + chipNoBackup
 	st.Size = humanBytes(total)
 	slices.SortStableFunc(st.Rows, func(a, b sysStorageRow) int {
 		return cmp.Or(cmp.Compare(b.bytes, a.bytes), cmp.Compare(a.Name, b.Name))

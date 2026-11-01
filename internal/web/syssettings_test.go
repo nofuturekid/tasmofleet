@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -493,5 +494,43 @@ func TestSettingsBackupsListsUnreferencedFilesReadOnly(t *testing.T) {
 	e2, _, _, _ := sysEnvWithDeps(t, func(d *Deps) { d.Backups = &unrefStorage{storageBackups: sb} })
 	if _, body := e2.do(t, "GET", "/settings/system?tab=backups", "admin", nil); strings.Contains(body, "Unreferenced files") {
 		t.Error("no section without files")
+	}
+}
+
+// Why (#381): the "Devices without a backup" tile on Settings -> Backups must open exactly the
+// devices it counts. Tile, list chip and list rows come from one predicate (withoutBackup); if
+// any of them drifts (e.g. a chip that also counts devices of deleted backups) the numbers on
+// the two pages stop agreeing and the click leads to a list that does not match the tile.
+func TestBackupsTileOpensTheListOfDevicesWithoutABackup(t *testing.T) {
+	sb := &storageBackups{keepBackups: &keepBackups{adminBackups: &adminBackups{}, deviceOf: 1}}
+	sb.usage = []store.BackupUsage{
+		{Device: 1, Name: "kitchen", Runs: 2, Bytes: 10, Last: time.Now()}, // has backups
+		{Device: 2, Name: "attic"},                       // none
+		{Device: 0, Runs: 3, Bytes: 5, Last: time.Now()}, // deleted devices' backups: not a device
+	}
+	e, _, _, _ := sysEnvWithDeps(t, func(d *Deps) { d.Backups = sb })
+
+	_, page := e.do(t, "GET", "/settings/system?tab=backups", "admin", nil)
+	m := regexp.MustCompile(`<a class="sys-sum" href="([^"]+)"><div class="sys-sum-label">Devices without a backup</div><div class="sys-sum-value">(\d+)</div></a>`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatalf("the tile is not a link: %s", page)
+	}
+	if m[1] != "/tf/devices?chip=nobackup" {
+		t.Errorf("tile href %q", m[1])
+	}
+	r, list := e.do(t, "GET", strings.TrimPrefix(m[1], "/tf"), "admin", nil)
+	if r.StatusCode != 200 {
+		t.Fatalf("status %d", r.StatusCode)
+	}
+	rows := regexp.MustCompile(`<li class="dcard" data-id="(\d+)">`).FindAllStringSubmatch(list, -1)
+	if len(rows) != 1 || rows[0][1] != "2" {
+		t.Fatalf("list shows %v, want only device 2 (attic)", rows)
+	}
+	if strconv.Itoa(len(rows)) != m[2] {
+		t.Errorf("tile counts %s, list shows %d", m[2], len(rows))
+	}
+	chip := regexp.MustCompile(`<a class="dv-chip"[^>]*aria-current="true"[^>]*>No backup<span class="dv-n">(\d+)</span>`).FindStringSubmatch(list)
+	if chip == nil || chip[1] != m[2] {
+		t.Errorf("the active chip must say No backup with the tile's count %s, got %v", m[2], chip)
 	}
 }

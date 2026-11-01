@@ -355,7 +355,7 @@ templ sysStorageBlock(p sysPage, st sysStorage) {
 			@sysSum("Backups", strconv.Itoa(st.Runs))
 			@sysSum("Total size", st.Size)
 			@sysSum("Kept (never pruned)", strconv.Itoa(st.Kept))
-			@sysSum("Devices without a backup", strconv.Itoa(st.Without))
+			@sysSumLink("Devices without a backup", strconv.Itoa(st.Without), st.WithoutHref)
 		</div>
 		if len(st.Rows) > 0 {
 			<div class="sys-store" role="table" aria-label="Backup storage per device">
@@ -377,6 +377,14 @@ templ sysStorageBlock(p sysPage, st sysStorage) {
 			</div>
 		}
 	</div>
+}
+
+// sysSumLink is a total that opens the list of what it counts (the whole tile is the link).
+templ sysSumLink(label, value, href string) {
+	<a class="sys-sum" href={ templ.SafeURL(href) }>
+		<div class="sys-sum-label">{ label }</div>
+		<div class="sys-sum-value">{ value }</div>
+	</a>
 }
 
 templ sysSum(label, value string) {

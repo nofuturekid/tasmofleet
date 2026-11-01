@@ -18,6 +18,7 @@ const (
 	chipDown         = "down"         // offline or never answered
 	chipOutdated     = "outdated"     // a newer stable release exists
 	chipNonCompliant = "noncompliant" // at least one policy deviation
+	chipNoBackup     = "nobackup"     // no backup run yet (#381; Settings -> Backups tile)
 )
 
 // chipCount is one filter chip with the number of devices it would show.
@@ -163,6 +164,8 @@ func chipMatch(chip string, r deviceRow) bool {
 		return r.Outdated
 	case chipNonCompliant:
 		return r.Deviations > 0
+	case chipNoBackup:
+		return r.NoBackup
 	}
 	return true
 }
@@ -172,6 +175,7 @@ var deviceChips = []chipCount{
 	{Key: chipDown, Label: "Offline / unknown"},
 	{Key: chipOutdated, Label: "Outdated"},
 	{Key: chipNonCompliant, Label: "Not compliant"},
+	{Key: chipNoBackup, Label: "No backup"},
 }
 
 // summarize counts annotated rows in one pass. props are the visible
