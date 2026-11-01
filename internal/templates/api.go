@@ -36,10 +36,15 @@ type DeviceView struct {
 	Source  Source
 	// ReadAt is when a live reading was taken, or the date of the backup it comes from.
 	ReadAt time.Time
+	// NotJudgedReason says in a sentence why the device is in the "Not judged" fold (no reading and no
+	// backup, unknown chip family, template not read, offline); "" for a judged device.
+	NotJudgedReason string
 	// OfflineSince is set when the device is offline (the "Not judged" fold says since when); zero otherwise.
 	OfflineSince time.Time
-	// PowerOnState is the device's PowerOnState setting as last known ("" when unknown), for the restart line.
-	PowerOnState string
+	// PowerOnState is the device's PowerOnState setting as last known (the raw value, "" when unknown);
+	// PowerOnStateText is the sentence for the restart line ("after the restart relays go off").
+	PowerOnState     string
+	PowerOnStateText string
 	// Plan is the verdict for applying the group's reference to this device; nil when the group has no
 	// reference, the group is a built-in module group, or the device is not judged.
 	Plan *policy.ApplyPlan
@@ -67,6 +72,8 @@ type Overview struct {
 	BuiltIn []GroupView
 	// NotJudged are devices without a usable reading or with an unknown chip family.
 	NotJudged []DeviceView
+	// ReadAt is when the newest live reading of the fleet was taken (shown as "Read live <time>"); zero when none.
+	ReadAt time.Time
 	// Throttled: a live refresh was asked for but the rate limit stopped it; cached readings are shown.
 	Throttled bool
 }
@@ -80,17 +87,35 @@ type Request struct {
 
 // PreviewRow is one device of a preview.
 type PreviewRow struct {
+	// Device carries the name, the current template (Device.Reading.Template) and PowerOnStateText.
 	Device DeviceView
 	// Plan holds the diff, the exact command, the restart flag, and the refusal with its reason.
 	Plan policy.ApplyPlan
+	// Warning is a caution that does not block, for example the template NAME growing past the room
+	// settings have (crOverflow, T15) or a flash write; "" when there is none.
+	Warning string
+}
+
+// Excluded is a device of the request that is not sent anything, with the reason.
+type Excluded struct {
+	Device DeviceView
+	// Why is "matches the reference", "is the reference", or the refusal's sentence.
+	Why string
+	// Refusal is policy.RefuseNone for the first two.
+	Refusal policy.Refusal
 }
 
 // Preview is what applying a Request would do, judged from fresh live readings.
 type Preview struct {
 	Group     policy.GroupKey
 	Reference DeviceView
+	// ReferenceTemplate is the template the devices get (the reference's reading).
+	ReferenceTemplate policy.GPIOTemplate
+	// Rows are the devices that are sent the template, sorted by device id.
 	Rows      []PreviewRow
-	// Applicable counts the rows that will be sent (no refusal, not already matching).
+	// Excluded are the devices of the request that get nothing: the reference, matching devices, refusals.
+	Excluded []Excluded
+	// Applicable is len(Rows).
 	Applicable int
 	// Digest covers the reference's layout, every row's device id, current layout and command text.
 	// Apply rebuilds the preview and refuses with ErrStaleDigest when it differs.
