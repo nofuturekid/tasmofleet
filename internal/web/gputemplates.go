@@ -623,7 +623,7 @@ func (h *handler) gtForm(w http.ResponseWriter, r *http.Request) (templates.Requ
 		h.message(w, r, http.StatusBadRequest, h.view(r, "Nothing to apply", "policy", "Choose a group, a reference and at least one device on the GPIO templates tab."))
 		return templates.Request{}, false
 	}
-	return templates.Request{Group: k, Reference: ref, Devices: ids}, true
+	return templates.Request{Group: k, Reference: ref, Devices: ids, Chosen: r.PostForm.Get("how") == string(policy.RefChosen)}, true
 }
 
 func (h *handler) gtPreview(w http.ResponseWriter, r *http.Request) {
