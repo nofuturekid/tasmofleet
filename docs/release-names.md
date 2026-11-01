@@ -14,7 +14,7 @@ runs out, add more. Facts below are taken from Wikipedia; a detail that could no
 3. **Cape Hatteras** (assigned to 0.23): Buxton, North Carolina, USA. The current tower was first lit in 1871; moved 2,900 ft inland in 1999.
 4. **Hook Head** (assigned to 0.24): County Wexford, Ireland. The tower dates from the 12th century and is the second oldest operating lighthouse in the world.
 5. **Cape Point** (assigned to 0.25): Cape Peninsula, South Africa. Lit in 1860; the new, lower lighthouse followed in 1919 after the 1911 wreck of the Lusitania.
-6. **Skerryvore**: reef southwest of Tiree, Scotland. First lit in 1844 (Alan Stevenson); at 48 m the tallest lighthouse in Scotland.
+6. **Skerryvore** (assigned to 0.26): reef southwest of Tiree, Scotland. First lit in 1844 (Alan Stevenson); at 48 m the tallest lighthouse in Scotland.
 7. **Cordouan**: mouth of the Gironde, France. Completed in 1611 (Louis de Foix); UNESCO World Heritage Site since 2021.
 8. **Cape Byron**: New South Wales, Australia. Lit in 1901 on the easternmost point of the Australian mainland.
 9. **Portland Head**: Cape Elizabeth, Maine, USA. First lit in 1791; the first lighthouse built by the US government.

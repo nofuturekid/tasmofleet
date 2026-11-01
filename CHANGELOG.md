@@ -6,6 +6,13 @@ always upgrade automatically.
 
 ## Unreleased
 
+## 0.26.0 "Skerryvore" (2026-11-01)
+
+### Upgrade notes
+
+- No database migration (the schema stays at 0041). Nothing to change in the template.
+- Restore over HTTP now works on official Tasmota builds (it did not before, see Fixed). It no longer needs the firmware listener or `FIRMWARE_BASE_URL`.
+
 ### Added
 
 - Backups include the flash files of an ESP32 (and any build with a file system and firmware 14.6.0 or newer), part of #324: each backup run stores one more file, `<stamp>_<host>.files.tar`, with Berry scripts, folders and `tlskey` (1 MiB per file, 4 MiB and 100 files per run; bigger files are listed in the archive's manifest, not stored). The archive is a secret like the `.dmp`. A device without a file system, with older firmware or reachable over MQTT only gets a note instead. Retention, Keep and delete treat the archive as part of its run. No database migration; the backup pages and restore follow in later changes
