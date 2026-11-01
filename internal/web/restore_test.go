@@ -657,7 +657,7 @@ func TestRestoreConfirmDoesNotPromiseMoreThanTheSafetyBackupHolds(t *testing.T) 
 	e, _, rs := newDiffEnv(t)
 	rs.assess = filesAssess()
 	_, body := e.do(t, "GET", "/backups/1/restore", "admin", nil)
-	if !strings.Contains(body, "a file that backup cannot hold is not overwritten") {
+	if !strings.Contains(body, "a file that backup cannot hold is not overwritten") || !strings.Contains(body, "files the device did not have before stay on it after a rollback") {
 		t.Errorf("the undo sentence must be conditional:\n%s", body)
 	}
 }

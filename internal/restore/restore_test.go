@@ -216,9 +216,18 @@ type hookClient struct {
 	// itself, the way a device does that deletes the old file and then fails).
 	uploadHook func(p string, attempt int) error
 	attempts   map[string]int
+	// afterUpload runs after a real upload returned without error.
+	afterUpload func(p string)
+	// failCmd, when set, may fail a command before it reaches the device (return nil to let it pass).
+	failCmd func(cmnd string) error
+	// fsInfoErr, when set, makes FSInfo fail (the device's file system cannot be read).
+	fsInfoErr error
 }
 
 func (c *hookClient) FSInfo(ctx context.Context, t tasmota.Target) (tasmota.FSInfo, error) {
+	if c.fsInfoErr != nil {
+		return tasmota.FSInfo{}, c.fsInfoErr
+	}
 	return c.fs.FSInfo(ctx, t)
 }
 
@@ -245,7 +254,11 @@ func (c *hookClient) UploadFile(ctx context.Context, t tasmota.Target, p string,
 			return err
 		}
 	}
-	return c.fs.UploadFile(ctx, t, p, data)
+	err := c.fs.UploadFile(ctx, t, p, data)
+	if err == nil && c.afterUpload != nil {
+		c.afterUpload(p)
+	}
+	return err
 }
 
 // uploads lists the paths of the uploads that reached the client, in order.
@@ -262,6 +275,11 @@ func (c *hookClient) uploads() []string {
 }
 
 func (c *hookClient) Command(ctx context.Context, t tasmota.Target, cmnd string) (json.RawMessage, error) {
+	if c.failCmd != nil {
+		if err := c.failCmd(cmnd); err != nil {
+			return nil, err
+		}
+	}
 	c.mu.Lock()
 	c.cmds = append(c.cmds, cmnd)
 	swallow := c.swallow

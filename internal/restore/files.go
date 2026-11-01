@@ -549,14 +549,20 @@ func plural(n int, one, many string) string {
 // files are written only when the page showed exactly this plan. fo is never nil on success; a
 // non-nil error is the failure text that ends the job.
 func (m *Manager) filesStep(ctx context.Context, j *Job, t tasmota.Target, version func(context.Context) (string, error), viaMQTT bool, identity func() error, confirmed int) (*filesOutcome, error) {
+	if confirmed == 0 {
+		// A settings-only restore never asks the device about its files: that check must not be able
+		// to fail it. Only the stored backup is read, to say what is left out.
+		out := &filesOutcome{plan: m.offlinePlan(ctx, j.BackupID)}
+		out.summary = notWrittenSummary(out.plan)
+		m.track(j.ID, FilesPlan{NotStored: out.plan.NotStored}).setSummary(out.summary)
+		return out, nil
+	}
 	plan, err := m.planFiles(ctx, j.BackupID, t, version, viaMQTT)
 	if err != nil {
 		return nil, &failedFiles{failFilesNone + err.Error()}
 	}
 	if plan.Why == "" && len(plan.Files) > 0 {
 		switch {
-		case confirmed == 0:
-			plan.Why = "the confirmation did not offer them, so only the settings are restored"
 		case confirmed != len(plan.Files):
 			plan.Why = "the list of files changed since the confirmation, so only the settings are restored"
 		}
@@ -572,6 +578,22 @@ func (m *Manager) filesStep(ctx context.Context, j *Job, t tasmota.Target, versi
 		return nil, &failedFiles{failFilesNone + err.Error()}
 	}
 	return m.writeFiles(ctx, j, t, plan)
+}
+
+// offlinePlan is what the backup says about its files without asking the device: the reason files
+// are left out when the confirmation did not include them, or the note why the backup has none.
+func (m *Manager) offlinePlan(ctx context.Context, id model.BackupID) FilesPlan {
+	if m.o.Files == nil {
+		return FilesPlan{}
+	}
+	rf, err := m.o.Files.RunFiles(ctx, id)
+	if err != nil {
+		return FilesPlan{Why: "the files archive of this backup is damaged or missing, so only the settings are restored"}
+	}
+	if rf.Archive == nil || rf.Manifest == nil || len(rf.Manifest.Files) == 0 {
+		return FilesPlan{Note: rf.Note}
+	}
+	return FilesPlan{Why: "the confirmation did not offer them, so only the settings are restored", NotStored: rf.Manifest.Skipped}
 }
 
 // afterFiles words a failure of a later step. When files were already written the device is not

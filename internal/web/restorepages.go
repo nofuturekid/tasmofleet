@@ -179,7 +179,7 @@ func restoreConfirmOf(v view, p confirmPage) restoreConfirmView {
 			card.Title = "Files written first (" + stored + ")"
 			card.Foot = "Files first, then the settings, one restart. Files of the same name are replaced. Nothing on the device is deleted: files that are not in the backup stay as they are."
 			c.StepsText = []string{
-				"TasmoFleet backs up the current state first, with its files, so you can undo this (a file that backup cannot hold is not overwritten).",
+				"TasmoFleet backs up the current state first, with its files, so you can undo this (a file that backup cannot hold is not overwritten, and files the device did not have before stay on it after a rollback).",
 				fmt.Sprintf("The %s are written to the device's filesystem.", filesPlural(n)),
 				"The backup is uploaded and the device restarts (relays switch off for a few seconds).",
 				"Settings and files are read back and compared with the backup.",

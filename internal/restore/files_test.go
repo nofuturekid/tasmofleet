@@ -678,3 +678,98 @@ func TestNoFileIsOverwrittenWhenThePreBackupHasNoFiles(t *testing.T) {
 		t.Errorf("not undone: %v", pr.NotUndone)
 	}
 }
+
+// --- second review of #427 -----------------------------------------------------------------------
+
+// Why (N3): a settings-only restore (the page showed no files) must not depend on the file system:
+// a device whose file system cannot be read right now still gets its settings.
+func TestSettingsOnlyRestoreDoesNotTouchTheFileSystem(t *testing.T) {
+	e, a := filesFlow(t)
+	e.cl.fsInfoErr = errors.New("device busy")
+	done := e.finish(t, e.startFiles(t, a.ID, 0).ID)
+	if done.State != store.RestoreDone || !bytes.Equal(e.deviceDump(t), e.dumpA) {
+		t.Fatalf("job: %+v", done)
+	}
+	if files, _ := SplitDetail(done.Detail); !strings.Contains(files, "only the settings are restored") {
+		t.Errorf("the finished job must say the files were not restored: %q", done.Detail)
+	}
+}
+
+// Why (N4, H1): every failure between the files and the settings must say that files were written,
+// not only the identity check: the device is not "unchanged" at the uptime read or when
+// WebGetConfig is refused.
+func TestLaterFailuresAfterWrittenFilesAreNeverUnchanged(t *testing.T) {
+	for name, cmd := range map[string]string{"uptime read": "Status 11", "WebGetConfig refused": "WebGetConfig"} {
+		t.Run(name, func(t *testing.T) {
+			e, a := filesFlow(t)
+			e.cl.failCmd = func(c string) error {
+				if strings.HasPrefix(c, cmd) && len(e.cl.uploads()) > 0 {
+					return errors.New("unknown command")
+				}
+				return nil
+			}
+			done := e.finish(t, e.startFiles(t, a.ID, 3).ID)
+			if done.State != store.RestoreFailed || !strings.HasPrefix(done.Detail, failFilesWritten) || strings.Contains(done.Detail, "nothing was changed") || !FilesChanged(done.Detail) {
+				t.Errorf("job: %+v", done)
+			}
+		})
+	}
+}
+
+// Why (N4, H1): the same for a replace, where the address can change hands between files and settings.
+func TestReplaceIdentityLostAfterFilesIsNotUnchanged(t *testing.T) {
+	e := replaceFilesFlow(t, map[string]string{"/autoexec.be": "factory", "/lib/x.be": "x"})
+	a := e.dumpBackup(t, e.dumpA)
+	e.breakOld(t)
+	e.cl.afterUpload = func(p string) {
+		if p == "/tlskey" { // the last file is in; from now on another host answers
+			e.cl.mu.Lock()
+			e.cl.status5 = "aa:bb:cc:99:99:99"
+			e.cl.mu.Unlock()
+		}
+	}
+	done := e.finish(t, func() store.RestoreID {
+		j, err := e.m.StartReplace(t.Context(), "alice", e.req(a.ID), StartOptions{ConfirmedFiles: 3})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return j.ID
+	}())
+	if done.State != store.RestoreFailed || !strings.HasPrefix(done.Detail, failFilesWritten) || strings.Contains(done.Detail, "nothing was changed") {
+		t.Errorf("job: %+v", done)
+	}
+}
+
+// Why (N4, M2): a restore cancelled between two files has written one: it must not claim the
+// device is unchanged (the prefix follows the writes made so far).
+func TestCancelBetweenFilesSaysFilesWereWritten(t *testing.T) {
+	e, a := filesFlow(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	e.m.o.Context = ctx
+	e.cl.afterUpload = func(p string) {
+		if p == "/autoexec.be" {
+			cancel()
+		}
+	}
+	done := e.finish(t, e.startFiles(t, a.ID, 3).ID)
+	if done.State != store.RestoreFailed || !strings.HasPrefix(done.Detail, failFilesPartly) {
+		t.Errorf("job: %+v", done)
+	}
+}
+
+// Why (N2): when the replacement's file system cannot be read for the preview, the form confirms
+// no files, so the run restores settings only. The page must say the files are not copied, not that
+// they will be checked again.
+func TestReplacePreviewSaysFilesAreNotCopiedWhenTheFileSystemCannotBeRead(t *testing.T) {
+	e := replaceFilesFlow(t, map[string]string{"/autoexec.be": "factory"})
+	a := e.dumpBackup(t, e.dumpA)
+	e.breakOld(t)
+	e.cl.fsInfoErr = errors.New("device busy")
+	pv, err := e.m.PreviewReplace(t.Context(), e.req(a.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pv.Files.Restores() || !strings.Contains(pv.Files.Why, "not copied") || strings.Contains(pv.Files.Why, "checked again") {
+		t.Errorf("files plan: %+v", pv.Files)
+	}
+}

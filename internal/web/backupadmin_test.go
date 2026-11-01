@@ -300,7 +300,7 @@ func TestReplacePreviewListsTheFilesAndAcknowledgesThem(t *testing.T) {
 	_, body := e.do(t, "GET", "/devices/1/replace/preview?address=10.0.0.9", "admin", nil)
 	flat := strings.ReplaceAll(body, "<wbr>", "")
 	for _, want := range []string{"Files (2, written first)", "autoexec.be", "Private key", "floorplan.jpg (1.6 MiB)", "Over 1 MiB: listed in the backup, not stored",
-		"Copy the files of its filesystem", "receives the 2 files and the configuration", "2 files · newest"} {
+		"Copy the files of its filesystem", "receives the 2 files and the configuration", "2 files · newest", "files the board did not have before stay on it"} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("missing %q", want)
 		}

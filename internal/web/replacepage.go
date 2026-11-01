@@ -158,7 +158,7 @@ func (h *handler) renderReplace(w http.ResponseWriter, r *http.Request, status i
 		}
 		rv.NotCopied = append(rv.NotCopied,
 			ui.KVRow{Key: "Firmware", Value: "The new device keeps Tasmota " + pv.New.Identity.Version},
-			ui.KVRow{Key: "Its factory configuration", Value: "Backed up first, so it can be put back"})
+			ui.KVRow{Key: "Its factory configuration", Value: factoryText(pv.Files.Restores())})
 		rv.Warnings = append(rv.Warnings, "The old device must stay switched off from now on: the new one carries the same hostname, MQTT topic and (if static) IP address. The old credentials come back on the new device. The download is plain HTTP on your device network.")
 		if pv.Detail != "" {
 			rv.Warnings = append(rv.Warnings, sentence(pv.Detail))
@@ -254,4 +254,13 @@ func moduleText(hasModule bool, module int, hasTemplate bool, name string, ios i
 		return "not set"
 	}
 	return s
+}
+
+// factoryText says what the safety backup of the new board gives back: a rollback restores its
+// settings and files but never deletes a file the restore added.
+func factoryText(withFiles bool) string {
+	if withFiles {
+		return "Backed up first, so it can be put back (files the board did not have before stay on it)"
+	}
+	return "Backed up first, so it can be put back"
 }

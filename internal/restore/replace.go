@@ -678,7 +678,7 @@ func (m *Manager) replaceFilesPlan(ctx context.Context, p *replacePlan) FilesPla
 	t := tasmota.TargetFor(model.Device{Address: p.cand.Address, Port: p.cand.Port})
 	plan, err := m.planFiles(ctx, p.b.ID, t, func(context.Context) (string, error) { return p.cand.Identity.Version, nil }, false)
 	if err != nil {
-		return FilesPlan{Files: plan.Files, Why: "the replacement device's file system could not be read right now; the files are checked again when the replacement runs"}
+		return FilesPlan{Files: plan.Files, Why: "the replacement device's file system could not be read right now, so the files are not copied (only the settings)"}
 	}
 	return plan
 }
