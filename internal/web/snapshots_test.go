@@ -260,35 +260,56 @@ func TestStoredSnapshotDownloadAndDelete(t *testing.T) {
 	}
 }
 
-// Why: the card is what makes the feature findable; it lists what is stored, says restore is by
-// hand, and the old card name is gone (the schedule card now says it is for device backups).
-func TestBackupsTabShowsTheDatabaseCardAndRenamedSchedule(t *testing.T) {
+// Why: the page is what makes the feature findable (#410: System -> Snapshots, no longer a card on
+// the Backups tab); it lists what is stored, says restore is by hand and holds the schedule next to
+// the download. The Backups tab is about device backups only.
+func TestSnapshotsPageShowsDownloadStoredScheduleAndRestore(t *testing.T) {
 	s := snapSetup(t, true)
 	if _, err := s.mgr.Run(t.Context(), 7); err != nil {
 		t.Fatal(err)
 	}
-	_, body := s.do(t, "GET", "/settings/system?tab=backups", "admin", nil)
+	_, body := s.do(t, "GET", "/settings/system/snapshots", "admin", nil)
 	for _, want := range []string{
-		`id="card-database"`, "TasmoFleet database", `<button type="submit" form="db-dl" class="btn" id="btn-dl">Download snapshot</button>`,
+		"<h1>Snapshots</h1>", `id="card-download"`, "Download a snapshot", `<button type="submit" form="db-dl" class="btn" id="btn-dl">Download snapshot</button>`,
 		`name="include_key" value="1"`, `id="db-dl" method="post" action="/tf/settings/system/snapshot"`,
 		"The file holds secrets. Keep it like a password.", "There is no restore button on purpose.",
-		`id="card-snapshots"`, "Snapshot schedule", `name="sw.SNAPSHOT_INTERVAL"`, `name="v.SNAPSHOT_KEEP"`,
-		"Device backup schedule", `data-dlg-action="/tf/settings/system/snapshots/`, "Latest", "schema 39",
+		`id="card-stored"`, "Stored snapshots", `id="card-restore"`,
+		`id="card-snapshots"`, "<h2>Schedule</h2>", `name="sw.SNAPSHOT_INTERVAL"`, `name="v.SNAPSHOT_KEEP"`,
+		`action="/tf/settings/system/snapshots"`, `data-sys-bar`, `data-dlg-action="/tf/settings/system/snapshots/`, "Latest", "schema 39",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}
 	}
-	if strings.Contains(body, "Schedule &amp; retention") || strings.Contains(body, "Schedule & retention") {
-		t.Error("the card is renamed Device backup schedule")
-	}
 	if strings.Contains(body, `name="include_key" value="1" checked`) {
 		t.Error("the key must be off by default")
+	}
+	_, backups := s.do(t, "GET", "/settings/system?tab=backups", "admin", nil)
+	for _, gone := range []string{`id="card-database"`, `id="db-dl"`, "Download snapshot", "SNAPSHOT_INTERVAL", "Snapshot schedule", "There is no restore button"} {
+		if strings.Contains(backups, gone) {
+			t.Errorf("the Backups tab still holds the snapshot part: %q", gone)
+		}
+	}
+	if !strings.Contains(backups, "Device backup schedule") {
+		t.Error("the device backup schedule is gone")
+	}
+}
+
+// Why (#410, maintainer decision): "Backups of deleted devices" sits in the narrow column under the
+// device backup schedule, so the wide column is the storage table alone.
+func TestDeletedDeviceBackupsSitUnderTheDeviceBackupSchedule(t *testing.T) {
+	e, _, _, _ := storageEnv(t)
+	_, body := e.do(t, "GET", "/settings/system?tab=backups", "admin", nil)
+	sched, orph := strings.Index(body, `id="card-schedule"`), strings.Index(body, `id="card-orphans"`)
+	narrow := strings.Index(body[strings.Index(body, `id="sec-backups"`):], `<div class="cstack">`) + strings.Index(body, `id="sec-backups"`)
+	stor := strings.Index(body, `id="card-storage"`)
+	if stor >= narrow || narrow >= sched || sched >= orph {
+		t.Errorf("order storage %d, narrow stack %d, schedule %d, deleted devices %d", stor, narrow, sched, orph)
 	}
 }
 
 // Why: a failed schedule must be seen on the page, with the reason, not only in a log.
-func TestBackupsTabReportsAFailedScheduledSnapshot(t *testing.T) {
+func TestSnapshotsPageReportsAFailedScheduledSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	mgr := snapshot.New(failSource{}, dir)
 	e, svc, _, _ := sysEnvFull(t, true, func(d *Deps) { d.Snapshots = mgr })
@@ -298,7 +319,7 @@ func TestBackupsTabReportsAFailedScheduledSnapshot(t *testing.T) {
 	if _, err := mgr.Run(t.Context(), 7); err == nil {
 		t.Fatal("expected a failure")
 	}
-	_, body := e.do(t, "GET", "/settings/system?tab=backups", "admin", nil)
+	_, body := e.do(t, "GET", "/settings/system/snapshots", "admin", nil)
 	for _, want := range []string{"The last scheduled snapshot failed.", "no space left on device", "Last attempt failed", "No good snapshot yet", "see the audit log"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
@@ -319,7 +340,7 @@ func TestSnapshotScheduleSwitchIsComposedIntoTheInterval(t *testing.T) {
 	s := snapSetup(t, true)
 	post := func(f url.Values) (int, string) {
 		f.Set("csrf", "tok")
-		r, b := s.do(t, "POST", "/settings/system?tab=backups", "admin", f)
+		r, b := s.do(t, "POST", "/settings/system/snapshots", "admin", f)
 		return r.StatusCode, b
 	}
 	if code, body := post(url.Values{"swm.SNAPSHOT_INTERVAL": {"1"}, "sw.SNAPSHOT_INTERVAL": {"1"}, "v.SNAPSHOT_INTERVAL": {""}}); code != 422 || !strings.Contains(body, "enter how often") {
@@ -410,9 +431,9 @@ func TestHeadOfAStoredSnapshotIsNotAudited(t *testing.T) {
 
 // Why: the page names the folders the server really uses (DATA_DIR may not be /data), so the
 // restore steps can be followed as written.
-func TestDatabaseCardNamesTheRealDataDirectory(t *testing.T) {
+func TestSnapshotsPageNamesTheRealDataDirectory(t *testing.T) {
 	s := snapSetup(t, true)
-	_, body := s.do(t, "GET", "/settings/system?tab=backups", "admin", nil)
+	_, body := s.do(t, "GET", "/settings/system/snapshots", "admin", nil)
 	if !strings.Contains(body, s.dir+"/tasmofleet.db") || !strings.Contains(body, s.dir+"/secret.key") || !strings.Contains(body, s.dir+"/snapshots") {
 		t.Error("the card must show the data directory in use")
 	}
@@ -431,7 +452,7 @@ func TestDatabaseCardNamesTheRealDataDirectory(t *testing.T) {
 func TestSnapshotStepUpKeepsTheKeyChoice(t *testing.T) {
 	s := snapSetup(t, false)
 	_, withKey := s.do(t, "POST", "/settings/system/snapshot", "admin", url.Values{"csrf": {"tok"}, "include_key": {"1"}})
-	if !strings.Contains(withKey, `/settings/system/stepup?tab=backups&amp;dlkey=1`) {
+	if !strings.Contains(withKey, `/settings/system/snapshots/stepup?dlkey=1`) {
 		t.Error("the password prompt must post to a step-up that remembers the key choice")
 	}
 	_, without := s.do(t, "POST", "/settings/system/snapshot", "admin", url.Values{"csrf": {"tok"}})
@@ -439,27 +460,27 @@ func TestSnapshotStepUpKeepsTheKeyChoice(t *testing.T) {
 		t.Error("no key chosen: nothing to carry")
 	}
 
-	r, _ := s.do(t, "POST", "/settings/system/stepup?tab=backups&dlkey=1", "admin", url.Values{"csrf": {"tok"}, "current": {"right"}})
-	if loc := r.Header.Get("Location"); r.StatusCode != 303 || !strings.Contains(loc, "tab=backups") || !strings.Contains(loc, "dlkey=1") {
+	r, _ := s.do(t, "POST", "/settings/system/snapshots/stepup?dlkey=1", "admin", url.Values{"csrf": {"tok"}, "current": {"right"}})
+	if loc := r.Header.Get("Location"); r.StatusCode != 303 || !strings.Contains(loc, "/settings/system/snapshots?restore=1") || !strings.Contains(loc, "dlkey=1") {
 		t.Fatalf("return address %d %q must carry the choice", r.StatusCode, loc)
 	}
-	r, _ = s.do(t, "POST", "/settings/system/stepup?tab=backups", "admin", url.Values{"csrf": {"tok"}, "current": {"right"}})
+	r, _ = s.do(t, "POST", "/settings/system/snapshots/stepup", "admin", url.Values{"csrf": {"tok"}, "current": {"right"}})
 	if loc := r.Header.Get("Location"); strings.Contains(loc, "dlkey") {
 		t.Errorf("no choice, none carried: %q", loc)
 	}
 	// A wrong password shows the prompt again, still remembering the choice.
 	s.stepped.Store(false)
-	_, again := s.do(t, "POST", "/settings/system/stepup?tab=backups&dlkey=1", "admin", url.Values{"csrf": {"tok"}, "current": {"wrong"}})
-	if !strings.Contains(again, `stepup?tab=backups&amp;dlkey=1`) {
+	_, again := s.do(t, "POST", "/settings/system/snapshots/stepup?dlkey=1", "admin", url.Values{"csrf": {"tok"}, "current": {"wrong"}})
+	if !strings.Contains(again, `snapshots/stepup?dlkey=1`) {
 		t.Error("a retry after a wrong password must not forget the choice")
 	}
 
 	s.stepped.Store(true)
-	_, back := s.do(t, "GET", "/settings/system?tab=backups&restore=1&dlkey=1", "admin", nil)
+	_, back := s.do(t, "GET", "/settings/system/snapshots?restore=1&dlkey=1", "admin", nil)
 	if !strings.Contains(back, `name="include_key" value="1" checked`) || !strings.Contains(back, `id="btn-dl" autofocus`) {
 		t.Error("the return page must show the box ticked and the Download button focused")
 	}
-	_, plain := s.do(t, "GET", "/settings/system?tab=backups", "admin", nil)
+	_, plain := s.do(t, "GET", "/settings/system/snapshots", "admin", nil)
 	if strings.Contains(plain, `name="include_key" value="1" checked`) || strings.Contains(plain, `id="btn-dl" autofocus`) {
 		t.Error("an ordinary visit starts unticked and unfocused")
 	}
@@ -467,26 +488,26 @@ func TestSnapshotStepUpKeepsTheKeyChoice(t *testing.T) {
 
 // Why (#399): a file where the snapshot folder belongs (a bind mount mistake, a stray file) used to
 // make System, Settings answer 500 for every tab, so the person could not even reach the card that
-// would explain it. The page must render and the card must name the problem; the scheduled
-// snapshot fails with the same reason.
-func TestSettingsPageSurvivesAFileWhereTheSnapshotFolderBelongs(t *testing.T) {
+// would explain it. Every page must render, and the Snapshots page must name the problem; the
+// scheduled snapshot fails with the same reason.
+func TestPagesSurviveAFileWhereTheSnapshotFolderBelongs(t *testing.T) {
 	s := snapSetup(t, true)
 	if err := os.WriteFile(filepath.Join(s.dir, snapshot.DirName), []byte("in the way"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, tab := range []string{"backups", "general"} {
-		r, body := s.do(t, "GET", "/settings/system?tab="+tab, "admin", nil)
+	for _, path := range []string{"/settings/system?tab=backups", "/settings/system?tab=general", "/settings/system/snapshots"} {
+		r, body := s.do(t, "GET", path, "admin", nil)
 		if r.StatusCode != 200 {
-			t.Fatalf("tab %s: status %d, want the page", tab, r.StatusCode)
+			t.Fatalf("%s: status %d, want the page", path, r.StatusCode)
 		}
-		if !strings.Contains(body, "The snapshot folder is not a directory") || !strings.Contains(body, `role="alert"`) {
-			t.Errorf("tab %s: the card does not say what is wrong", tab)
+		if has := strings.Contains(body, "The snapshot folder is not a directory") && strings.Contains(body, `role="alert"`); has != (path == "/settings/system/snapshots") {
+			t.Errorf("%s: the page says what is wrong: %v", path, has)
 		}
 	}
 	if _, err := s.mgr.Run(t.Context(), 7); err == nil || snapshot.ReasonOf(err) == "" {
 		t.Fatalf("a scheduled snapshot must fail with a reason, got %v", err)
 	}
-	_, body := s.do(t, "GET", "/settings/system?tab=backups", "admin", nil)
+	_, body := s.do(t, "GET", "/settings/system/snapshots", "admin", nil)
 	if !strings.Contains(body, "not a directory") {
 		t.Error("the failed attempt's reason is not on the page")
 	}

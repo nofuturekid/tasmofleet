@@ -76,16 +76,51 @@ templ sysSettingsPage(p sysPage) {
 			<input type="hidden" name="csrf" value={ p.CSRF }/>
 		</form>
 	}
-	if p.DB != nil {
-		<form id="db-dl" method="post" action={ templ.SafeURL(p.Base + sysPath + "/snapshot") }>
-			<input type="hidden" name="csrf" value={ p.CSRF }/>
-		</form>
-	}
-	if (p.Storage != nil && len(p.Storage.Orphans) > 0) || (p.DB != nil && len(p.DB.Files) > 0) {
+	if p.Storage != nil && len(p.Storage.Orphans) > 0 {
 		@backupDeleteDialog(backupsView{CSRF: p.CSRF})
 	}
 	@ui.Dialog(ui.DialogData{ID: "dlg-reset", Title: "Reset all settings?", Body: sysResetText,
 		Action: p.Base + sysPath + "/reset", CSRF: p.CSRF, Verb: "Reset settings", Danger: true})
+	if p.NeedStepUp {
+		@ui.StepUp(p.StepUp)
+	}
+}
+
+// snapshotsPage is System -> Snapshots (admins): the database snapshot download, the stored snapshots,
+// the schedule (saved through the page's own save bar) and how to restore. The settings are the
+// snapshot tab of sysLayout, the same fields and the same save as on the Settings page.
+templ snapshotsPage(p sysPage) {
+	@ui.PageHeader("Snapshots", "Copies of TasmoFleet’s own database. Device backups are a separate thing.")
+	if p.Error != "" {
+		@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: p.Error, Alert: true})
+	}
+	<div class="syswrap">
+		<form id="sysform" class="syspage" data-keep-draft="snapshots" method="post" action={ templ.SafeURL(p.Base + snapPath) }>
+			<input type="hidden" name="csrf" value={ p.CSRF }/>
+			for _, tab := range p.Tabs {
+				<div class="sys-tab" id={ "sec-" + tab.Slug } data-sys-tab={ tab.Slug }>
+					@ui.CardStacks(3) {
+						for si, span := range tab.Spans {
+							@ui.CardStack(span) {
+								for _, c := range tab.Cards {
+									if c.Stack == si {
+										@sysCardView(p, c)
+									}
+								}
+							}
+						}
+					}
+				</div>
+			}
+			@ui.SaveBar(p.Base + snapPath)
+		</form>
+	</div>
+	<form id="db-dl" method="post" action={ templ.SafeURL(p.Base + sysPath + "/snapshot") }>
+		<input type="hidden" name="csrf" value={ p.CSRF }/>
+	</form>
+	if len(p.DB.Files) > 0 {
+		@backupDeleteDialog(backupsView{CSRF: p.CSRF})
+	}
 	if p.NeedStepUp {
 		@ui.StepUp(p.StepUp)
 	}
@@ -116,15 +151,27 @@ templ sysCardView(p sysPage, c sysCard) {
 					}
 				}
 			}
-		case "database":
+		case "download":
+			if p.DB != nil {
+				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: "Acts at once, outside the schedule form. Every download is written to the audit log.", Class: ui.StackRank(c.Phone), Plain: true}) {
+					@sysDownloadBlock(p, *p.DB)
+				}
+			}
+		case "stored":
+			if p.DB != nil {
+				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, NoteHTML: sysStoredNote(*p.DB), Class: ui.StackRank(c.Phone), Plain: true}) {
+					@sysStoredBlock(*p.DB)
+				}
+			}
+		case "restore":
 			if p.DB != nil {
 				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, Class: ui.StackRank(c.Phone), Plain: true}) {
-					@sysDatabaseBlock(p, *p.DB)
+					@sysRestoreBlock(*p.DB)
 				}
 			}
 		default:
 			if len(c.Rows) > 0 || c.ID == "mqttdiscovery" || c.ID == "notify-message" {
-				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, Class: ui.StackRank(c.Phone), Depends: c.Depends, Badges: sysCardBadges(c)}) {
+				@ui.SettingsCard(ui.SettingsCardData{ID: "card-" + c.ID, Title: c.Title, Note: c.Note, NoteHTML: sysCardNote(p, c), Class: ui.StackRank(c.Phone), Depends: c.Depends, Badges: sysCardBadges(c)}) {
 					if c.ID == "mqttdiscovery" {
 						@sysDiscoveryCard(p)
 					}
@@ -149,7 +196,7 @@ templ sysCardView(p sysPage, c sysCard) {
 					}
 					if c.ID == "mqttdiscovery" && p.Discovery.Link {
 						<div class="sys-card-foot">
-							@ui.Button(ui.Btn{Label: "Open Discovered", Href: p.Base + "/discovery"})
+							@ui.Button(ui.Btn{Label: "Open Discovered", Href: p.Base + "/devices/new#card-discovered"})
 						</div>
 					}
 					if c.ID == "scan" {
@@ -190,7 +237,7 @@ templ sysRowView(p sysPage, row sysRow) {
 		case row.Key == "BACKUP_INTERVAL":
 			@sysSchedule(row, "BACKUP_SCHEDULE", "Scheduled backups", "Off: manual only.")
 		case row.Key == "SNAPSHOT_INTERVAL":
-			@sysSchedule(row, "SNAPSHOT_SCHEDULE", "Scheduled snapshots", "Besides the download above, on a timer.")
+			@sysSchedule(row, "SNAPSHOT_SCHEDULE", "Scheduled snapshots", "Besides the download, on a timer.")
 		case row.Bool:
 			@sysSwitch(row)
 		default:
@@ -519,10 +566,9 @@ templ sysSnapshotStatus(db sysDB) {
 	<p class="ufield-help db-note">Stored in the data directory (<span class="mono">{ db.Dir }</span>), so the host backup of <span class="mono">{ db.DataDir }</span> covers them. They sit on the same disk as the database: they protect against a bad upgrade or a deleted row, not against a dead disk.</p>
 }
 
-// sysDatabaseBlock is the "TasmoFleet database" card: the download (a form outside the settings
-// form, "db-dl"), what the file holds, the stored snapshots with Download and Delete, and how to
-// restore. There is no restore button on purpose.
-templ sysDatabaseBlock(p sysPage, db sysDB) {
+// sysDownloadBlock is the "Download a snapshot" card: the download (a form outside the settings form,
+// "db-dl"), what the file holds and the failure of the last scheduled snapshot.
+templ sysDownloadBlock(p sysPage, db sysDB) {
 	<div class="sys-test">
 		<button type="submit" form="db-dl" class="btn" id="btn-dl" autofocus?={ db.FocusDownload }>Download snapshot</button>
 		<label class="db-incl"><input type="checkbox" form="db-dl" name="include_key" value="1" checked?={ db.KeepKey }/> Include <span class="mono">secret.key</span> (as .tar)</label>
@@ -548,7 +594,28 @@ templ sysDatabaseBlock(p sysPage, db sysDB) {
 			</div>
 		</div>
 	}
-	<h3 class="sys-subhead">Scheduled snapshots <span class="db-where mono">{ db.Dir }</span></h3>
+}
+
+// sysStoredNote is the note of the "Stored snapshots" card: where they are kept.
+templ sysStoredNote(db sysDB) {
+	Newest first, in <span class="mono">{ db.Dir }</span>. Delete acts at once.
+}
+
+// sysCardNote is the note of a settings card that holds a link: the snapshot schedule names the place
+// where the failure message is set. Nil for every other card.
+func sysCardNote(p sysPage, c sysCard) templ.Component {
+	if c.ID != "snapshots" {
+		return nil
+	}
+	return sysSnapshotScheduleNote(p.Base + sysPath + "?tab=notifications")
+}
+
+templ sysSnapshotScheduleNote(href string) {
+	Every scheduled snapshot is written to the audit log. The failure message is set under <a href={ templ.SafeURL(href) }>Settings → Notifications</a>.
+}
+
+// sysStoredBlock is the stored snapshots with Download and Delete.
+templ sysStoredBlock(db sysDB) {
 	if db.ListErr != "" {
 		<div class="error" role="alert">{ db.ListErr }</div>
 	} else if len(db.Files) == 0 {
@@ -587,7 +654,10 @@ templ sysDatabaseBlock(p sysPage, db sysDB) {
 			}
 		</div>
 	}
-	<h3 class="sys-subhead">Restore</h3>
+}
+
+// sysRestoreBlock is how to restore a snapshot. There is no restore button on purpose.
+templ sysRestoreBlock(db sysDB) {
 	<ol class="db-restore">
 		<li>Stop the container.</li>
 		<li>Replace <span class="mono">{ db.DataDir + "/tasmofleet.db" }</span> with the snapshot and delete <span class="mono">tasmofleet.db-wal</span> and <span class="mono">tasmofleet.db-shm</span>.</li>

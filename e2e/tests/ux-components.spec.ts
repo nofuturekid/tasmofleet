@@ -58,7 +58,7 @@ const viewports = [
 
 // Pages of the signed-in app (header auth, admin), by path.
 const pagePaths = (id: string) => [
-  "/", "/devices", "/devices/new", "/discovery", "/updates/new", "/transactions", "/firmware", "/policy", "/policy/io",
+  "/", "/devices", "/devices/new", "/discovery/scan", "/settings/system/snapshots", "/updates/new", "/transactions", "/firmware", "/policy", "/policy/io",
   "/audit", "/settings/system", "/about", "/setup", `/devices/${id}`, `/devices/${id}/edit`, `/devices/${id}/console`,
   `/devices/${id}/backups`, `/devices/${id}/settings`, "/devices/9999",
 ];

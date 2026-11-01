@@ -1278,7 +1278,7 @@ the identity (11.1); a device answers it as cheaply as a STATE.
 
 **Unresolved topics.** Topics without a MAC yet (offline, no answer, address outside
 `DEVICE_NETWORKS`) are kept in memory (at most 1024, oldest dropped) and listed on the
-Discovered tab under "Seen on MQTT, not identified yet" with the reason, so "on the
+Discovered box of the Add page under "Seen on MQTT, not identified yet" with the reason, so "on the
 broker but not in the list" is visible instead of silent. They cannot be added: there is no
 MAC to bind. A claim refused only because its address lies outside `DEVICE_NETWORKS`
 (discovery config or Status 5 answer) is kept with its topic and evaluated again as soon as
@@ -2026,9 +2026,11 @@ only when their feature is wired (updates, firmware, policy, ...) are listed wit
 | POST | `/policy/live/pause`, `/policy/live/resume` | admin | pause or resume the background reads |
 | GET, POST | `/policy/rules/new`, `/policy/rules/duplicate`, `/policy/rules/new/copy`, `/policy/rules/preview`, `/policy/rules/save`, `/policy/rules/delete`, `/policy/rules/value-control`, `/policy/rules/order`, `/policy/rules/enable`, `/policy/rules/disable`, `/policy/rules/revert/{id}`, `/policy/io/import` | admin | rule editor and list operations (§14.4) |
 | POST | `/policy/fix`, `/policy/fix/apply` | admin | Make compliant: preview, apply |
-| GET, POST | `/discovery`, `/discovery/scan`, `/discovery/scan/{id}`, `/discovery/scan/{id}/stream`, `/discovery/scan/{id}/cancel`, `/discovery/proposals/...` (accept, dismiss, undismiss, one or many) | admin | "Add devices": proposals and scans |
-| GET, POST | `/import/tasmoadmin`, `/import/tasmoadmin/apply`, `/import/tasmoadmin/report.csv` | admin | web import |
+| GET, POST | `/devices/new` | admin | "Add devices" (#410): one page with four boxes (Discovered, Network scan, Add manually, Import from TasmoAdmin); POST adds one device by address. `?proposal=`, `?address=`, `?port=` prefill the manual box; `?state=`, `?sort=`, `?dir=`, `?ignored=1` shape the Discovered list |
+| GET, POST | `/discovery/scan`, `/discovery/scan/{id}`, `/discovery/scan/{id}/stream`, `/discovery/scan/{id}/cancel`, `/discovery/proposals/...` (accept, dismiss, undismiss, one or many) | admin | network scan results (live while it runs) and the actions of the Discovered box. The tab routes `GET /discovery` and `GET /import/tasmoadmin` are gone (0.27.0, no redirects) |
+| POST, GET | `/import/tasmoadmin`, `/import/tasmoadmin/apply`, `/import/tasmoadmin/report.csv` | admin | web import: the Import box posts here (htmx fragments), the report downloads |
 | GET, POST | `/settings/system` (+ `/stepup`, `/mqtt-test`, `/sso-test`, `/reset`) | admin | System settings (§16) |
+| GET, POST | `/settings/system/snapshots` (+ `/stepup`), POST `/settings/system/snapshot`, GET, POST `/settings/system/snapshots/{name}/download`, `/delete` | admin | System, Snapshots (#410): database snapshot download, stored snapshots, schedule (saved with the page's own save bar), restore instructions; moved from Settings, Backups |
 | GET, POST | `/setup`, `/setup/mqtt-test`, `/setup/finish` | admin | first-run wizard |
 | GET, POST | `/setup/account` | setup link | set the initial admin password |
 | GET | `/audit` | admin | audit log |
@@ -2062,8 +2064,9 @@ page enforces its own permission). Groups and pages:
 - **Dashboard** (Overview): six stat tiles (Online, Offline, Unknown, Firmware behind, Policy
   deviations, New devices found; each links to a filtered device list), the fleet health bar,
   "Needs attention" and the newest update transactions.
-- **Devices**: *All devices*, *Add devices* (discovery, scans, manual add, TasmoAdmin import; admin) and
-  *Policy*. The device list is a sortable table with filter chips and a search box (`q`, health,
+- **Devices**: *List*, *Policy* and *Add* (admin; since 0.27.0 one page with four boxes: Discovered and
+  Network scan in the wide column, Add manually and Import from TasmoAdmin in the narrow one; the full
+  result of a scan is its own page, `/discovery/scan/{id}`). The page heading of the list stays "Devices". The device list is a sortable table with filter chips and a search box (`q`, health,
   family, tag, chip); the selection bar feeds Update, Back up, Send command, Restart and power.
 - **Device page** (tabs): Overview (tiles, identity, network facts), Settings and Console where the
   device allows them, Backups, Drift and Replace device (admin).
@@ -2072,7 +2075,7 @@ page enforces its own permission). Groups and pages:
   (+ variant override; the preview shows it, no confirmation checkbox since 2026-10-20), a preview
   table, submit, then the live transaction page (per device: state, stage, attempt, last event,
   elapsed time).
-- **System**: *Settings* (System settings, admin), *Audit log* (admin), *Users* (admin), *About*
+- **System**: *Settings* (System settings, admin), *Snapshots* (database snapshots, admin; 0.27.0), *Audit log* (admin), *Users* (admin), *About*
   (admin: versions, decoder, effective configuration with secrets masked, links to docs) and
   *Styleguide* (sample data). *What's new* (parsed from `CHANGELOG.md`) and the account page open from
   the avatar menu; the first-run wizard `/setup` appears for admins until it is finished.

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,8 +19,8 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/snapshot"
 )
 
-// SnapshotService is the database snapshots of Settings -> Backups (*snapshot.Manager implements
-// it). Optional: without it the "TasmoFleet database" card and its routes are absent.
+// SnapshotService is the database snapshots of System -> Snapshots (*snapshot.Manager implements
+// it). Optional: without it that page and its routes are absent.
 type SnapshotService interface {
 	Export(ctx context.Context, withKey bool) (*snapshot.Export, error)
 	List() ([]snapshot.Info, error)
@@ -29,12 +30,22 @@ type SnapshotService interface {
 	Dir() string
 }
 
+// snapPath is the System -> Snapshots page; the stored snapshots' downloads and deletes live below it.
 const snapPath = sysPath + "/snapshots"
+
+// onSnapshots says whether the request is for the Snapshots page or something below it, so the shared
+// settings handlers answer with that page (its save, its step-up) and not with the Settings page.
+func onSnapshots(r *http.Request) bool {
+	return r.URL.Path == snapPath || strings.HasPrefix(r.URL.Path, snapPath+"/")
+}
 
 func (h *handler) registerSnapshots(route func(string, func(http.Handler) http.Handler, http.HandlerFunc), adm func(http.Handler) http.Handler) {
 	if h.d.Snapshots == nil {
 		return
 	}
+	route("GET "+snapPath, adm, h.sysPage)
+	route("POST "+snapPath, adm, h.sysSave)
+	route("POST "+snapPath+"/stepup", adm, h.sysStepUpPost)
 	route("POST "+sysPath+"/snapshot", adm, h.snapDownload)
 	route("GET "+snapPath+"/{name}/download", adm, h.snapStoredDownload)
 	route("POST "+snapPath+"/{name}/download", adm, h.snapStoredDownload) // the confirmation of a proxy-header sign-in
@@ -64,10 +75,10 @@ func (h *handler) snapStepUp(w http.ResponseWriter, r *http.Request, what, actio
 		if r.Method == http.MethodPost && r.PostForm.Get("ack") == "1" {
 			return true
 		}
-		h.renderActionConfirm(w, r, "system", actionConfirm{
+		h.renderActionConfirm(w, r, "snapshots", actionConfirm{
 			Title: "Download a database snapshot?", Heading: "Download a database snapshot", Text: "The file holds every user's password hash and the encrypted device, broker and sign-in secrets. Keep it like a password. Your sign-in comes from the proxy, so it cannot be asked for a password; confirm instead.",
-			Crumbs: []confirmLink{{"/settings/system", "Settings"}, {sysPath + "?tab=backups", "Backups"}}, Last: "Download snapshot",
-			Action: action, Fields: fields, Ack: snapAckText, Verb: "Download", CancelHref: sysPath + "?tab=backups", CancelLabel: "Cancel",
+			Crumbs: []confirmLink{{"", "System"}, {snapPath, "Snapshots"}}, Last: "Download snapshot",
+			Action: action, Fields: fields, Ack: snapAckText, Verb: "Download", CancelHref: snapPath, CancelLabel: "Cancel",
 		})
 		return false
 	}
@@ -75,7 +86,7 @@ func (h *handler) snapStepUp(w http.ResponseWriter, r *http.Request, what, actio
 		return true
 	}
 	p := h.sysData(r, nil, nil)
-	p.Active, p.NeedStepUp, p.StepUpWhat = "backups", true, what
+	p.Active, p.NeedStepUp, p.StepUpWhat = sysSnapshotsSlug, true, what
 	h.sysRender(w, r, http.StatusForbidden, p)
 	return false
 }
@@ -175,10 +186,10 @@ func (h *handler) snapDeleteConfirm(w http.ResponseWriter, r *http.Request) {
 		h.notFound(w, r)
 		return
 	}
-	h.renderActionConfirm(w, r, "system", actionConfirm{
+	h.renderActionConfirm(w, r, "snapshots", actionConfirm{
 		Title: "Delete this snapshot?", Heading: "Delete this snapshot", Text: snapDeleteText(name),
-		Crumbs: []confirmLink{{"/settings/system", "Settings"}, {sysPath + "?tab=backups", "Backups"}}, Last: "Delete snapshot",
-		Action: snapPath + "/" + name + "/delete", Verb: "Delete snapshot", CancelHref: sysPath + "?tab=backups", CancelLabel: "Cancel",
+		Crumbs: []confirmLink{{"", "System"}, {snapPath, "Snapshots"}}, Last: "Delete snapshot",
+		Action: snapPath + "/" + name + "/delete", Verb: "Delete snapshot", CancelHref: snapPath, CancelLabel: "Cancel",
 	})
 }
 
@@ -200,7 +211,7 @@ func (h *handler) snapDelete(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 	default:
 		h.snapAudit(r, "snapshot.delete", "ok", map[string]any{"file": name})
-		redirect(w, r, sysPath+"?tab=backups&ok=snapshot-deleted")
+		redirect(w, r, snapPath+"?ok=snapshot-deleted")
 	}
 }
 
@@ -236,7 +247,7 @@ func snapReason(err error) string {
 	return s[:min(len(s), 120)]
 }
 
-// sysDB is the "TasmoFleet database" card and the status of the snapshot schedule card.
+// sysDB is the Snapshots page: the download, the stored snapshots and the status of the schedule.
 type sysDB struct {
 	// KeepKey: the person ticked "Include secret.key" before the step-up; the box stays ticked (#387).
 	KeepKey bool
@@ -277,7 +288,7 @@ type sysSnapStatus struct {
 	Count   int
 }
 
-// sysDBOf reads the stored snapshots and the schedule's state for the Backups tab.
+// sysDBOf reads the stored snapshots and the schedule's state for the Snapshots page.
 func (h *handler) sysDBOf(r *http.Request, base string) (*sysDB, error) {
 	s := h.d.Snapshots
 	list, err := s.List()

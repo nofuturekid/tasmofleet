@@ -5,61 +5,70 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nofuturekid/tasmofleet/internal/auth"
 	"github.com/nofuturekid/tasmofleet/internal/discovery"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/netaddr"
-	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
-// The "Add devices" screen of design v2 (package P6): one page header and four tabs, Add
-// manually (/devices/new), Discovered (/discovery), Network scan (/discovery/scan) and Import
-// from TasmoAdmin (/import/tasmoadmin). Each tab is its own route; a tab whose service is not
-// configured is left out.
+// The Add page (#410): one page with four boxes, one per way to add devices: Discovered and
+// Network scan in the wide column, Add manually and Import from TasmoAdmin in the narrow one. The
+// page is /devices/new; the boxes post to the routes of their own service (/discovery/..., the
+// import fragments). A box whose service is not configured is left out. The network scan's full
+// result lives on its own page (/discovery/scan/{id}).
 
-// addTab keys: which tab a page is.
-const (
-	addTabManual = "manual"
-	addTabDisc   = "disc"
-	addTabScan   = "scan"
-	addTabImport = "import"
-)
-
-// addHead is what every tab shows above its body: the tab row.
-type addHead struct {
-	Tabs []ui.Tab
+// addPage is the view of the Add page.
+type addPage struct {
+	Base, CSRF string
+	Manual     addManualView
+	Disc       *discView     // nil without discovery
+	Scan       *scanBodyView // nil without discovery
+	Import     *importBody   // nil without the web import
 }
 
-// addView is the page view of one tab: the title of the browser tab and the breadcrumb trail
-// are the same on all four ("Devices / Add devices"), the sub-navigation lights "Add devices".
-func (h *handler) addView(r *http.Request, data any) view {
-	v := h.view(r, "Add devices", "discovery", data)
-	v.Crumbs = []ui.Crumb{{Label: "Devices", Path: "/devices"}, {Label: "Add devices"}}
-	return v
-}
+// addTitle names the page in the window title and the phone header.
+const addTitle = "Add devices"
 
-// addTabs builds the tab row. Discovered carries the number of devices waiting for an admin
-// (new devices and address changes, the badge of the sub-navigation).
-func (h *handler) addTabs(r *http.Request, active string) addHead {
-	base := httpBase(r)
-	tabs := []ui.Tab{{Label: "Add manually", Href: base + "/devices/new", Current: active == addTabManual}}
+// renderAdd draws the Add page. The manual form comes from the caller (an empty one, a prefilled
+// one, or the one a refused add came back with), and so does the discovery list when an action on
+// it was refused; what is nil is read afresh.
+func (h *handler) renderAdd(w http.ResponseWriter, r *http.Request, status int, f addManualView, d *discView) {
+	v := h.view(r, addTitle, "discovery", nil)
+	f.Base, f.CSRF = v.Base, v.CSRF
+	f.Device.HTTPPassword, f.Device.MQTTPassword = "", "" // never rendered
+	f.TagsText = strings.Join(f.Device.Tags, ", ")
+	f.HasDefault = h.d.DefaultDevicePassword != nil && h.d.DefaultDevicePassword() != ""
+	f.NoNetworks = v.Banner != ""
+	page := addPage{Base: v.Base, CSRF: v.CSRF, Manual: f}
 	if h.d.Discovery != nil {
-		disc := ui.Tab{Label: "Discovered", Href: base + "/discovery", Current: active == addTabDisc}
-		if p, _ := auth.FromContext(r.Context()); p.Role >= model.RoleAdmin {
-			disc.Badge = h.newDeviceCount(r)
+		if d == nil {
+			x := h.discoveryData(r)
+			d = &x
 		}
-		tabs = append(tabs, disc, ui.Tab{Label: "Network scan", Href: base + "/discovery/scan", Current: active == addTabScan})
+		d.Base, d.CSRF = v.Base, v.CSRF
+		page.Disc = d
+		b := h.scanBoxData(r)
+		page.Scan = &b
 	}
 	if h.d.Import != nil {
-		tabs = append(tabs, ui.Tab{Label: "Import from TasmoAdmin", Href: base + "/import/tasmoadmin", Current: active == addTabImport})
+		b := h.importBodyOf(r)
+		page.Import = &b
 	}
-	return addHead{Tabs: tabs}
+	switch r.URL.Query().Get("ok") {
+	case "accepted":
+		v.Flash = "Device added."
+	case "moved":
+		v.Flash = "Address updated."
+	case "dismissed":
+		v.Flash = "Dismissed."
+	case "undismissed":
+		v.Flash = "Restored."
+	}
+	h.show(w, r, status, "add", v, addPageView(page))
 }
 
-// addManualView is the Add manually tab: the prototype's address and web password, the fixed
+// addManualView is the Add manually box: the prototype's address and web password, the fixed
 // web user, and the remaining device fields folded under "More options".
 type addManualView struct {
-	addHead
 	Base, CSRF string
 	Device     model.Device
 	TagsText   string
@@ -119,19 +128,8 @@ func (v addManualView) PasswordPlaceholder() string {
 	return ""
 }
 
-func (h *handler) renderAddManual(w http.ResponseWriter, r *http.Request, status int, f addManualView) {
-	f.addHead = h.addTabs(r, addTabManual)
-	v := h.addView(r, f)
-	f.Base, f.CSRF = v.Base, v.CSRF
-	f.Device.HTTPPassword, f.Device.MQTTPassword = "", "" // never rendered
-	f.TagsText = strings.Join(f.Device.Tags, ", ")
-	f.HasDefault = h.d.DefaultDevicePassword != nil && h.d.DefaultDevicePassword() != ""
-	f.NoNetworks = v.Banner != ""
-	h.show(w, r, status, "add_manual", v, addManualPage(f))
-}
-
-// deviceNewForm is the Add manually tab. ?proposal=<id> fills it from a discovered device (the
-// "Add…" of the Discovered tab); ?address= and ?port= from a scan result.
+// deviceNewForm is the Add page. ?proposal=<id> fills the manual form from a discovered device
+// (the "Add…" of the Discovered box); ?address= and ?port= from a scan result.
 func (h *handler) deviceNewForm(w http.ResponseWriter, r *http.Request) {
 	var f addManualView
 	q := r.URL.Query()
@@ -151,7 +149,7 @@ func (h *handler) deviceNewForm(w http.ResponseWriter, r *http.Request) {
 		f.Device = model.Device{Address: a, Port: port}
 		f.Prefill = &addPrefill{Source: "network scan", Address: netaddr.Display(a, port, "http")}
 	}
-	h.renderAddManual(w, r, http.StatusOK, f)
+	h.renderAdd(w, r, http.StatusOK, f, nil)
 }
 
 // proposalByID finds a listed (not dismissed) proposal.

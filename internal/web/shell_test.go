@@ -13,7 +13,7 @@ import (
 var shellPages = []string{
 	"/", "/devices", "/devices/new", "/devices/1", "/devices/1/console", "/devices/1/backups", "/devices/1/settings",
 	"/about", "/styleguide", "/users", "/audit", "/settings", "/settings/system", "/firmware", "/transactions",
-	"/updates/new", "/policy", "/policy/rules", "/discovery", "/import/tasmoadmin", "/setup", "/account/password",
+	"/updates/new", "/policy", "/policy/rules", "/discovery/scan", "/settings/system/snapshots", "/setup", "/account/password",
 	"/no/such/page", "/?ok=saved", "/nav",
 }
 
@@ -115,7 +115,7 @@ func TestNavPageListsTheMenu(t *testing.T) {
 	e := setup(t)
 	_, body := e.do(t, "GET", "/nav", "operator", nil)
 	main := body[strings.Index(body, `<main id="main">`):]
-	for _, want := range []string{">Overview<", ">All devices<", ">Sign out<", `aria-label="Theme"`} {
+	for _, want := range []string{">Overview<", ">List<", ">Sign out<", `aria-label="Theme"`} {
 		if !strings.Contains(main, want) {
 			t.Errorf("/nav lacks %q", want)
 		}

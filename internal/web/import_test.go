@@ -124,7 +124,7 @@ func planToken(t *testing.T, body string) string {
 // and cannot apply a plan an admin prepared.
 func TestImportIsAdminOnly(t *testing.T) {
 	e, inv := importEnv(t)
-	if r, _ := e.do(t, "GET", "/import/tasmoadmin", "operator", nil); r.StatusCode != 403 {
+	if r, _ := e.do(t, "GET", "/devices/new", "operator", nil); r.StatusCode != 403 {
 		t.Fatalf("operator: %d", r.StatusCode)
 	}
 	if c, _ := e.upload(t, "operator", part{"devices_csv", "devices.csv", "text/csv", importCSV}); c != 403 {
@@ -176,7 +176,7 @@ func TestImportNeedsNoStepUp(t *testing.T) {
 		}
 	}
 	e, _ := importEnv(t)
-	_, page := e.do(t, "GET", "/import/tasmoadmin", "admin", nil)
+	_, page := e.do(t, "GET", "/devices/new", "admin", nil)
 	if strings.Contains(page, `name="current"`) || strings.Contains(page, "oidc/stepup") || !strings.Contains(page, `type="file"`) {
 		t.Fatalf("the page must offer the upload directly: %s", page)
 	}

@@ -207,7 +207,7 @@ func (h *handler) setupFinish(w http.ResponseWriter, r *http.Request) {
 				redirect(w, r, "/discovery/scan/"+string(id))
 				return
 			}
-			redirect(w, r, "/discovery") // the scan was refused (one is running): the page says why when started there
+			redirect(w, r, "/devices/new#card-scan") // the scan was refused (one is running): the page says why when started there
 			return
 		}
 	}

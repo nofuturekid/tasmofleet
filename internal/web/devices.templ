@@ -89,7 +89,7 @@ templ devicesContent(v view, p devicesPage) {
 	@ui.PageHeader("Devices", p.countLine()) {
 		if v.IsAdmin {
 			if v.Features.Discovery {
-				@ui.Button(ui.Btn{Label: "Scan network", Href: v.Base + "/discovery#scan-h"})
+				@ui.Button(ui.Btn{Label: "Scan network", Href: v.Base + "/devices/new#card-scan"})
 			}
 			if p.RowsData.AddHref != "" {
 				@ui.Button(ui.Btn{Label: "Add devices", Kind: "primary", Href: p.RowsData.AddHref})
@@ -237,7 +237,7 @@ templ devicesEmpty(v view, p devicesPage) {
 	if v.IsAdmin {
 		@ui.Empty("No devices yet", "Scan your network for Tasmota devices, add one by address, or bring over your existing TasmoAdmin setup.") {
 			if v.Features.Discovery {
-				@ui.Button(ui.Btn{Label: "Scan network", Kind: "primary", Href: v.Base + "/discovery#scan-h"})
+				@ui.Button(ui.Btn{Label: "Scan network", Kind: "primary", Href: v.Base + "/devices/new#card-scan"})
 			}
 			@ui.Button(ui.Btn{Label: "Add manually", Href: v.Base + "/devices/new"})
 			if v.Features.Import {

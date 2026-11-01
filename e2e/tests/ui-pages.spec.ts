@@ -281,10 +281,12 @@ for (const m of modes) {
       await expect(page.getByRole("heading", { name: /^Make \d+ devices? compliant$/, level: 1 })).toBeVisible();
       await look("policy-fix");
     }
-    await page.goto(app.url + "/discovery");
-    await look("discovery");
-    await page.goto(app.url + "/import/tasmoadmin");
-    await look("import");
+    await page.goto(app.url + "/devices/new");
+    await look("add-devices");
+    await page.goto(app.url + "/discovery/scan");
+    await look("scan-results");
+    await page.goto(app.url + "/settings/system/snapshots");
+    await look("snapshots");
     await page.goto(app.url + "/audit");
     await look("audit");
     // a filtered audit page offers exactly one way back, and on a phone it is a 40 px target

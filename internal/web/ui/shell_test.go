@@ -29,7 +29,7 @@ func render(t *testing.T, d ShellData) string {
 func admin() ShellData {
 	return ShellData{
 		Title: "Devices", Nav: "devices", CSRF: "tok", UserName: "ada", UserMethod: "local", RoleName: "admin", IsAdmin: true,
-		Updates: true, Firmware: true, Policy: true, Discovery: true, SysConfig: true,
+		Updates: true, Firmware: true, Policy: true, Discovery: true, SysConfig: true, Snapshots: true,
 	}
 }
 
@@ -99,7 +99,7 @@ func labels(gs []NavGroupData) string {
 // all, D17) is reachable, and each page enforces its own permission. The groups and pages are
 // the prototype's (design v2 SUB table).
 func TestMenuFollowsRoleAndFeatures(t *testing.T) {
-	if got, want := labels(admin().Groups()), "Dashboard[Overview;]Devices[All devices;Add devices;Policy;]Updates[Transactions;Firmware;]System[Settings;Audit log;Users;About;Styleguide;]"; got != want {
+	if got, want := labels(admin().Groups()), "Dashboard[Overview;]Devices[List;Policy;Add;]Updates[Transactions;Firmware;]System[Settings;Snapshots;Audit log;Users;About;Styleguide;]"; got != want {
 		t.Errorf("admin menu\n got %s\nwant %s", got, want)
 	}
 	op := admin()
@@ -108,7 +108,7 @@ func TestMenuFollowsRoleAndFeatures(t *testing.T) {
 		t.Errorf("operator menu differs from the admin's\n got %s\nwant %s", got, want)
 	}
 	bare := ShellData{Title: "x", Nav: "dashboard", UserName: "o", UserMethod: "header", RoleName: "operator"}
-	if got, want := labels(bare.Groups()), "Dashboard[Overview;]Devices[All devices;]System[Audit log;Users;About;Styleguide;]"; got != want {
+	if got, want := labels(bare.Groups()), "Dashboard[Overview;]Devices[List;Add;]System[Audit log;Users;About;Styleguide;]"; got != want {
 		t.Errorf("deployment without services\n got %s\nwant %s", got, want)
 	}
 	fw := bare
@@ -132,7 +132,7 @@ func TestMenuFollowsRoleAndFeatures(t *testing.T) {
 		}
 	}
 	got := render(t, op)
-	for _, link := range []string{"/users", "/audit", "/styleguide", "/discovery"} {
+	for _, link := range []string{"/users", "/audit", "/styleguide", "/devices/new"} {
 		if !strings.Contains(got, link) {
 			t.Errorf("operator page lacks the menu link %q", link)
 		}
@@ -143,7 +143,7 @@ func TestMenuFollowsRoleAndFeatures(t *testing.T) {
 // drawer from the one navigation model, so they cannot disagree.
 func TestCurrentPageMarkedEverywhere(t *testing.T) {
 	for nav, want := range map[string][2]string{
-		"policy": {"Devices", "Policy"}, "import": {"Devices", "Add devices"}, "firmware": {"Updates", "Firmware"},
+		"policy": {"Devices", "Policy"}, "discovery": {"Devices", "Add"}, "snapshots": {"System", "Snapshots"}, "firmware": {"Updates", "Firmware"},
 		"updates": {"Updates", "Transactions"}, "users": {"System", "Users"}, "system": {"System", "Settings"}, "dashboard": {"Dashboard", "Overview"},
 	} {
 		d := admin()
@@ -173,7 +173,8 @@ func TestTrailFollowsTheNavigation(t *testing.T) {
 		{"devices", "/devices", "Devices", "Devices"},
 		{"devices", "/devices/7/backups", "Backups", "Devices>/devices|Backups"},
 		{"policy", "/policy", "Policy", "Devices>/devices|Policy"},
-		{"import", "/import/tasmoadmin", "Import from TasmoAdmin", "Devices>/devices|Add devices>/discovery|Import from TasmoAdmin"},
+		{"discovery", "/devices/new", "Add devices", "Devices>/devices|Add"},
+		{"snapshots", "/settings/system/snapshots", "Snapshots", "System|Snapshots"},
 		{"transactions", "/transactions", "Transactions", "Updates"},
 		{"firmware", "/firmware", "Firmware", "Updates>/transactions|Firmware"},
 		{"about", "/about", "About", "System|About"},

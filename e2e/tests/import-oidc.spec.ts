@@ -39,7 +39,7 @@ test("OIDC admin imports without a second authentication (step-up dropped 2026-1
   const dir = writeTasmoAdminDir(env.devices);
   const names = Object.keys(env.devices);
   await loginAs("admin");
-  await page.goto(app.url + "/import/tasmoadmin");
+  await page.goto(app.url + "/devices/new");
   await expect(page.getByRole("button", { name: "Sign in again" })).toHaveCount(0);
   await page.setInputFiles('input[name="files"]', {
     name: "devices.csv",

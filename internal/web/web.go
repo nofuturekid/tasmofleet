@@ -151,7 +151,7 @@ type Deps struct {
 	BackupBatch  BackupBatch        // optional: "Back up" several devices (admin)
 	Restore      RestoreService     // optional: nil without backups (M2-5)
 	SysConfig    SysConfigService   // optional: system settings page
-	Snapshots    SnapshotService    // optional: database snapshots on the Backups tab (needs SysConfig)
+	Snapshots    SnapshotService    // optional: the System -> Snapshots page (needs SysConfig)
 	Notify       NotifyService      // optional: status lines and test buttons of the Notifications tab (needs SysConfig)
 	PolicyRules  PolicyRulesService // the policy rules; required whenever Policy is set
 	// PolicyLivePause is optional: Pause / Resume of the automatic policy live check.
@@ -379,7 +379,7 @@ type view struct {
 	NewDevices int
 	Version    string // the running version, as About prints it (shell header)
 	News       int    // releases new since the user last opened What's new (N5, avatar dot)
-	Features   struct{ Updates, Firmware, Policy, Settings, Import, Discovery, DeviceCmd, SysConfig, BulkCommand, BulkBackup, BulkRestart bool }
+	Features   struct{ Updates, Firmware, Policy, Settings, Import, Discovery, DeviceCmd, SysConfig, Snapshots, BulkCommand, BulkBackup, BulkRestart bool }
 	Banner     string // a standing notice for admins, e.g. no device networks yet
 	Static     bool   // style guide only: partials render their open variant (data-static)
 	// SortPath is the page URL the sort links of its tables return to when the
@@ -434,6 +434,7 @@ func (h *handler) view(r *http.Request, title, nav string, data any) view {
 	v.Features.Discovery = h.d.Discovery != nil
 	v.Features.DeviceCmd = h.d.DeviceCmd != nil
 	v.Features.SysConfig = h.d.SysConfig != nil
+	v.Features.Snapshots = h.d.SysConfig != nil && h.d.Snapshots != nil // the page needs both
 	v.Features.BulkCommand = h.d.CommandBatch != nil && h.d.DeviceCmd != nil
 	v.Features.BulkRestart = v.Features.BulkCommand
 	v.Features.BulkBackup = h.d.BackupBatch != nil

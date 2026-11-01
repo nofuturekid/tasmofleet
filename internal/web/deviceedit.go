@@ -170,20 +170,20 @@ func (h *handler) deviceCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		form.ErrField, form.Error = formProblem(err)
-		h.renderAddManual(w, r, http.StatusUnprocessableEntity, form)
+		h.renderAdd(w, r, http.StatusUnprocessableEntity, form, nil)
 		return
 	}
 	if r.PostFormValue("test") == "1" || r.PostFormValue("skip_probe") != "1" {
 		probed, perr := h.d.Prober.Describe(r.Context(), d)
 		if perr != nil {
 			form.ErrField, form.Error, form.Fallback = h.probeProblem(r, perr)
-			h.renderAddManual(w, r, http.StatusUnprocessableEntity, form)
+			h.renderAdd(w, r, http.StatusUnprocessableEntity, form, nil)
 			return
 		}
 		if r.PostFormValue("test") == "1" {
 			probed.HTTPPassword = ""
 			form.Tested = &probed
-			h.renderAddManual(w, r, http.StatusOK, form)
+			h.renderAdd(w, r, http.StatusOK, form, nil)
 			return
 		}
 		d = probed
@@ -191,7 +191,7 @@ func (h *handler) deviceCreate(w http.ResponseWriter, r *http.Request) {
 	id, err := h.d.Inventory.Create(r.Context(), actor(r), d)
 	if err != nil {
 		form.ErrField, form.Error = formProblem(err)
-		h.renderAddManual(w, r, http.StatusUnprocessableEntity, form)
+		h.renderAdd(w, r, http.StatusUnprocessableEntity, form, nil)
 		return
 	}
 	redirect(w, r, "/devices/"+strconv.FormatInt(int64(id), 10)+"?ok=added")

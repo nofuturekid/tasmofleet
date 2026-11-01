@@ -17,7 +17,7 @@ type ShellData struct {
 	Crumbs []Crumb
 	// Theme is the user's choice, "light" or "dark"; "" follows the system (Auto).
 	Theme string
-	// NewDevices is the badge on "Add devices": discovered devices waiting to be added.
+	// NewDevices is the badge on "Add": discovered devices waiting to be added.
 	NewDevices int
 	// News is how many releases are new since the user last opened What's new (N5): the avatar's
 	// dot and "N new since last visit" in the user menu; 0 draws neither.
@@ -40,7 +40,7 @@ type ShellData struct {
 	Status StatusBar
 
 	// Features switch menu entries on; a missing service has no page.
-	Updates, Firmware, Policy, Discovery, SysConfig bool
+	Updates, Firmware, Policy, Discovery, SysConfig, Snapshots bool
 
 	// Asset maps a static file name to its hashed name (file?v=hash), so a new build changes the URL.
 	Asset func(name string) string

@@ -159,15 +159,15 @@ func TestScanRangeErrorSitsAtTheRangesField(t *testing.T) {
 func TestShowIgnoredIsAFilterAboveTheTable(t *testing.T) {
 	e, fd := setupDiscovery(t)
 	fd.ignored = []discovery.Proposal{{ID: 9, Kind: discovery.KindNew, SeenAt: time.Now(), Device: model.Device{Name: "hidden-lamp", Address: "10.0.0.60", MAC: "aa:bb:cc:dd:ee:09"}}}
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	sw := regexp.MustCompile(`<a class="add-showign"[^>]*>`).FindString(body)
-	if !strings.Contains(sw, `aria-checked="false"`) || !strings.Contains(sw, `href="/tf/discovery?ignored=1"`) || !strings.Contains(body, "Show ignored (1)") {
+	if !strings.Contains(sw, `aria-checked="false"`) || !strings.Contains(sw, `href="/tf/devices/new?ignored=1"`) || !strings.Contains(body, "Show ignored (1)") {
 		t.Fatalf("Show ignored: %q", sw)
 	}
 	if strings.Index(body, sw) > strings.Index(body, "<table") || strings.Contains(body, "hidden-lamp") {
 		t.Error("the switch must sit above the table, and ignored devices stay hidden")
 	}
-	_, body = e.do(t, "GET", "/discovery?ignored=1", "admin", nil)
+	_, body = e.do(t, "GET", "/devices/new?ignored=1", "admin", nil)
 	if sw := regexp.MustCompile(`<a class="add-showign"[^>]*>`).FindString(body); !strings.Contains(sw, `aria-checked="true"`) || !strings.Contains(body, "hidden-lamp") {
 		t.Error("the switch must stay on while ignored devices are listed")
 	}
@@ -224,7 +224,7 @@ func TestScanRowsOfferTheNextStep(t *testing.T) {
 	e.inv.devs[2] = d2
 	_, body := e.do(t, "GET", "/discovery/scan", "admin", nil)
 	for _, want := range []string{
-		`href="/tf/devices/new?proposal=4"`, `formaction="/tf/discovery/proposals/4/dismiss"`, `value="4:v4"`,
+		`href="/tf/devices/new?proposal=4#card-manual"`, `formaction="/tf/discovery/proposals/4/dismiss"`, `value="4:v4"`,
 		`formaction="/tf/discovery/proposals/5/undismiss"`, ">Un-ignore</button>",
 		`href="/tf/devices/2"`, ">Already known</span>", ">attic<",
 		`All<span class="add-chip-n">3</span>`, `New<span class="add-chip-n">1</span>`, `Known<span class="add-chip-n">1</span>`, `Ignored<span class="add-chip-n">1</span>`,
@@ -375,7 +375,7 @@ func TestImportChooserSortsFilesByName(t *testing.T) {
 		}
 	}
 	e, _ := checkingImportEnv(t)
-	_, page := e.do(t, "GET", "/import/tasmoadmin", "admin", nil)
+	_, page := e.do(t, "GET", "/devices/new", "admin", nil)
 	if !regexp.MustCompile(`<input type="file" name="files" multiple`).MatchString(page) || strings.Contains(page, `name="devices_csv"`) {
 		t.Errorf("the drop zone needs one multi-file chooser: %s", page)
 	}
@@ -532,10 +532,13 @@ func TestAddFromDiscoveryPrefillsWithoutTheDefaultPassword(t *testing.T) {
 	if tag := inputTag(t, body, "address"); !strings.Contains(tag, `value="10.0.0.50"`) {
 		t.Errorf("address not prefilled: %s", tag)
 	}
-	if strings.Contains(body, `name="use_default_password"`) || strings.Contains(body, "fleet-fake-pw") {
+	manual := body[strings.Index(body, `<form class="add-manual"`):]
+	manual = manual[:strings.Index(manual, "</form>")]
+	if strings.Contains(manual, `name="use_default_password"`) || strings.Contains(body, "fleet-fake-pw") {
 		t.Error("a prefilled form must not ask for the default password")
 	}
 	_, plain := e.do(t, "GET", "/devices/new", "admin", nil)
+	plain = plain[strings.Index(plain, `<form class="add-manual"`):]
 	if !strings.Contains(plain, `name="use_default_password" value="1"`) || !strings.Contains(plain, "Prefilled from Settings → Devices.") {
 		t.Error("a typed address keeps the default password (N20)")
 	}
@@ -605,7 +608,7 @@ func TestDiscoveredSaysWhenMQTTDiscoveryIsOff(t *testing.T) {
 		d.Discovery = fd
 		d.MQTT = func() string { return "disabled" }
 	})
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	if !strings.Contains(body, "<b>MQTT discovery is switched off.</b> Only network scans find new devices.") {
 		t.Errorf("no discovery-off notice: %s", body)
 	}
@@ -613,22 +616,9 @@ func TestDiscoveredSaysWhenMQTTDiscoveryIsOff(t *testing.T) {
 		d.Discovery = fd
 		d.MQTT = func() string { return "connected" }
 	})
-	_, body = e2.do(t, "GET", "/discovery", "admin", nil)
+	_, body = e2.do(t, "GET", "/devices/new", "admin", nil)
 	if strings.Contains(body, "MQTT discovery is switched off") {
 		t.Error("the notice shows while discovery listens")
-	}
-}
-
-// Why: "First seen" is a day and a time an admin can place ("Today 08:12") in the browser's
-// zone (time.js, data-ts="day"); the server text is only the fallback. A proposal without a
-// first sighting says "unknown" and must not become a <time> with a zero instant.
-func TestFirstSeenText(t *testing.T) {
-	now := time.Date(2026, 10, 22, 9, 47, 0, 0, time.UTC)
-	if got := firstSeenText(now, time.Date(2026, 10, 22, 8, 12, 0, 0, time.UTC)); got != "Today 08:12" {
-		t.Errorf("today: %q", got)
-	}
-	if got := firstSeenText(now, time.Time{}); got != "unknown" {
-		t.Errorf("zero: %q", got)
 	}
 }
 
@@ -644,5 +634,138 @@ func TestManualAddRefusedHTTPAPINamesSetOption128(t *testing.T) {
 	}
 	if strings.Contains(body, "No device answered") {
 		t.Error("the generic unreachable sentence hides the cause")
+	}
+}
+
+// ---- the Add page (#410) ----
+
+// Why: #410 replaced the four tabs by one page, so there are fewer clicks: all four ways to add
+// devices must be on /devices/new, Discovered and Network scan in the wide column and Add manually
+// and Import in the narrow one, and on a phone the reading order is Discovered, Add manually,
+// Network scan, Import (rank classes). A box of a service that is off is left out.
+func TestAddPageHoldsFourBoxesInTwoStacks(t *testing.T) {
+	_, fd := setupDiscovery(t)
+	e := setupWith(t, func(d *Deps) {
+		d.Discovery = fd
+		d.Import = importer.New(importer.Options{Inventory: &checkingInv{}})
+	})
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
+	wide := strings.Index(body, `<div class="cstack cstack-w2">`)
+	narrow := strings.Index(body[wide+1:], `<div class="cstack">`) + wide + 1
+	if wide < 0 || narrow <= wide {
+		t.Fatalf("no wide stack before a narrow one: %d %d", wide, narrow)
+	}
+	at := func(id string) int { return strings.Index(body, `id="card-`+id+`"`) }
+	for _, c := range []struct {
+		id   string
+		rank string
+		in   [2]int
+	}{{"discovered", "r1", [2]int{wide, narrow}}, {"scan", "r3", [2]int{wide, narrow}}, {"manual", "r2", [2]int{narrow, len(body)}}, {"import", "r4", [2]int{narrow, len(body)}}} {
+		i := at(c.id)
+		if i < c.in[0] || i > c.in[1] {
+			t.Errorf("box %s is not in its stack (%d not in %v)", c.id, i, c.in)
+		}
+		if !strings.Contains(body[i-60:i], c.rank) {
+			t.Errorf("box %s lacks its phone rank %s: %s", c.id, c.rank, body[i-60:i])
+		}
+	}
+	if strings.Contains(body, `aria-label="Add devices"`) || strings.Contains(body, `class="utabs"`) {
+		t.Error("the Add page still has tabs")
+	}
+	// without discovery and import only the manual form is left
+	_, plain := setup(t).do(t, "GET", "/devices/new", "admin", nil)
+	for _, gone := range []string{`id="card-discovered"`, `id="card-scan"`, `id="card-import"`} {
+		if strings.Contains(plain, gone) {
+			t.Errorf("a box of a service that is off: %s", gone)
+		}
+	}
+	if !strings.Contains(plain, `id="card-manual"`) {
+		t.Error("no manual box")
+	}
+}
+
+// Why: the tab routes are gone for good (no redirects before 1.0, maintainer's rule); a request to
+// one answers the app's own not-found page, so a stale bookmark is visibly stale.
+func TestOldAddTabRoutesAreGone(t *testing.T) {
+	_, fd := setupDiscovery(t)
+	e := setupWith(t, func(d *Deps) {
+		d.Discovery = fd
+		d.Import = importer.New(importer.Options{Inventory: &checkingInv{}})
+	})
+	for _, p := range []string{"/discovery", "/import/tasmoadmin"} {
+		if r, _ := e.do(t, "GET", p, "admin", nil); r.StatusCode != 404 {
+			t.Errorf("GET %s: %d, want 404", p, r.StatusCode)
+		}
+	}
+}
+
+// Why: the Network scan box is the short way: a range, Scan now and one line about the last scan
+// that says WHEN it ran (a day stamp: the last scan can be days old, a bare clock time would lie)
+// with a link to all results, where the table and the live stream are.
+func TestScanBoxSummarisesTheLastScanAndLinksItsResults(t *testing.T) {
+	now := time.Now()
+	fd := &fakeDiscovery{
+		scan: discovery.ScanStatus{ID: "abc123", State: discovery.ScanDone, Total: 254, Done: 254,
+			StartedAt: now.Add(-72 * time.Hour), FinishedAt: now.Add(-72*time.Hour + 6*time.Second),
+			Hits: []discovery.Hit{{Address: "10.0.0.50", Port: 80, MAC: "aa:bb:cc:dd:ee:01", Name: "n", Outcome: "new proposal"}}},
+	}
+	e := setupWith(t, func(d *Deps) { d.Discovery = fd })
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
+	box := body[strings.Index(body, `id="card-scan"`):]
+	box = box[:strings.Index(box, "</section>")]
+	for _, want := range []string{`name="cidrs"`, ">Scan now</button>", `data-ts="day"`, "took 6s",
+		"254 addresses · 1 Tasmota device: 0 already known, 0 new (in Discovered), 0 ignored.", `href="/tf/discovery/scan/abc123">All results</a>`} {
+		if !strings.Contains(box, want) {
+			t.Errorf("scan box lacks %q: %s", want, box)
+		}
+	}
+	if regexp.MustCompile(`Last scan [^<]*\d\d:\d\d:\d\d`).MatchString(box) {
+		t.Error("the moment of the last scan is a bare clock time")
+	}
+	if strings.Contains(box, "<table") {
+		t.Error("the results table belongs on the results page")
+	}
+}
+
+// Why: a scan that runs is watched on the results page (live stream); the box must not offer a second
+// start and says where to watch.
+func TestScanBoxOfARunningScanLinksTheLiveView(t *testing.T) {
+	fd := &fakeDiscovery{scan: discovery.ScanStatus{ID: "abc123", State: discovery.ScanRunning, Total: 254, Done: 40, StartedAt: time.Now()}}
+	e := setupWith(t, func(d *Deps) { d.Discovery = fd })
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
+	box := body[strings.Index(body, `id="card-scan"`):]
+	box = box[:strings.Index(box, "</section>")]
+	if !strings.Contains(box, "40 of 254 addresses") || !strings.Contains(box, `href="/tf/discovery/scan/abc123">Watch the scan</a>`) {
+		t.Errorf("no way to watch the running scan: %s", box)
+	}
+	if !regexp.MustCompile(`<button type="submit" class="btn btn-primary" disabled[^>]*>Scan now</button>`).MatchString(box) {
+		t.Error("Scan now is offered while a scan runs")
+	}
+}
+
+// Why: the trail of the Add page and of the results page: Devices / Add, and Devices / Add / Network
+// scan, so the way back is one click; the list page keeps its heading "Devices" but the menu and the
+// trail call it List.
+func TestTrailsOfListAddAndScanResults(t *testing.T) {
+	_, fd := setupDiscovery(t)
+	e := setupWith(t, func(d *Deps) { d.Discovery = fd })
+	crumbs := func(path string) string {
+		_, body := e.do(t, "GET", path, "admin", nil)
+		i := strings.Index(body, `<nav class="crumbs"`)
+		return regexp.MustCompile(`<[^>]*>`).ReplaceAllString(body[i:i+strings.Index(body[i:], "</nav>")], "")
+	}
+	for path, want := range map[string]string{
+		"/devices":               "Devices/List",
+		"/devices/new":           "Devices/Add",
+		"/discovery/scan":        "Devices/Add/Network scan",
+		"/discovery/scan/abc123": "Devices/Add/Network scan",
+	} {
+		if got := strings.Join(strings.Fields(crumbs(path)), ""); got != strings.ReplaceAll(want, " ", "") {
+			t.Errorf("%s: trail %q, want %q", path, got, want)
+		}
+	}
+	_, body := e.do(t, "GET", "/devices", "admin", nil)
+	if !strings.Contains(body, "<h1>Devices</h1>") {
+		t.Error("the list page lost its heading")
 	}
 }

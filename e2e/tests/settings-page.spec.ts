@@ -192,9 +192,9 @@ test("scheduled backups on and off again leaves the tab clean", async ({ page })
 });
 
 // Why (#336, #338): "Kept per device" and "Never prune younger than" sit side by side as small
-// inputs; the label stays on one line with its info icon right behind it, and the Storage card and
-// the deleted devices' card stack without a gap.
-test("backups: schedule fields side by side, label and icon together, left cards without a gap", async ({ page }) => {
+// inputs; the label stays on one line with its info icon right behind it, and the schedule card and
+// the deleted devices' card (#410: under the schedule, in the narrow column) stack without a gap.
+test("backups: schedule fields side by side, label and icon together, narrow cards without a gap", async ({ page }) => {
   await page.setExtraHTTPHeaders(admin);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(app.url + "/settings/system?tab=backups");
@@ -206,8 +206,10 @@ test("backups: schedule fields side by side, label and icon together, left cards
   const lbl = (await prune.locator(".lbl").boundingBox())!, info = (await prune.locator(".uinfo").boundingBox())!;
   expect(lbl.height).toBeLessThan(24);
   expect(info.x - (lbl.x + lbl.width)).toBeLessThan(12);
-  const a = (await page.locator("#card-storage").boundingBox())!, b = (await page.locator("#card-orphans").boundingBox())!;
+  const a = (await page.locator("#card-schedule").boundingBox())!, b = (await page.locator("#card-orphans").boundingBox())!;
   expect(b.y - (a.y + a.height)).toBeLessThan(24);
+  expect(Math.abs(b.x - a.x), "same column").toBeLessThan(2);
+  expect((await page.locator("#card-storage").boundingBox())!.x, "the storage table keeps the wide column").toBeLessThan(a.x);
 });
 
 // Why: the backup interval showed "0s" for manual only. The switch is a view of the same

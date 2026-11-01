@@ -97,11 +97,10 @@ func (h *handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		d.AddHref = v.Base + "/devices/new"
 		d.ManualHref = v.Base + "/devices/new"
 		if v.Features.Discovery {
-			d.AddHref = v.Base + "/discovery"
-			d.ScanHref = v.Base + "/discovery"
+			d.ScanHref = v.Base + "/devices/new#card-scan"
 		}
 		if v.Features.Import {
-			d.ImpHref = v.Base + "/import/tasmoadmin"
+			d.ImpHref = v.Base + "/devices/new#card-import"
 		}
 		// Always offered, as in the prototype: with updates switched off the page explains
 		// what to configure (FIRMWARE_BASE_URL) instead of the button just missing.
@@ -177,7 +176,7 @@ func dashTiles(base string, s fleetSummary) []ui.StatTileData {
 		if s.NewFoundOffline > 0 { // the list below hides them, the Discovered page shows them
 			hint += " · " + itoa(s.NewFoundOffline) + " offline"
 		}
-		tiles = append(tiles, ui.StatTileData{Tone: ui.ToneAccent, Label: "New devices found", Value: itoa(s.NewFound), Hint: hint, Href: base + "/discovery"})
+		tiles = append(tiles, ui.StatTileData{Tone: ui.ToneAccent, Label: "New devices found", Value: itoa(s.NewFound), Hint: hint, Href: base + "/devices/new#card-discovered"})
 	}
 	return tiles
 }

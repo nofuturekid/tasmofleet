@@ -158,16 +158,9 @@ func (h *handler) bindingOf(r *http.Request) string {
 }
 
 func (h *handler) registerImport(route func(string, func(http.Handler) http.Handler, http.HandlerFunc), adm func(http.Handler) http.Handler) {
-	route("GET /import/tasmoadmin", adm, h.importForm)
 	route("POST /import/tasmoadmin", adm, h.importUpload)
 	route("POST /import/tasmoadmin/apply", adm, h.importApply)
 	route("GET /import/tasmoadmin/report.csv", adm, h.importReport)
-}
-
-// importTab is the Import from TasmoAdmin tab; Body is what the upload and Apply replace.
-type importTab struct {
-	addHead
-	Body importBody
 }
 
 // importBody is the drop zone with the files and, after a check, the plan or the result.
@@ -331,12 +324,7 @@ func (h *handler) importBodyOf(r *http.Request) importBody {
 	return importBody{Base: v.Base, CSRF: v.CSRF}
 }
 
-func (h *handler) importForm(w http.ResponseWriter, r *http.Request) {
-	t := importTab{addHead: h.addTabs(r, addTabImport), Body: h.importBodyOf(r)}
-	h.show(w, r, http.StatusOK, "import", h.addView(r, t), importPage(t))
-}
-
-// importAnswer sends the tab body (the drop zone with the plan, the result or the error):
+// importAnswer sends the box body (the drop zone with the plan, the result or the error):
 // the upload and Apply replace it in place.
 func (h *handler) importAnswer(w http.ResponseWriter, r *http.Request, status int, b importBody) {
 	var buf bytes.Buffer

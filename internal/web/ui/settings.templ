@@ -10,9 +10,11 @@ templ Info(id, label, text string) {
 }
 
 // SettingsCardData describes a card: Class is "" or a phone rank (StackRank); Depends is the
-// data-depends rule (see sysform.js) that dims the card while it does not apply.
+// data-depends rule (see sysform.js) that dims the card while it does not apply. NoteHTML replaces
+// Note where the one-line note holds a link or a path in code type.
 type SettingsCardData struct {
 	ID, Title, Note, Class, Depends string
+	NoteHTML                        templ.Component
 	Badges                          []SettingsBadge
 	Plain                           bool // body is not the two-column field grid
 }
@@ -33,7 +35,9 @@ templ SettingsCard(d SettingsCardData) {
 		<div class="sch">
 			<div>
 				<h2>{ d.Title }</h2>
-				if d.Note != "" {
+				if d.NoteHTML != nil {
+					<p class="cnote">@d.NoteHTML</p>
+				} else if d.Note != "" {
 					<p class="cnote">{ d.Note }</p>
 				}
 			</div>

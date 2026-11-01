@@ -10834,6 +10834,17 @@ dialog.fw-notes-dlg .fw-dlg-body {
   white-space: nowrap;
 }
 
+/* #410: the Add page's boxes hold the add-* blocks; their own frame goes, the card is the frame */
+.scard-add .add-manual {
+  max-width: none;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+.scard-add .add-bar h3 {
+  margin: 0;
+}
+
 /* Add manually */
 .add-manual {
   display: grid;
@@ -11005,7 +11016,7 @@ dialog.fw-notes-dlg .fw-dlg-body {
   font-size: 13px;
 }
 .add-disc-table table {
-  min-width: 1200px;
+  min-width: 700px; /* #410: the Discovered box is two thirds wide; below this the table scrolls */
 }
 .add-scan-table table {
   min-width: 880px;
@@ -11115,20 +11126,11 @@ dialog.fw-notes-dlg .fw-dlg-body {
 .add-disc-table col.c-name {
   width: auto;
 }
-.add-disc-table col.c-host {
-  width: 168px;
-}
 .add-disc-table col.c-ip {
   width: 110px;
 }
-.add-disc-table col.c-mac {
-  width: 166px;
-}
 .add-disc-table col.c-src {
   width: 132px;
-}
-.add-disc-table col.c-first {
-  width: 124px;
 }
 .add-disc-table col.c-last {
   width: 88px;
@@ -11282,6 +11284,9 @@ dialog.fw-notes-dlg .fw-dlg-body {
 }
 .add-scanerr {
   flex-basis: 100%;
+}
+.scard-add .add-scan > * + * {
+  margin-top: var(--sp-12);
 }
 .add-progress {
   margin-bottom: var(--sp-12);

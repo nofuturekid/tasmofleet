@@ -227,9 +227,6 @@ func (h *handler) devicesPageData(r *http.Request, v view) (devicesPage, error) 
 	}
 	if v.IsAdmin {
 		p.RowsData.AddHref = base + "/devices/new"
-		if v.Features.Discovery {
-			p.RowsData.AddHref = base + "/discovery"
-		}
 	}
 	p.SortBase = base + "/devices"
 	if q := f.values().Encode(); q != "" {
@@ -256,6 +253,8 @@ func facets(n map[string]int, label func(string) string) []facet {
 
 func (h *handler) devices(w http.ResponseWriter, r *http.Request) {
 	v := h.view(r, "Devices", "devices", nil)
+	// The page keeps its heading "Devices"; the menu entry and the trail say List (#410).
+	v.Crumbs = []ui.Crumb{{Label: "Devices", Path: "/devices"}, {Label: "List"}}
 	p, err := h.devicesPageData(r, v)
 	if err != nil {
 		h.fail(w, r, err)

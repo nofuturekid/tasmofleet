@@ -103,7 +103,7 @@ func setupDiscovery(t *testing.T) (*env, *fakeDiscovery) {
 // operators must not see or use any discovery page.
 func TestDiscoveryIsAdminOnly(t *testing.T) {
 	e, fd := setupDiscovery(t)
-	for _, c := range [][2]string{{"GET", "/discovery"}, {"POST", "/discovery/scan"}, {"GET", "/discovery/scan/abc123"},
+	for _, c := range [][2]string{{"GET", "/devices/new"}, {"POST", "/discovery/scan"}, {"GET", "/discovery/scan/abc123"},
 		{"GET", "/discovery/scan/abc123/stream"}, {"POST", "/discovery/proposals/1/accept"}, {"POST", "/discovery/proposals/1/dismiss"}, {"POST", "/discovery/proposals/1/undismiss"}} {
 		if r, _ := e.do(t, c[0], c[1], "operator", url.Values{}); r.StatusCode != 403 {
 			t.Errorf("%s %s as operator: %d", c[0], c[1], r.StatusCode)
@@ -118,7 +118,7 @@ func TestDiscoveryIsAdminOnly(t *testing.T) {
 // must show them escaped.
 func TestDiscoveryPageEscapesClaimedNames(t *testing.T) {
 	e, _ := setupDiscovery(t)
-	r, body := e.do(t, "GET", "/discovery", "admin", nil)
+	r, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	if r.StatusCode != 200 {
 		t.Fatalf("status %d", r.StatusCode)
 	}
@@ -144,7 +144,7 @@ func TestAddressChangeNeedsNoCheckbox(t *testing.T) {
 	if r.StatusCode != 422 || len(fd.accepted) != 0 {
 		t.Fatalf("status %d, accepted %v", r.StatusCode, fd.accepted)
 	}
-	r, body := e.do(t, "GET", "/discovery", "admin", nil)
+	r, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	if strings.Contains(body, `name="confirm"`) || strings.Contains(body, "I checked") {
 		t.Fatalf("the checkbox is gone: %d", r.StatusCode)
 	}
@@ -208,14 +208,14 @@ func TestAcceptWithoutVersionIsRefused(t *testing.T) {
 // new address. A device without a password gets no such note.
 func TestAddressChangeOfCredentialedDeviceIsOfferedWithANote(t *testing.T) {
 	e, fd := setupDiscovery(t)
-	_, plain := e.do(t, "GET", "/discovery", "admin", nil)
+	_, plain := e.do(t, "GET", "/devices/new", "admin", nil)
 	if strings.Contains(plain, "sends the password to the new address") {
 		t.Fatalf("no password, no note:\n%s", plain)
 	}
 	d := e.inv.devs[2]
 	d.HTTPPassword = "pw"
 	e.inv.devs[2] = d
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	if !strings.Contains(body, ">Apply</button>") || !strings.Contains(body, "Apply sends the password to the new address.") {
 		t.Fatalf("credentialed address change lacks the button or the note:\n%s", body)
 	}
@@ -250,11 +250,11 @@ func TestTooManyRangesRefused(t *testing.T) {
 func TestIgnoredDevicesCanBeShownAndUnignored(t *testing.T) {
 	e, fd := setupDiscovery(t)
 	fd.ignored = []discovery.Proposal{{ID: 9, Kind: discovery.KindNew, SeenAt: time.Now(), Device: model.Device{Name: "hidden-lamp", Address: "10.0.0.60", MAC: "aa:bb:cc:dd:ee:09"}}}
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	if !strings.Contains(body, "Show ignored") || strings.Contains(body, "hidden-lamp") {
 		t.Fatal("the ignored list must be offered but not shown by default")
 	}
-	_, body = e.do(t, "GET", "/discovery?ignored=1", "admin", nil)
+	_, body = e.do(t, "GET", "/devices/new?ignored=1", "admin", nil)
 	if !strings.Contains(body, "hidden-lamp") || !strings.Contains(body, `formaction="/tf/discovery/proposals/9/undismiss">Restore</button>`) {
 		t.Fatal("ignored devices are not listed with a Restore button")
 	}
@@ -269,7 +269,7 @@ func TestIgnoredDevicesCanBeShownAndUnignored(t *testing.T) {
 // and both addresses, never among the new devices.
 func TestAddressChangeIsLabelledAsKnownDevice(t *testing.T) {
 	e, _ := setupDiscovery(t)
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	i, j := strings.Index(body, `aria-label="Address changed"`), strings.Index(body, "New devices (")
 	if i < 0 || j < i {
 		t.Fatal("no Address changed section above the new devices")
@@ -334,20 +334,16 @@ func TestDeviceEditToUnprovenAddressNeedsTheStrongerConfirmation(t *testing.T) {
 // (the prototype's card; the MAC and topic stay on the desktop table).
 func TestDiscoveryProposalFactsStayVisibleOnPhones(t *testing.T) {
 	e, _ := setupDiscovery(t)
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	i := strings.Index(body, `<div class="add-cards">`)
 	if i < 0 {
 		t.Fatal("no phone cards")
 	}
 	card := body[i:]
-	for _, want := range []string{"&lt;script&gt;", "10.0.0.50", "MQTT discovery · last seen", `<time datetime=`, `value="1:v1"`, `href="/tf/devices/new?proposal=1"`} {
+	for _, want := range []string{"&lt;script&gt;", "10.0.0.50", "MQTT discovery · last seen", `<time datetime=`, `value="1:v1"`, `href="/tf/devices/new?proposal=1#card-manual"`} {
 		if !strings.Contains(card, want) {
 			t.Errorf("phone card lacks %q", want)
 		}
-	}
-	// the table's "First seen" is a day stamp time.js shows in the browser's zone (#137)
-	if !strings.Contains(body, `data-ts="day"`) {
-		t.Error("First seen is not a day stamp")
 	}
 }
 
@@ -383,7 +379,7 @@ func TestDiscoveryAcceptUsesTheDefaultPasswordOnlyWhenAsked(t *testing.T) {
 	if len(fd.passwords) != 2 || fd.passwords[0] != "" || fd.passwords[1] != "fleet-fake-pw" {
 		t.Fatalf("passwords handed to accept: %q", fd.passwords)
 	}
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	if strings.Contains(body, "fleet-fake-pw") {
 		t.Fatal("the default password must never reach the browser")
 	}
@@ -395,7 +391,7 @@ func TestDiscoveryAcceptUsesTheDefaultPasswordOnlyWhenAsked(t *testing.T) {
 func TestDiscoveredRowAddsDirectlyAndShowsOffline(t *testing.T) {
 	e, fd := setupDiscovery(t)
 	fd.props[0].Device.Name, fd.props[0].Device.Topic, fd.props[0].LWT = "Attic fan", "attic-fan", "Offline"
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	for _, want := range []string{`formaction="/tf/discovery/proposals/1/accept"`, `name="version" value="v1"`, ">Offline<"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Discovered tab lacks %q", want)
@@ -413,14 +409,14 @@ func TestDiscoveredRowAddsDirectlyAndShowsOffline(t *testing.T) {
 func TestDiscoveredTabListsUnidentifiedTopics(t *testing.T) {
 	e, fd := setupDiscovery(t)
 	fd.unident = []discovery.Unidentified{{Topic: "attic-fan", LWT: "Offline", SeenAt: time.Now(), Reason: "offline: it cannot be asked for its MAC until it comes online"}}
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	for _, want := range []string{"Seen on MQTT, not identified yet (1)", "attic-fan", "Offline: it cannot be asked for its MAC until it comes online."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Discovered tab lacks %q", want)
 		}
 	}
 	fd.unident = nil
-	if _, body := e.do(t, "GET", "/discovery", "admin", nil); strings.Contains(body, "not identified yet") {
+	if _, body := e.do(t, "GET", "/devices/new", "admin", nil); strings.Contains(body, "not identified yet") {
 		t.Error("the section must be left out when every topic is identified")
 	}
 }

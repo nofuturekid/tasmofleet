@@ -21,9 +21,14 @@ import (
 // Why: the tabs place every field by a table (sysPlace). A setting that no tab draws can never
 // be changed in the UI, which breaks "env = bootstrap only, the rest in the UI"; every field
 // must have an input (or its read-only form) on exactly one tab.
+//
+// The snapshot schedule is on System -> Snapshots (#410), so that page counts as part of the settings here.
 func TestSystemSettingsEveryFieldHasOnePlace(t *testing.T) {
-	e, svc, _, _ := sysEnv(t, true)
+	s := snapSetup(t, true)
+	e, svc := s.env, s.svc
 	_, body := e.do(t, "GET", "/settings/system", "admin", nil)
+	_, snaps := e.do(t, "GET", "/settings/system/snapshots", "admin", nil)
+	body += snaps
 	for _, st := range svc.State() {
 		name := `name="v.` + st.Key + `"`
 		if st.Key == "MQTT_URL" {

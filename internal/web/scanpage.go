@@ -16,13 +16,13 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
-// The Network scan tab: the ranges field with Scan now (Stop scan while one runs), the
-// progress of a running scan and the result of the last one: what answered as Tasmota, sorted
-// into New, Known and Ignored, with the actions each row allows.
+// The network scan results page (/discovery/scan, /discovery/scan/{id}): the ranges field with Scan
+// now (Stop scan while one runs), the progress of a running scan and the result of one scan: what
+// answered as Tasmota, sorted into New, Known and Ignored, with the actions each row allows. The
+// Add page's Network scan box holds the same bar and a one-line summary that links here.
 
-// scanTab is the tab around the scan body.
+// scanTab is the page around the scan body.
 type scanTab struct {
-	addHead
 	Body scanBodyView
 }
 
@@ -37,18 +37,25 @@ type scanBodyView struct {
 	ID         string
 	Running    bool
 	Ranges     string // the scanned ranges, as typed
-	Status     string // the line beside the button
-	Done       int
-	Total      int
-	Found      int
-	Summary    string
-	Filter     string
-	Chips      []scanChip
-	Rows       []scanRow
-	More       int    // known devices left out of the All view
-	MoreHref   string // the Known view, which lists them all
-	Selectable bool   // at least one row can be selected for "Add selected"
-	HasDefault bool
+	// The line beside the button: StatusLead, the moment (StatusAt, shown as a day stamp, since the last
+	// scan can be days old) and StatusTail. StatusAt is zero when no moment belongs to it.
+	StatusLead, StatusAtText, StatusTail string
+	StatusAt                             time.Time
+	Done                                 int
+	Total                                int
+	Found                                int
+	Summary                              string
+	BoxSummary                           string // the summary as the Add page's box words it: new devices wait in Discovered
+	Filter                               string
+	Chips                                []scanChip
+	Rows                                 []scanRow
+	More                                 int    // known devices left out of the All view
+	MoreHref                             string // the Known view, which lists them all
+	Selectable                           bool   // at least one row can be selected for "Add selected"
+	HasDefault                           bool
+	// Scheduled is the Add page box's line about the scheduled scan ("off", "every 24h"); SettingsHref
+	// is where it is set ("" without the settings page).
+	Scheduled, SettingsHref string
 }
 
 // Percent is the progress of a running scan.
@@ -81,11 +88,10 @@ type scanRow struct {
 const scanKnownShown = 6
 
 func (h *handler) scanRender(w http.ResponseWriter, r *http.Request, status int, t scanTab) {
-	t.addHead = h.addTabs(r, addTabScan)
-	h.show(w, r, status, "discovery_scan", h.addView(r, t), scanPage(t))
+	h.show(w, r, status, "discovery_scan", h.view(r, "Network scan", "discovery", t), scanPage(t))
 }
 
-// scanTabData builds the tab for one scan (nil: the latest one, if any).
+// scanTabData builds the page for one scan (nil: the latest one, if any).
 func (h *handler) scanTabData(r *http.Request, s *discovery.ScanStatus) scanTab {
 	if s == nil {
 		if all := h.d.Discovery.Scans(); len(all) > 0 {
@@ -103,7 +109,7 @@ func (h *handler) scanTabData(r *http.Request, s *discovery.ScanStatus) scanTab 
 		t.Body = h.scanBodyData(r, *s)
 	} else {
 		v := h.view(r, "", "", nil)
-		t.Body = scanBodyView{Base: v.Base, CSRF: v.CSRF, NoNetworks: v.Banner != "", Status: "No scan yet"}
+		t.Body = scanBodyView{Base: v.Base, CSRF: v.CSRF, NoNetworks: v.Banner != "", StatusLead: "No scan yet"}
 		// nothing to show yet: start from the networks TasmoFleet already knows (#270)
 		if h.d.SysConfig != nil {
 			t.Body.CIDRs, t.Body.Prefilled = scanPrefill(h.d.SysConfig.State())
@@ -167,16 +173,18 @@ func (h *handler) scanBodyData(r *http.Request, s discovery.ScanStatus) scanBody
 	}
 	b.Ranges = strings.Join(ranges, ", ")
 	b.CIDRs = b.Ranges
+	// The moment is a day stamp: the last scan can be older than today, so a bare clock time would lie.
 	switch {
 	case b.Running:
-		b.Status = "Started " + s.StartedAt.In(now.Location()).Format("15:04:05") + " by " + h.pr.Text(s.Actor)
+		b.StatusLead, b.StatusAt, b.StatusTail = "Started ", s.StartedAt, " by "+h.pr.Text(s.Actor)
 	case s.FinishedAt.IsZero():
-		b.Status = "Last scan started " + s.StartedAt.In(now.Location()).Format("15:04:05")
+		b.StatusLead, b.StatusAt = "Last scan started ", s.StartedAt
 	case s.State == discovery.ScanDone:
-		b.Status = "Last scan finished " + s.FinishedAt.In(now.Location()).Format("15:04:05") + " · took " + humanDuration(s.FinishedAt.Sub(s.StartedAt).Round(time.Second))
+		b.StatusLead, b.StatusAt, b.StatusTail = "Last scan ", s.FinishedAt, " · took "+humanDuration(s.FinishedAt.Sub(s.StartedAt).Round(time.Second))
 	default:
-		b.Status = "Last scan " + string(s.State) + " " + s.FinishedAt.In(now.Location()).Format("15:04:05")
+		b.StatusLead, b.StatusAt = "Last scan "+string(s.State)+" ", s.FinishedAt
 	}
+	b.StatusAtText = ui.StampDayText(now, b.StatusAt)
 
 	byMAC := h.proposalsByMAC(r)
 	devs, err := h.d.Inventory.List(r.Context())
@@ -236,8 +244,9 @@ func (h *handler) scanBodyData(r *http.Request, s discovery.ScanStatus) scanBody
 		if s.Total == 1 {
 			addrs = "1 address"
 		}
-		b.Summary = fmt.Sprintf("%s · %s: %d already known, %d new, %d ignored.",
-			addrs, plural(len(s.Hits), "Tasmota device"), counts["known"], counts["new"], counts["ignored"])
+		found := plural(len(s.Hits), "Tasmota device")
+		b.Summary = fmt.Sprintf("%s · %s: %d already known, %d new, %d ignored.", addrs, found, counts["known"], counts["new"], counts["ignored"])
+		b.BoxSummary = fmt.Sprintf("%s · %s: %d already known, %d new (in Discovered), %d ignored.", addrs, found, counts["known"], counts["new"], counts["ignored"])
 	}
 	return b
 }
@@ -265,7 +274,7 @@ type scanProposal struct {
 }
 
 // scanRowOf sorts one hit into the result: a new device can be added or ignored, an ignored one
-// restored, a known one opened; an address change or conflict waits on the Discovered tab.
+// restored, a known one opened; an address change or conflict waits in the Discovered box of the Add page.
 func (h *handler) scanRowOf(base string, hit discovery.Hit, byMAC map[string]scanProposal, devs map[string]model.Device) scanRow {
 	row := scanRow{Name: hit.Name, Address: netaddr.Display(hit.Address, hit.Port, "http"), MAC: strings.ToUpper(hit.MAC), Firmware: hit.Version, Kind: "other"}
 	if row.Name == "" {
@@ -282,14 +291,14 @@ func (h *handler) scanRowOf(base string, hit discovery.Hit, byMAC map[string]sca
 		row.Label, row.Tone, row.Kind, row.ProposalID = "Ignored", ui.ToneNeutral, "ignored", sp.P.ID
 	case ok && sp.P.Kind == discovery.KindNew:
 		row.Label, row.Tone, row.Kind, row.ProposalID, row.Version = "New", ui.ToneAccent, "new", sp.P.ID, sp.P.Version
-		row.AddHref = base + "/devices/new?proposal=" + strconv.FormatInt(sp.P.ID, 10)
+		row.AddHref = base + "/devices/new?proposal=" + strconv.FormatInt(sp.P.ID, 10) + "#card-manual"
 	case ok && sp.P.Kind == discovery.KindAddressChange:
-		row.Label, row.Tone, row.ReviewRef = "Address changed", ui.ToneWarn, base+"/discovery"
+		row.Label, row.Tone, row.ReviewRef = "Address changed", ui.ToneWarn, base+"/devices/new"
 	case ok:
-		row.Label, row.Tone, row.ReviewRef = "Conflict", ui.ToneDanger, base+"/discovery"
+		row.Label, row.Tone, row.ReviewRef = "Conflict", ui.ToneDanger, base+"/devices/new"
 	case hit.Outcome == "needs password":
 		row.Label, row.Tone = "Needs password", ui.ToneWarn
-		row.AddHref = base + "/devices/new?address=" + url.QueryEscape(hit.Address) + "&port=" + strconv.Itoa(hit.Port)
+		row.AddHref = base + "/devices/new?address=" + url.QueryEscape(hit.Address) + "&port=" + strconv.Itoa(hit.Port) + "#card-manual"
 	case hit.Outcome == "error":
 		row.Label, row.Tone = "No valid answer", ui.ToneDanger
 	default:
@@ -298,12 +307,12 @@ func (h *handler) scanRowOf(base string, hit discovery.Hit, byMAC map[string]sca
 	return row
 }
 
-// discoveryScanLatest is the Network scan tab: the latest scan, or the empty field.
+// discoveryScanLatest is the results page of the latest scan, or the empty field.
 func (h *handler) discoveryScanLatest(w http.ResponseWriter, r *http.Request) {
 	h.scanRender(w, r, http.StatusOK, h.scanTabData(r, nil))
 }
 
-// discoveryScanPage is the tab for one scan (where Scan now leads).
+// discoveryScanPage is the results page of one scan (where Scan now leads).
 func (h *handler) discoveryScanPage(w http.ResponseWriter, r *http.Request) {
 	s, ok := h.d.Discovery.Scan(discovery.ScanID(r.PathValue("id")))
 	if !ok {
@@ -321,4 +330,17 @@ func scanStreamURL(b scanBodyView) string {
 		u += "?f=" + url.QueryEscape(b.Filter)
 	}
 	return u
+}
+
+// scanBoxData is the Network scan box of the Add page: the latest scan's bar and summary.
+func (h *handler) scanBoxData(r *http.Request) scanBodyView {
+	b := h.scanTabData(r, nil).Body
+	if h.d.SysConfig != nil {
+		b.Scheduled = "off"
+		b.SettingsHref = b.Base + sysPath + "?tab=discovery"
+		if h.storedValue("DISCOVERY_SCAN") == "true" {
+			b.Scheduled = "every " + h.storedValue("DISCOVERY_SCAN_INTERVAL")
+		}
+	}
+	return b
 }

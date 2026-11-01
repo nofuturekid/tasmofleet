@@ -27,7 +27,7 @@ test("upload devices.csv, review the plan, apply", async ({ page }) => {
   const dir = writeTasmoAdminDir(env.devices);
   const names = Object.keys(env.devices);
   await page.setExtraHTTPHeaders({ "X-authentik-username": "alice", "X-authentik-groups": "adm" });
-  await page.goto(app.url + "/import/tasmoadmin");
+  await page.goto(app.url + "/devices/new");
   await page.setInputFiles('input[name="files"]', {
     name: "devices.csv",
     mimeType: "text/csv",
@@ -43,6 +43,6 @@ test("upload devices.csv, review the plan, apply", async ({ page }) => {
 
 test("operators cannot reach the import", { tag: "@core" }, async ({ page }) => {
   await page.setExtraHTTPHeaders({ "X-authentik-username": "olivia", "X-authentik-groups": "ops" });
-  const r = await page.goto(app.url + "/import/tasmoadmin");
+  const r = await page.goto(app.url + "/devices/new");
   expect(r?.status()).toBe(403);
 });

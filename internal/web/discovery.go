@@ -43,7 +43,6 @@ func (h *handler) registerDiscovery(route func(string, func(http.Handler) http.H
 	if h.d.Discovery == nil {
 		return
 	}
-	route("GET /discovery", adm, h.discoveryPage)
 	route("GET /discovery/scan", adm, h.discoveryScanLatest)
 	route("POST /discovery/scan", adm, h.discoveryScanStart)
 	route("GET /discovery/scan/{id}", adm, h.discoveryScanPage)
@@ -56,10 +55,9 @@ func (h *handler) registerDiscovery(route func(string, func(http.Handler) http.H
 	route("POST /discovery/proposals/dismiss", adm, h.discoveryDismissSelected)
 }
 
-// discView is the Discovered tab: the address changes and conflicts a known device reported,
+// discView is the Discovered box: the address changes and conflicts a known device reported,
 // then the new devices (and, with ?ignored=1, the ignored ones) with selection, Ignore and Add….
 type discView struct {
-	addHead
 	Base, CSRF string
 	// Off: MQTT discovery is switched off (or there is no broker), only scans find devices.
 	Off       bool
@@ -78,8 +76,9 @@ type discView struct {
 	// HasDefault: accepting uses the fleet default device password (N20, MAC proof required).
 	HasDefault bool
 	// LastAnnounce is the newest MQTT announcement (the empty state's "Last announcement").
-	LastAnnounce time.Time
-	Error        string
+	LastAnnounce     time.Time
+	LastAnnounceText string // the moment as a day stamp: an announcement can be days old
+	Error            string
 	// Unverified is the stronger confirmation for "Apply" when the new address could not
 	// prove the device's MAC.
 	Unverified *unverifiedMove
@@ -91,27 +90,18 @@ type discView struct {
 type propRow struct {
 	ID             int64
 	Version        string
-	Name, Hostname string // the device name and the hostname it reported ("" shows a dash)
+	Name, Hostname string // the device name and the hostname it reported (the phone card's line)
 	Topic          string // its MQTT topic, the name cell's tooltip
-	Address, MAC   string
+	Address        string
 	Source         string
 	MQTT           bool
-	First, Last    time.Time
-	FirstText      string
+	Last           time.Time
 	LastText       string
 	Ignored        bool
 	AddHref        string
 	Offline        bool // its MQTT LWT says Offline: it is added as seen, without a probe
 	OfflineSince   time.Time
 	OfflineText    string // "Offline since 2 h ago" style words, "" when not offline or the moment is unknown
-}
-
-// firstSeenText is the fallback of a proposal's "First seen": a relative day, or "unknown".
-func firstSeenText(now, t time.Time) string {
-	if t.IsZero() {
-		return "unknown"
-	}
-	return ui.StampDayText(now, t)
 }
 
 // moveRow is a known device that announced itself at a new address (or a conflict).
@@ -205,6 +195,9 @@ func (h *handler) discoveryData(r *http.Request) discView {
 			v.Rows = append(v.Rows, h.propRow(base, now, p, true))
 		}
 	}
+	if !v.LastAnnounce.IsZero() {
+		v.LastAnnounceText = ui.StampDayText(now, v.LastAnnounce)
+	}
 	for _, u := range h.d.Discovery.Unidentified() {
 		state := "online"
 		if !u.Online {
@@ -229,9 +222,13 @@ func (h *handler) discoveryData(r *http.Request) discView {
 			counts[stateOnline]++
 		}
 	}
-	for _, c := range []struct{ key, label string }{{stateAll, "All"}, {stateOnline, "Online"}, {stateOffline, "Offline"}} {
-		v.Chips = append(v.Chips, addChip{Label: c.label, N: counts[c.key], Current: v.State == c.key,
-			Href: discHref(base, c.key, v.Sort, v.Dir, v.ShowIgn)})
+	// The filter is worth a row of chips only while the list holds both states (or one is chosen,
+	// so it can be left again): four online devices need none (#410).
+	if v.State != stateAll || (counts[stateOnline] > 0 && counts[stateOffline] > 0) {
+		for _, c := range []struct{ key, label string }{{stateAll, "All"}, {stateOnline, "Online"}, {stateOffline, "Offline"}} {
+			v.Chips = append(v.Chips, addChip{Label: c.label, N: counts[c.key], Current: v.State == c.key,
+				Href: discHref(base, c.key, v.Sort, v.Dir, v.ShowIgn)})
+		}
 	}
 	if v.State != stateAll {
 		kept := v.Rows[:0:0]
@@ -249,10 +246,10 @@ func (h *handler) discoveryData(r *http.Request) discView {
 
 func (h *handler) propRow(base string, now time.Time, p discovery.Proposal, ignored bool) propRow {
 	row := propRow{ID: p.ID, Version: p.Version, Name: p.Device.Name, Hostname: p.Device.Net.Hostname, Topic: p.Device.Topic,
-		Address: netaddr.Display(p.Device.Address, p.Device.Port, "http"), MAC: strings.ToUpper(p.Device.MAC),
-		Source: viaText(p.Via), MQTT: p.Via == discovery.ViaMQTT, First: p.FirstSeen, Last: p.SeenAt,
-		FirstText: firstSeenText(now, p.FirstSeen), LastText: agoWords(now, p.SeenAt), Ignored: ignored,
-		AddHref: base + "/devices/new?proposal=" + strconv.FormatInt(p.ID, 10), Offline: p.LWT == "Offline"}
+		Address: netaddr.Display(p.Device.Address, p.Device.Port, "http"),
+		Source:  viaText(p.Via), MQTT: p.Via == discovery.ViaMQTT, Last: p.SeenAt,
+		LastText: agoWords(now, p.SeenAt), Ignored: ignored,
+		AddHref: base + "/devices/new?proposal=" + strconv.FormatInt(p.ID, 10) + "#card-manual", Offline: p.LWT == "Offline"}
 	if row.Offline && !p.OfflineSince.IsZero() {
 		row.OfflineSince, row.OfflineText = p.OfflineSince, agoWords(now, p.OfflineSince)
 	}
@@ -290,7 +287,7 @@ const (
 	stateOffline = "offline"
 )
 
-var discSortKeys = map[string]bool{"name": true, "hostname": true, "ip": true, "mac": true, "source": true, "first": true, "last": true}
+var discSortKeys = map[string]bool{"name": true, "ip": true, "source": true, "last": true}
 
 // discSort reads ?sort= and ?dir=: an unknown key falls back to the default, the newest
 // announcement first.
@@ -339,7 +336,7 @@ func discBack(r *http.Request, ok string) string {
 	return href + "?ok=" + ok
 }
 
-// discHref is the Discovered tab's URL with the given filter, sort and ignored switch.
+// discHref is the Add page's URL with the given filter, sort and ignored switch.
 func discHref(base, state, sortKey, dir string, ignored bool) string {
 	q := url.Values{}
 	if state != stateAll {
@@ -353,9 +350,9 @@ func discHref(base, state, sortKey, dir string, ignored bool) string {
 		q.Set("ignored", "1")
 	}
 	if len(q) == 0 {
-		return base + "/discovery"
+		return base + "/devices/new"
 	}
-	return base + "/discovery?" + q.Encode()
+	return base + "/devices/new?" + q.Encode()
 }
 
 // sortRows orders the rows by key: the ignored ones stay after the new ones, equal values keep
@@ -365,16 +362,10 @@ func sortRows(rows []propRow, key, dir string) {
 		switch key {
 		case "name":
 			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-		case "hostname":
-			return strings.Compare(strings.ToLower(a.Hostname), strings.ToLower(b.Hostname))
 		case "ip":
 			return compareAddr(a.Address, b.Address)
-		case "mac":
-			return strings.Compare(a.MAC, b.MAC)
 		case "source":
 			return strings.Compare(a.Source, b.Source)
-		case "first":
-			return a.First.Compare(b.First)
 		}
 		return a.Last.Compare(b.Last)
 	}
@@ -429,24 +420,7 @@ func isIPAddress(s string) bool {
 }
 
 func (h *handler) discoveryRender(w http.ResponseWriter, r *http.Request, status int, p discView) {
-	p.addHead = h.addTabs(r, addTabDisc)
-	v := h.addView(r, p)
-	p.Base, p.CSRF = v.Base, v.CSRF
-	switch r.URL.Query().Get("ok") {
-	case "accepted":
-		v.Flash = "Device added."
-	case "moved":
-		v.Flash = "Address updated."
-	case "dismissed":
-		v.Flash = "Dismissed."
-	case "undismissed":
-		v.Flash = "Restored."
-	}
-	h.show(w, r, status, "discovery", v, discoveredPage(p))
-}
-
-func (h *handler) discoveryPage(w http.ResponseWriter, r *http.Request) {
-	h.discoveryRender(w, r, http.StatusOK, h.discoveryData(r))
+	h.renderAdd(w, r, status, addManualView{}, &p)
 }
 
 // parseCIDRs reads ranges separated by whitespace or commas. A bare address

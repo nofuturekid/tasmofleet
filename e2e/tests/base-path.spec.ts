@@ -24,7 +24,7 @@ test.afterAll(async () => app.stop());
 test("navigation stays below the base path", { tag: "@core" }, async ({ page }) => {
   await page.setExtraHTTPHeaders({ "X-authentik-username": "adam", "X-authentik-groups": "adm" });
   await page.goto(app.url + "/");
-  for (const [group, name, path, heading] of [["Devices", "All devices", "devices", "Devices"], ["Updates", "Transactions", "transactions", "Update transactions"], ["Updates", "Firmware", "firmware", "Firmware"], ["System", "Audit log", "audit", "Audit log"], ["System", "About", "about", "About"]]) {
+  for (const [group, name, path, heading] of [["Devices", "List", "devices", "Devices"], ["Updates", "Transactions", "transactions", "Update transactions"], ["Updates", "Firmware", "firmware", "Firmware"], ["System", "Audit log", "audit", "Audit log"], ["System", "About", "about", "About"]]) {
     await gotoNav(page, group, name);
     await expect(page).toHaveURL(new RegExp(`/tasmofleet/${path}$`));
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();

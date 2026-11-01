@@ -72,7 +72,9 @@ async function phonePages(page: import("@playwright/test").Page): Promise<Record
     audit: "/audit",
     "system settings": "/settings/system",
     "system settings, advanced": "/settings/system?tab=advanced",
-    discovery: "/discovery",
+    "add devices": "/devices/new",
+    "network scan results": "/discovery/scan",
+    "system snapshots": "/settings/system/snapshots",
     users: "/users",
     about: "/about",
     setup: "/setup",
@@ -95,11 +97,10 @@ test("phone: no main view scrolls sideways", async ({ page }) => {
   expect(overflowing, "pages wider than the visible width").toEqual([]);
 });
 
-// UX review #22 and #36 (chips that wrapped on a phone), resolved by design v2: the Add devices
-// tabs (P6) and the settings sections (P8) are the prototype's underline tabs. On a phone the Add devices row
-// scrolls sideways inside itself instead of wrapping or widening the page and every tab stays a
-// link; the settings sections are a picker (#275).
-test("phone: the Add devices and settings tab rows scroll sideways and stay links", async ({ page }) => {
+// UX review #22 and #36 (chips that wrapped on a phone), resolved by design v2: the settings sections (P8)
+// are the prototype's underline tabs; on a phone they are a picker (#275) and every tab stays a link.
+// (The Add page has no tabs since #410.)
+test("phone: the settings tab row is a picker and its tabs stay links", async ({ page }) => {
   await page.setExtraHTTPHeaders(admin);
   await page.setViewportSize({ width: 375, height: SCREEN });
   await page.goto(app.url + "/settings/system");
@@ -109,12 +110,6 @@ test("phone: the Add devices and settings tab rows scroll sideways and stay link
   await expect(page.locator('nav.utabs[aria-label="Settings sections"] a', { hasText: "Advanced" })).toHaveCount(1);
   await expect(page.locator("[data-sys-picker] select")).toBeVisible();
   await expect(page.locator('nav.utabs[aria-label="Settings sections"]')).toBeHidden();
-  await page.goto(app.url + "/discovery");
-  const tabs = page.getByRole("navigation", { name: "Add devices" });
-  await expect(tabs.getByRole("link", { name: "Add manually" })).toBeVisible();
-  const scroll = await tabs.evaluate((n) => ({ scroll: n.scrollWidth, client: n.clientWidth, page: document.documentElement.scrollWidth }));
-  expect(scroll.page, "the tab row never widens the page").toBeLessThanOrEqual(375);
-  expect(scroll.scroll, "the tab row scrolls inside itself").toBeGreaterThan(scroll.client);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(app.url + "/settings/system");
   await expect(page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: "Advanced" })).toBeVisible();
@@ -129,7 +124,7 @@ test("phone: the current tab of every tab row is fully in view", async ({ page }
     await page.goto(app.url + "/devices");
     return (await page.getByRole("link", { name: "lamp-1m", exact: true }).getAttribute("href"))!.replace(app.url, "");
   })();
-  const paths = ["/settings/system?tab=advanced", "/settings/system?tab=signin", "/discovery", "/import/tasmoadmin", `${lamp.replace(/\/?$/, "")}/settings`, `${lamp.replace(/\/?$/, "")}/drift`];
+  const paths = ["/settings/system?tab=advanced", "/settings/system?tab=signin", `${lamp.replace(/\/?$/, "")}/settings`, `${lamp.replace(/\/?$/, "")}/drift`];
   const bad: string[] = [];
   for (const path of paths) {
     await page.goto(app.url + path);
@@ -400,7 +395,7 @@ test("pages: no backticks in labels, no batch/update-job wording", async ({ page
 test("phone: proposal rows keep the name, the facts and the buttons on their own lines", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: SCREEN });
   await page.setExtraHTTPHeaders(admin);
-  await page.goto(app.url + "/discovery");
+  await page.goto(app.url + "/devices/new");
   const cards = page.locator(".add-cards .add-card");
   // the two seeded proposals plus whatever the simulator fleet announced itself
   expect(await cards.count()).toBeGreaterThanOrEqual(2);

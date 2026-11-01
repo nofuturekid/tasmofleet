@@ -10,7 +10,7 @@ import "strings"
 type NavItem struct {
 	Key, Label, Path string
 	Current          bool
-	Badge            int // a count that needs attention (new devices on "Add devices"); 0 = none
+	Badge            int // a count that needs attention (new devices on "Add"); 0 = none
 }
 
 // NavGroupData is one top-bar group with its pages. Path is where the group button leads: its
@@ -35,11 +35,11 @@ func NavGroup(nav string) string {
 	switch nav {
 	case "dashboard", "", "setup":
 		return "dashboard"
-	case "devices", "discovery", "import", "policy":
+	case "devices", "discovery", "policy":
 		return "devices"
 	case "updates", "transactions", "firmware":
 		return "updates"
-	case "system", "users", "audit", "about", "styleguide", "account":
+	case "system", "snapshots", "users", "audit", "about", "styleguide", "account":
 		return "system"
 	}
 	return "dashboard"
@@ -48,7 +48,7 @@ func NavGroup(nav string) string {
 // navItemKey is the sub-navigation entry a page lights up.
 func navItemKey(nav string) string {
 	switch nav {
-	case "discovery", "import":
+	case "discovery":
 		return "add"
 	case "updates":
 		return "transactions"
@@ -95,9 +95,9 @@ func (d ShellData) Groups() []NavGroupData {
 	out := []NavGroupData{
 		build("dashboard", "Dashboard", []entry{{"dashboard", "Overview", "/", true, false}}),
 		build("devices", "Devices", []entry{
-			{"devices", "All devices", "/devices", true, false},
-			{"add", "Add devices", "/discovery", d.Discovery, true},
+			{"devices", "List", "/devices", true, false},
 			{"policy", "Policy", "/policy", d.Policy, false},
+			{"add", "Add", "/devices/new", true, true},
 		}),
 	}
 	if g := build("updates", "Updates", []entry{
@@ -108,6 +108,7 @@ func (d ShellData) Groups() []NavGroupData {
 	}
 	out = append(out, build("system", "System", []entry{
 		{"settings", "Settings", "/settings/system", d.SysConfig, true},
+		{"snapshots", "Snapshots", "/settings/system/snapshots", d.Snapshots, true},
 		{"audit", "Audit log", "/audit", true, true},
 		{"users", "Users", "/users", true, true},
 		{"about", "About", "/about", true, true},

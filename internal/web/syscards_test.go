@@ -44,7 +44,8 @@ func fieldHTML(t *testing.T, page, key string) string {
 // Updates (OTA) joins Firmware; #249 adds Notifications between Backups and Firmware & updates.
 // A field that no tab names must still land somewhere, never vanish.
 func TestSystemSettingsHasTheApprovedTabs(t *testing.T) {
-	want := []string{"general", "network", "mqtt", "discovery", "backups", "notifications", "firmware", "signin", "advanced"}
+	// the last entry is the System -> Snapshots page (#410), kept off the Settings page's tab row
+	want := []string{"general", "network", "mqtt", "discovery", "backups", "notifications", "firmware", "signin", "advanced", "snapshots"}
 	if len(sysLayout) != len(want) {
 		t.Fatalf("%d tabs, want %d", len(sysLayout), len(want))
 	}
@@ -62,6 +63,11 @@ func TestSystemSettingsHasTheApprovedTabs(t *testing.T) {
 	_, body := e.do(t, "GET", "/settings/system?tab=fwsource", "admin", nil)
 	if !strings.Contains(body, `<a class="utab" href="/tf/settings/system?tab=general" aria-current="page">General</a>`) {
 		t.Error("an old tab name must open the first tab")
+	}
+	// The Snapshots page is no tab of the Settings page, not even by address.
+	_, body = e.do(t, "GET", "/settings/system?tab=snapshots", "admin", nil)
+	if strings.Contains(body, `data-sys-tab="snapshots"`) || !strings.Contains(body, `<a class="utab" href="/tf/settings/system?tab=general" aria-current="page">General</a>`) {
+		t.Error("?tab=snapshots must open the Settings page's first tab")
 	}
 }
 

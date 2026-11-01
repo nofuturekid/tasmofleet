@@ -58,7 +58,9 @@ async function pages(page: import("@playwright/test").Page): Promise<Record<stri
     policy: "/policy",
     "policy import / export": "/policy/io",
     "system settings": "/settings/system",
-    discovery: "/discovery",
+    "add devices": "/devices/new",
+    "scan results": "/discovery/scan",
+    "system snapshots": "/settings/system/snapshots",
   };
 }
 

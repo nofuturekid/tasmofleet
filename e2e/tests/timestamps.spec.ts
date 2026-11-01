@@ -146,7 +146,6 @@ const wanted = (page: import("@playwright/test").Page, iso: string, day: string)
 const dayStamps: [string, string][] = [
   ["the dashboard's transactions", "/|.txn-when time"],
   ["the transaction history", "/transactions|.upd-hwho time"],
-  ["Add devices: First seen", "/discovery|td.add-t2 time[data-ts=day]"],
 ];
 
 for (const [name, where] of dayStamps) {

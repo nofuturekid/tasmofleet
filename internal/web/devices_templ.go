@@ -128,7 +128,7 @@ func devicesContent(v view, p devicesPage) templ.Component {
 			ctx = templ.InitializeContext(ctx)
 			if v.IsAdmin {
 				if v.Features.Discovery {
-					templ_7745c5c3_Err = ui.Button(ui.Btn{Label: "Scan network", Href: v.Base + "/discovery#scan-h"}).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = ui.Button(ui.Btn{Label: "Scan network", Href: v.Base + "/devices/new#card-scan"}).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -958,7 +958,7 @@ func devicesEmpty(v view, p devicesPage) templ.Component {
 				}
 				ctx = templ.InitializeContext(ctx)
 				if v.Features.Discovery {
-					templ_7745c5c3_Err = ui.Button(ui.Btn{Label: "Scan network", Kind: "primary", Href: v.Base + "/discovery#scan-h"}).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = ui.Button(ui.Btn{Label: "Scan network", Kind: "primary", Href: v.Base + "/devices/new#card-scan"}).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

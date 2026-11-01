@@ -6,21 +6,69 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/web/ui"
 )
 
-// The Add devices screen (design v2 screen "add", package P6): the page header and the four
-// tabs, then the tab's body. The CSS is the "Add devices" block of app.css (.add-*).
+// The Add page (#410): the header and four boxes, no tabs. The CSS is the "Add devices" block of
+// app.css (.add-*, .scard-add).
 
-templ addHeader(h addHead) {
+// addPageView is the page: Discovered and Network scan in the wide stack, Add manually and Import
+// from TasmoAdmin in the narrow one. The rank classes give the phone order: Discovered, Add manually,
+// Network scan, Import.
+templ addPageView(p addPage) {
 	<div class="add-head"><h1>Add devices</h1></div>
-	@ui.Tabs("Add devices", h.Tabs)
+	if p.Manual.Error != "" && p.Manual.ErrField == "" {
+		@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: p.Manual.Error, Alert: true})
+	}
+	if p.Disc != nil {
+		@discBanners(*p.Disc)
+	}
+	@ui.CardStacks(3) {
+		if p.Disc != nil {
+			@ui.CardStack(2) {
+				@addBox("discovered", "r1", "Discovered", strconv.Itoa(p.Disc.NewCount), "Found by MQTT discovery and network scans, waiting for an admin.") {
+					@discoveredBody(*p.Disc)
+				}
+				@addBox("scan", "r3", "Network scan", "", "Probes the ranges for Tasmota devices; new ones appear under Discovered.") {
+					@scanBox(*p.Scan)
+				}
+			}
+		}
+		@ui.CardStack(1) {
+			@addBox("manual", "r2", "Add manually", "", "By address, when you know it.") {
+				@addManualForm(p.Manual)
+			}
+			if p.Import != nil {
+				@addBox("import", "r4", "Import from TasmoAdmin", "", "Takes over the device list of a TasmoAdmin installation.") {
+					@importBodyPart(*p.Import)
+				}
+			}
+		}
+	}
+}
+
+// addBox is one box of the Add page: a card of the column-stack grid with a title (and the count of
+// what waits in it), a one-line note and its body.
+templ addBox(id, rank, title, count, note string) {
+	<section class={ "scard", "scard-add", rank } id={ "card-" + id }>
+		<div class="sch">
+			<div>
+				<h2>
+					{ title }
+					if count != "" && count != "0" {
+						{ " " }
+						@ui.Badge(ui.ToneAccent, count)
+					}
+				</h2>
+				<p class="cnote">{ note }</p>
+			</div>
+		</div>
+		<div class="sbody sbody-plain">
+			{ children... }
+		</div>
+	</section>
 }
 
 // ---- Add manually ----
 
-templ addManualPage(f addManualView) {
-	@addHeader(f.addHead)
-	if f.Error != "" && f.ErrField == "" {
-		@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: f.Error, Alert: true})
-	}
+templ addManualForm(f addManualView) {
 	<form class="add-manual" method="post" action={ templ.SafeURL(f.Base + "/devices/new") }>
 		<input type="hidden" name="csrf" value={ f.CSRF }/>
 		if f.Prefill != nil {
@@ -108,8 +156,7 @@ templ addManualPage(f addManualView) {
 
 // ---- Discovered ----
 
-templ discoveredPage(p discView) {
-	@addHeader(p.addHead)
+templ discBanners(p discView) {
 	if p.Error != "" {
 		@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: p.Error, Alert: true})
 	}
@@ -123,9 +170,15 @@ templ discoveredPage(p discView) {
 				Could not verify that <code>{ p.Unverified.Target }</code> is the same device as { p.Unverified.Name } (MAC). The stored web password will be sent there, possibly to a different host.
 			</div>
 			<button type="submit" class="btn btn-danger-solid">Update address anyway</button>
-			<a class="btn" href={ templ.SafeURL(p.Base + "/discovery") }>Cancel</a>
+			<a class="btn" href={ templ.SafeURL(p.Base + "/devices/new") }>Cancel</a>
 		</form>
 	}
+}
+
+// discoveredBody is the Discovered box: the note about a switched-off discovery, the address changes
+// and conflicts a known device reported, then the new devices (and, with ?ignored=1, the ignored ones)
+// with selection, Ignore and Add…, then the topics MQTT saw but could not identify.
+templ discoveredBody(p discView) {
 	if p.Off {
 		<div class="add-note tone-warn" role="status">
 			<span class="add-note-dot" aria-hidden="true"></span>
@@ -153,7 +206,7 @@ templ discoveredPage(p discView) {
 			<input type="hidden" name="ignored" value="1"/>
 		}
 		<div class="add-bar">
-			<h2>New devices ({ strconv.Itoa(p.NewCount) })</h2>
+			<h3 class="sys-subhead">New devices ({ strconv.Itoa(p.NewCount) })</h3>
 			<a class="add-showign" role="checkbox" aria-checked={ ariaBool(p.ShowIgn) } href={ templ.SafeURL(showIgnoredHref(p)) }>
 				<span class="add-box" aria-hidden="true"></span>
 				<span>Show ignored ({ strconv.Itoa(p.Ignored) })</span>
@@ -193,13 +246,10 @@ templ discoveredPage(p discView) {
 					<p>
 						Discovery is listening on MQTT. New Tasmota devices show up here a few seconds after they join the network.
 						if !p.LastAnnounce.IsZero() {
-							Last announcement <time { ui.StampAttrs(p.LastAnnounce, ui.StampClock)... }>{ ui.StampText(p.LastAnnounce, ui.StampClock) }</time>.
+							Last announcement <time { ui.StampAttrs(p.LastAnnounce, ui.StampDay)... }>{ p.LastAnnounceText }</time>.
 						}
 					</p>
 				}
-				<div class="btn-row">
-					<a class="btn" href={ templ.SafeURL(p.Base + "/discovery/scan") }>Scan the network</a>
-				</div>
 			</div>
 		} else {
 			<div class="add-table add-disc-table">
@@ -207,11 +257,8 @@ templ discoveredPage(p discView) {
 					<colgroup>
 						<col class="c-sel"/>
 						<col class="c-name"/>
-						<col class="c-host"/>
 						<col class="c-ip"/>
-						<col class="c-mac"/>
 						<col class="c-src"/>
-						<col class="c-first"/>
 						<col class="c-last"/>
 						<col class="c-act"/>
 					</colgroup>
@@ -219,11 +266,8 @@ templ discoveredPage(p discView) {
 						<tr>
 							<th class="sel"><input type="checkbox" data-select-all hidden aria-label="Select all"/></th>
 							@sortTh(p, "name", "Device name")
-							@sortTh(p, "hostname", "Hostname")
 							@sortTh(p, "ip", "IP")
-							@sortTh(p, "mac", "MAC")
 							@sortTh(p, "source", "Source")
-							@sortTh(p, "first", "First seen")
 							@sortTh(p, "last", "Last seen")
 							<th class="act"><span class="sr-only">Actions</span></th>
 						</tr>
@@ -250,21 +294,12 @@ templ discoveredPage(p discView) {
 										}
 									</span>
 								</td>
-								<td class="mono" title={ r.Hostname }>{ dash(r.Hostname) }</td>
 								<td class="mono" title={ r.Address }>{ r.Address }</td>
-								<td class="mono add-t2" title={ r.MAC }>{ r.MAC }</td>
 								<td>
 									if r.MQTT {
 										@ui.Badge(ui.ToneAccent, r.Source)
 									} else {
 										@ui.Badge(ui.ToneNeutral, r.Source)
-									}
-								</td>
-								<td class="add-t2">
-									if r.First.IsZero() {
-										{ r.FirstText }
-									} else {
-										<time title={ stamp(r.First) } { ui.StampAttrs(r.First, ui.StampDay)... }>{ r.FirstText }</time>
 									}
 								</td>
 								<td class="add-t2"><time datetime={ r.Last.UTC().Format("2006-01-02T15:04:05Z") }>{ r.LastText }</time></td>
@@ -386,9 +421,68 @@ templ moveSection(title, sub string, rows []moveRow, p discView) {
 
 // ---- Network scan ----
 
+// scanPage is the results page of one scan: the heading, a way back to the Add page and the scan body.
 templ scanPage(t scanTab) {
-	@addHeader(t.addHead)
+	<div class="add-head"><h1>Network scan</h1></div>
 	@scanBody(t.Body)
+	<p class="ufield-help"><a href={ templ.SafeURL(t.Body.Base + "/devices/new") }>Back to Add devices</a></p>
+}
+
+// scanBox is the Network scan box of the Add page: the ranges, Scan now (it opens the results page,
+// where the scan runs live), the line about the last scan with a link to all its results, and the
+// scheduled scan's state. A scan that is running shows its progress and a link to watch it.
+templ scanBox(b scanBodyView) {
+	<div id="scan" class="add-scan">
+		<form class="add-scanbar" method="post" action={ templ.SafeURL(b.Base + "/discovery/scan") }>
+			<input type="hidden" name="csrf" value={ b.CSRF }/>
+			<input class="mono add-subnet" name="cidrs" value={ b.CIDRs } placeholder="192.168.1.0/24" aria-label="Subnet"/>
+			<button type="submit" class="btn btn-primary" disabled?={ b.NoNetworks || b.Running }
+				if b.NoNetworks {
+					aria-describedby="scan-off"
+				}
+			>Scan now</button>
+			<span class="add-scanstatus">
+				<span data-visual-mask>
+					{ b.StatusLead }
+					if !b.StatusAt.IsZero() {
+						<time { ui.StampAttrs(b.StatusAt, ui.StampDay)... }>{ b.StatusAtText }</time>
+					}
+					{ b.StatusTail }
+				</span>
+			</span>
+			if b.Prefilled != "" {
+				<span class="ufield-help add-scanerr" id="scan-prefill-note">{ b.Prefilled }</span>
+			}
+			if b.NoNetworks {
+				<span class="ufield-help add-scanerr" id="scan-off">Scanning is off until a device network is configured (see the notice above).</span>
+			}
+		</form>
+		if b.Running {
+			<div class="add-note tone-accent" role="status">
+				<span class="add-note-dot pulse" aria-hidden="true"></span>
+				<span class="add-note-text">
+					<b>Scanning { b.Ranges }.</b> { strconv.Itoa(b.Done) } of { strconv.Itoa(b.Total) } addresses.
+					<a href={ templ.SafeURL(b.Base + "/discovery/scan/" + b.ID) }>Watch the scan</a>
+				</span>
+			</div>
+		} else if b.HasScan && b.Summary != "" {
+			<div class="add-note tone-ok" role="status">
+				<span class="add-note-dot" aria-hidden="true"></span>
+				<span class="add-note-text">
+					<b>Scan finished.</b> { b.BoxSummary }
+					<a href={ templ.SafeURL(b.Base + "/discovery/scan/" + b.ID) }>All results</a>
+				</span>
+			</div>
+		}
+		if b.Scheduled != "" {
+			<p class="ufield-help">
+				Scheduled scan: { b.Scheduled }.
+				if b.SettingsHref != "" {
+					<a href={ templ.SafeURL(b.SettingsHref) }>Settings → Discovery</a>
+				}
+			</p>
+		}
+	</div>
 }
 
 // scanBody is the tab body. While a scan runs the event stream swaps only the progress and the results
@@ -428,7 +522,15 @@ templ scanBody(b scanBodyView) {
 					}
 				>Scan now</button>
 			}
-			<span class="add-scanstatus"><span data-visual-mask>{ b.Status }</span></span>
+			<span class="add-scanstatus">
+				<span data-visual-mask>
+					{ b.StatusLead }
+					if !b.StatusAt.IsZero() {
+						<time { ui.StampAttrs(b.StatusAt, ui.StampDay)... }>{ b.StatusAtText }</time>
+					}
+					{ b.StatusTail }
+				</span>
+			</span>
 			if b.Error != "" {
 				<span class="ufield-err add-scanerr" id="err-cidrs">{ b.Error }</span>
 			}
@@ -618,11 +720,6 @@ templ scanRowActs(b scanBodyView, r scanRow) {
 
 // ---- Import from TasmoAdmin ----
 
-templ importPage(t importTab) {
-	@addHeader(t.addHead)
-	@importBodyPart(t.Body)
-}
-
 // importBodyPart is the drop zone and the plan or result below it; the upload and Apply answer
 // with a new one (hx-target="#import").
 templ importBodyPart(b importBody) {
@@ -714,7 +811,7 @@ templ importBodyPart(b importBody) {
 			</section>
 			<div class="btn-row add-result-acts">
 				<a class="btn" href={ templ.SafeURL(b.Base + "/import/tasmoadmin/report.csv") } download>Download report</a>
-				<a class="btn" href={ templ.SafeURL(b.Base + "/import/tasmoadmin") }>Import more files</a>
+				<a class="btn" href={ templ.SafeURL(b.Base + "/devices/new#card-import") }>Import more files</a>
 				<a class="btn btn-primary" href={ templ.SafeURL(b.Base + "/devices") }>Open devices</a>
 			</div>
 		}

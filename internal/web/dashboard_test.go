@@ -88,7 +88,7 @@ func TestDashboardTilesLinkToTheirFilters(t *testing.T) {
 		`>Unknown</span><span class="stat-value">2</span><span class="stat-hint">never answered</span>`,
 		`>Policy deviations</span><span class="stat-value">1</span><span class="stat-hint">device, 1 rule</span>`,
 		`href="/tf/devices?chip=noncompliant"`,
-		`href="/tf/discovery"`, `>New devices found</span><span class="stat-value">1</span><span class="stat-hint">+ 1 address changed</span>`,
+		`href="/tf/devices/new#card-discovered"`, `>New devices found</span><span class="stat-value">1</span><span class="stat-hint">+ 1 address changed</span>`,
 	} {
 		if !strings.Contains(tiles, want) {
 			t.Errorf("tiles: missing %q in %s", want, tiles)
@@ -216,7 +216,7 @@ func TestDashboardEmptyFleet(t *testing.T) {
 	if !strings.Contains(body, "0 devices · state streams in live") || !strings.Contains(body, "<h2>No devices yet</h2>") {
 		t.Fatalf("empty dashboard: %s", body)
 	}
-	for _, want := range []string{`href="/tf/discovery">Scan network`, `href="/tf/devices/new">Add manually`, `href="/tf/import/tasmoadmin">Import from TasmoAdmin`} {
+	for _, want := range []string{`href="/tf/devices/new#card-scan">Scan network`, `href="/tf/devices/new">Add manually`, `href="/tf/devices/new#card-import">Import from TasmoAdmin`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("empty state: missing %q", want)
 		}
@@ -359,7 +359,7 @@ func TestDiscoveredPageShowsOfflineSince(t *testing.T) {
 	fd.props = []discovery.Proposal{{ID: 1, Version: "v1", Kind: discovery.KindNew, Via: discovery.ViaMQTT, LWT: "Offline",
 		FirstSeen: time.Now().Add(-3 * time.Hour), SeenAt: time.Now().Add(-time.Hour), OfflineSince: time.Now().Add(-2 * time.Hour),
 		Device: model.Device{Name: "Gone Lamp", Topic: "gone", Address: "10.0.0.40", MAC: "AA:00:00:00:00:09", Net: model.NetFacts{Hostname: "tasmota-gone"}}}}
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	for _, want := range []string{"tasmota-gone", ">since <time"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Discovered page lacks %q", want)

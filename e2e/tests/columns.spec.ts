@@ -501,7 +501,7 @@ test("the three main tables render at desktop and phone width (screenshots with 
 test("tooltips: never a page dump, never two bubbles, at most 160 characters", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.setExtraHTTPHeaders(adam);
-  for (const path of ["/", "/devices", "/policy", "/policy/io", "/firmware", "/transactions", "/audit", "/settings/system", "/discovery", "/about"]) {
+  for (const path of ["/", "/devices", "/policy", "/policy/io", "/firmware", "/transactions", "/audit", "/settings/system", "/devices/new", "/discovery/scan", "/about"]) {
     const res = await page.goto(app.url + path);
     if (!res || res.status() >= 400) continue;
     await page.waitForLoadState("networkidle");
@@ -534,7 +534,7 @@ test("tooltips: never a page dump, never two bubbles, at most 160 characters", a
 test("labels point at their own field, not at an (i) button", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.setExtraHTTPHeaders(adam);
-  for (const path of ["/devices/new", "/updates/new", "/settings/system", "/policy/rules/new", "/firmware", "/discovery", "/import/tasmoadmin", "/setup"]) {
+  for (const path of ["/devices/new", "/updates/new", "/settings/system", "/policy/rules/new", "/firmware", "/discovery/scan", "/settings/system/snapshots", "/setup"]) {
     const res = await page.goto(app.url + path);
     if (!res || res.status() >= 400) continue;
     const bad = await page.evaluate(() =>

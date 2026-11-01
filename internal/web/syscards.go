@@ -70,10 +70,8 @@ var sysLayout = []sysTabDef{
 	}},
 	{"backups", "Backups", []int{2, 1}, []sysCardDef{
 		{ID: "storage", Title: "Storage", Note: "Read-only. Not part of the form.", Stack: 0, Phone: 1},
-		{ID: "orphans", Title: "Backups of deleted devices", Stack: 0, Phone: 2},
-		{ID: "database", Title: "TasmoFleet database", Note: "Download and delete act at once, outside the settings form. Admins only; every download and every scheduled snapshot is written to the audit log.", Stack: 0, Phone: 4},
-		{ID: "schedule", Title: "Device backup schedule", Stack: 1, Phone: 3, Keys: []string{"BACKUP_INTERVAL", "BACKUP_KEEP", "BACKUP_MAX_AGE"}},
-		{ID: "snapshots", Title: "Snapshot schedule", Stack: 1, Phone: 5, Keys: []string{"SNAPSHOT_INTERVAL", "SNAPSHOT_KEEP"}},
+		{ID: "schedule", Title: "Device backup schedule", Stack: 1, Phone: 2, Keys: []string{"BACKUP_INTERVAL", "BACKUP_KEEP", "BACKUP_MAX_AGE"}},
+		{ID: "orphans", Title: "Backups of deleted devices", Stack: 1, Phone: 3},
 	}},
 	{"notifications", "Notifications", []int{1, 2}, []sysCardDef{
 		{ID: "notify-events", Title: "Events", Note: "What is sent. Both channels get the same events.", Stack: 0, Phone: 1,
@@ -99,7 +97,18 @@ var sysLayout = []sysTabDef{
 	{"advanced", "Advanced", []int{1}, []sysCardDef{
 		{ID: "other", Title: "Other settings"},
 	}},
+	// Snapshots is the System -> Snapshots page, not a tab of the Settings page (sysRender splits it
+	// off): its schedule settings are saved through the same form machinery, with the page's own save bar.
+	{sysSnapshotsSlug, "Snapshots", []int{2, 1}, []sysCardDef{
+		{ID: "download", Title: "Download a snapshot", Stack: 0, Phone: 1},
+		{ID: "stored", Title: "Stored snapshots", Stack: 0, Phone: 3},
+		{ID: "snapshots", Title: "Schedule", Stack: 1, Phone: 2, Keys: []string{"SNAPSHOT_INTERVAL", "SNAPSHOT_KEEP"}},
+		{ID: "restore", Title: "Restore", Note: "By hand, with the container stopped.", Stack: 1, Phone: 4},
+	}},
 }
+
+// sysSnapshotsSlug is the layout entry of the Snapshots page.
+const sysSnapshotsSlug = "snapshots"
 
 // sysAdvanced is the index of the Advanced tab and its catch-all card.
 const sysAdvanced, sysOtherCard = 8, 0

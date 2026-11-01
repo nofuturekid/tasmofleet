@@ -20,17 +20,17 @@ func listFixture(t *testing.T) (*env, *fakeDiscovery) {
 	mk := func(id int64, name, topic, addr, mac, via, lwt string, first, seen time.Duration) discovery.Proposal {
 		return discovery.Proposal{ID: id, Version: fmt.Sprintf("v%d", id), Kind: discovery.KindNew, Via: via, LWT: lwt,
 			FirstSeen: now.Add(-first), SeenAt: now.Add(-seen),
-			Device: model.Device{Name: name, Topic: "topic-" + topic[len(topic)-3:], Address: addr, MAC: mac, Net: model.NetFacts{Hostname: topic}}}
+			Device: model.Device{Name: name, Topic: topic, Address: addr, MAC: mac, Net: model.NetFacts{Hostname: topic}}}
 	}
 	fd.props = []discovery.Proposal{
-		mk(1, "Charlie", "tasmota_ccc", "10.0.0.9", "AA:00:00:00:00:02", "mqtt", "Online", 3*time.Hour, 5*time.Minute),
-		mk(2, "alpha", "tasmota_bbb", "10.0.0.10", "AA:00:00:00:00:03", "scan", "Offline", 1*time.Hour, 1*time.Minute),
-		mk(3, "", "tasmota_aaa", "10.0.0.2", "AA:00:00:00:00:01", "mqtt", "Offline", 2*time.Hour, 9*time.Minute),
+		mk(1, "Charlie", "topic-ccc", "10.0.0.9", "AA:00:00:00:00:02", "mqtt", "Online", 3*time.Hour, 5*time.Minute),
+		mk(2, "alpha", "topic-bbb", "10.0.0.10", "AA:00:00:00:00:03", "scan", "Offline", 1*time.Hour, 1*time.Minute),
+		mk(3, "", "topic-aaa", "10.0.0.2", "AA:00:00:00:00:01", "mqtt", "Offline", 2*time.Hour, 9*time.Minute),
 	}
 	return e, fd
 }
 
-// tableOrder lists the topics (hostname column) of the desktop table in the order shown.
+// tableOrder lists the topics (the name cell's tooltip) of the desktop table in the order shown.
 func tableOrder(t *testing.T, body string) []string {
 	t.Helper()
 	i, j := strings.Index(body, "<tbody>"), strings.Index(body, "</tbody>")
@@ -38,7 +38,7 @@ func tableOrder(t *testing.T, body string) []string {
 		t.Fatal("no table body")
 	}
 	var out []string
-	for _, m := range regexp.MustCompile(`tasmota_[a-z]+`).FindAllString(body[i:j], -1) {
+	for _, m := range regexp.MustCompile(`topic-[a-z]+`).FindAllString(body[i:j], -1) {
 		if len(out) == 0 || out[len(out)-1] != m {
 			out = append(out, m)
 		}
@@ -53,25 +53,25 @@ func joined(s []string) string { return strings.Join(s, ",") }
 func TestNewDevicesFilterByState(t *testing.T) {
 	e, _ := listFixture(t)
 	for state, want := range map[string]string{
-		"":        "tasmota_aaa,tasmota_bbb,tasmota_ccc",
-		"all":     "tasmota_aaa,tasmota_bbb,tasmota_ccc",
-		"online":  "tasmota_ccc",
-		"offline": "tasmota_aaa,tasmota_bbb",
-		"bogus":   "tasmota_aaa,tasmota_bbb,tasmota_ccc", // an unknown state shows everything, no 500
+		"":        "topic-aaa,topic-bbb,topic-ccc",
+		"all":     "topic-aaa,topic-bbb,topic-ccc",
+		"online":  "topic-ccc",
+		"offline": "topic-aaa,topic-bbb",
+		"bogus":   "topic-aaa,topic-bbb,topic-ccc", // an unknown state shows everything, no 500
 	} {
-		_, body := e.do(t, "GET", "/discovery?state="+state+"&sort=hostname&dir=asc", "admin", nil)
+		_, body := e.do(t, "GET", "/devices/new?state="+state+"&sort=name&dir=asc", "admin", nil)
 		if got := joined(tableOrder(t, body)); got != want {
 			t.Errorf("state %q: rows %s, want %s", state, got, want)
 		}
 	}
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	for _, want := range []string{`>All<span class="add-chip-n">3</span>`, `>Online<span class="add-chip-n">1</span>`, `>Offline<span class="add-chip-n">2</span>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("chips lack %q", want)
 		}
 	}
 	// the chips and the ignored switch keep the other parameters
-	_, body = e.do(t, "GET", "/discovery?state=offline&sort=ip&dir=desc", "admin", nil)
+	_, body = e.do(t, "GET", "/devices/new?state=offline&sort=ip&dir=desc", "admin", nil)
 	if !strings.Contains(body, "ignored=1") || !strings.Contains(body, "state=online") || !strings.Contains(body, "sort=ip") {
 		t.Error("links lose the filter or sort")
 	}
@@ -81,7 +81,7 @@ func TestNewDevicesFilterByState(t *testing.T) {
 func TestNewDevicesFilterWithoutMatchKeepsChips(t *testing.T) {
 	e, fd := listFixture(t)
 	fd.props = fd.props[1:] // only offline devices left
-	_, body := e.do(t, "GET", "/discovery?state=online", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new?state=online", "admin", nil)
 	if !strings.Contains(body, "No online devices") || !strings.Contains(body, `class="add-chips"`) {
 		t.Error("an empty filter result shows no message or no chips")
 	}
@@ -92,32 +92,26 @@ func TestNewDevicesFilterWithoutMatchKeepsChips(t *testing.T) {
 func TestNewDevicesSortEveryKey(t *testing.T) {
 	e, _ := listFixture(t)
 	asc := map[string]string{
-		"name":     "tasmota_aaa,tasmota_bbb,tasmota_ccc", // no name first, then alpha, Charlie (case-blind)
-		"hostname": "tasmota_aaa,tasmota_bbb,tasmota_ccc",
-		"ip":       "tasmota_aaa,tasmota_ccc,tasmota_bbb",
-		"mac":      "tasmota_aaa,tasmota_ccc,tasmota_bbb",
-		"source":   "tasmota_ccc,tasmota_aaa,tasmota_bbb", // MQTT (id 1, 3) before Scan; ties by ID
-		"first":    "tasmota_ccc,tasmota_aaa,tasmota_bbb", // oldest first
-		"last":     "tasmota_aaa,tasmota_ccc,tasmota_bbb", // 9 min, 5 min, 1 min ago
+		"name":   "topic-aaa,topic-bbb,topic-ccc", // no name first, then alpha, Charlie (case-blind)
+		"ip":     "topic-aaa,topic-ccc,topic-bbb",
+		"source": "topic-ccc,topic-aaa,topic-bbb", // MQTT (id 1, 3) before Scan; ties by ID
+		"last":   "topic-aaa,topic-ccc,topic-bbb", // 9 min, 5 min, 1 min ago
 	}
 	for key, want := range asc {
-		_, body := e.do(t, "GET", "/discovery?sort="+key+"&dir=asc", "admin", nil)
+		_, body := e.do(t, "GET", "/devices/new?sort="+key+"&dir=asc", "admin", nil)
 		if got := joined(tableOrder(t, body)); got != want {
 			t.Errorf("%s asc: %s, want %s", key, got, want)
 		}
 	}
 	// descending reverses, except that equal values keep the ID order (stable, no flicker)
 	desc := map[string]string{
-		"name":     "tasmota_ccc,tasmota_bbb,tasmota_aaa",
-		"hostname": "tasmota_ccc,tasmota_bbb,tasmota_aaa",
-		"ip":       "tasmota_bbb,tasmota_ccc,tasmota_aaa",
-		"mac":      "tasmota_bbb,tasmota_ccc,tasmota_aaa",
-		"source":   "tasmota_bbb,tasmota_ccc,tasmota_aaa",
-		"first":    "tasmota_bbb,tasmota_aaa,tasmota_ccc",
-		"last":     "tasmota_bbb,tasmota_ccc,tasmota_aaa",
+		"name":   "topic-ccc,topic-bbb,topic-aaa",
+		"ip":     "topic-bbb,topic-ccc,topic-aaa",
+		"source": "topic-bbb,topic-ccc,topic-aaa",
+		"last":   "topic-bbb,topic-ccc,topic-aaa",
 	}
 	for key, want := range desc {
-		_, body := e.do(t, "GET", "/discovery?sort="+key+"&dir=desc", "admin", nil)
+		_, body := e.do(t, "GET", "/devices/new?sort="+key+"&dir=desc", "admin", nil)
 		if got := joined(tableOrder(t, body)); got != want {
 			t.Errorf("%s desc: %s, want %s", key, got, want)
 		}
@@ -128,9 +122,9 @@ func TestNewDevicesSortEveryKey(t *testing.T) {
 // hostile sort parameter must fall back to it instead of failing.
 func TestNewDevicesDefaultSortAndUnknownKey(t *testing.T) {
 	e, _ := listFixture(t)
-	want := "tasmota_bbb,tasmota_ccc,tasmota_aaa"
+	want := "topic-bbb,topic-ccc,topic-aaa"
 	for _, q := range []string{"", "?sort=bogus", "?sort=bogus&dir=asc", "?sort=;drop&dir=x", "?dir=asc"} {
-		r, body := e.do(t, "GET", "/discovery"+q, "admin", nil)
+		r, body := e.do(t, "GET", "/devices/new"+q, "admin", nil)
 		if r.StatusCode != 200 {
 			t.Fatalf("%q: status %d", q, r.StatusCode)
 		}
@@ -144,11 +138,11 @@ func TestNewDevicesDefaultSortAndUnknownKey(t *testing.T) {
 // header says which way it is sorted for screen readers.
 func TestNewDevicesHeadersAreSortLinks(t *testing.T) {
 	e, _ := listFixture(t)
-	_, body := e.do(t, "GET", "/discovery?sort=ip&dir=asc", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new?sort=ip&dir=asc", "admin", nil)
 	for _, want := range []string{
-		`aria-sort="ascending"><a class="sortlink is-asc" href="/tf/discovery?dir=desc&amp;sort=ip">IP`,
-		`<a class="sortlink" href="/tf/discovery?dir=asc&amp;sort=hostname">Hostname`,
-		`<a class="sortlink" href="/tf/discovery?dir=asc&amp;sort=name">Device name`,
+		`aria-sort="ascending"><a class="sortlink is-asc" href="/tf/devices/new?dir=desc&amp;sort=ip">IP`,
+		`<a class="sortlink" href="/tf/devices/new?dir=asc&amp;sort=source">Source`,
+		`<a class="sortlink" href="/tf/devices/new?dir=asc&amp;sort=name">Device name`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("header lacks %q", want)
@@ -156,27 +150,46 @@ func TestNewDevicesHeadersAreSortLinks(t *testing.T) {
 	}
 }
 
-// Why: #130, Model and Firmware were never filled (a column of dashes) and name and hostname
-// were squeezed into one cell.
-func TestNewDevicesHasNoModelOrFirmwareAndSplitsNameFromHostname(t *testing.T) {
+// Why: #130, Model and Firmware were never filled (a column of dashes). #410: the table sits in the
+// two-thirds box of the Add page, so MAC, Hostname and First seen are no columns any more; the phone
+// card keeps the hostname and the name cell's tooltip the MQTT topic.
+func TestNewDevicesTableKeepsOnlyWhatFitsTheBox(t *testing.T) {
 	e, _ := listFixture(t)
-	_, body := e.do(t, "GET", "/discovery", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
 	i := strings.Index(body, "add-disc-table")
 	head := body[i : i+strings.Index(body[i:], "</thead>")]
-	for _, gone := range []string{">Model<", ">Firmware<", "Name / hostname"} {
+	for _, gone := range []string{">Model<", ">Firmware<", "Name / hostname", ">Hostname<", ">MAC<", ">First seen<"} {
 		if strings.Contains(head, gone) {
 			t.Errorf("table still has %q", gone)
 		}
 	}
-	for _, want := range []string{">Device name<span", ">Hostname<span"} {
+	for _, want := range []string{">Device name<span", ">IP<span", ">Source<span", ">Last seen<span"} {
 		if !strings.Contains(head, want) {
 			t.Errorf("table lacks %q", want)
 		}
 	}
-	// a device without a friendly name shows a dash in its name column, its host in the hostname column
+	// a device without a friendly name shows a dash in its name column
 	// (the MQTT topic is no column: it is the name cell's tooltip, and never shown as the hostname)
 	if !strings.Contains(body, `<td class="name" title="— · topic topic-aaa">`) {
 		t.Error("an unnamed device shows no dash, or its topic is lost")
+	}
+	if !strings.Contains(body, `class="add-card-meta"><span data-visual-mask>10.0.0.2</span> · topic-aaa`) {
+		t.Error("the phone card lost its hostname line")
+	}
+}
+
+// Why: four devices need no filter (#410); the chips come back when the list holds both online and
+// offline devices, or while a filter is chosen (so it can be left again).
+func TestNewDevicesChipsOnlyWhenThereIsSomethingToFilter(t *testing.T) {
+	e, fd := listFixture(t)
+	fd.props = fd.props[:1] // one online device
+	_, body := e.do(t, "GET", "/devices/new", "admin", nil)
+	if strings.Contains(body, `class="add-chips"`) {
+		t.Error("chips for a list of one state")
+	}
+	_, body = e.do(t, "GET", "/devices/new?state=offline", "admin", nil)
+	if !strings.Contains(body, `class="add-chips"`) {
+		t.Error("a chosen filter without chips cannot be left")
 	}
 }
 
@@ -184,7 +197,7 @@ func TestNewDevicesHasNoModelOrFirmwareAndSplitsNameFromHostname(t *testing.T) {
 // change what a row's checkbox submits.
 func TestNewDevicesSelectionSurvivesSortAndFilter(t *testing.T) {
 	e, _ := listFixture(t)
-	_, body := e.do(t, "GET", "/discovery?state=offline&sort=name&dir=desc", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new?state=offline&sort=name&dir=desc", "admin", nil)
 	for _, want := range []string{`value="2:v2"`, `value="3:v3"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("lacks %q", want)
@@ -202,7 +215,7 @@ func TestNewDevicesSelectionSurvivesSortAndFilter(t *testing.T) {
 // sort, ignored switch), not on the default view; the page carries them in hidden fields.
 func TestNewDevicesActionsKeepStateAndSort(t *testing.T) {
 	e, _ := listFixture(t)
-	_, body := e.do(t, "GET", "/discovery?state=offline&sort=ip&dir=desc&ignored=1", "admin", nil)
+	_, body := e.do(t, "GET", "/devices/new?state=offline&sort=ip&dir=desc&ignored=1", "admin", nil)
 	for _, want := range []string{`name="state" value="offline"`, `name="sort" value="ip"`, `name="dir" value="desc"`, `name="ignored" value="1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("bulk form lacks hidden %s", want)
@@ -219,7 +232,7 @@ func TestNewDevicesActionsKeepStateAndSort(t *testing.T) {
 		}
 	}
 	// the default view needs no parameters
-	if r, _ := e.do(t, "POST", "/discovery/proposals/1/dismiss", "admin", nil); r.Header.Get("Location") != "/tf/discovery?ok=dismissed" {
+	if r, _ := e.do(t, "POST", "/discovery/proposals/1/dismiss", "admin", nil); r.Header.Get("Location") != "/tf/devices/new?ok=dismissed" {
 		t.Errorf("default redirect %q", r.Header.Get("Location"))
 	}
 }

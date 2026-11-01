@@ -72,14 +72,15 @@ test.afterAll(async () => {
 async function open(page: Page, query = "", width = 1280) {
   await page.setViewportSize({ width, height: 900 });
   await page.setExtraHTTPHeaders(adam);
-  await page.goto(app.url + "/discovery" + query);
+  await page.goto(app.url + "/devices/new" + query);
   await expect(page.locator(".add-chips")).toBeVisible();
 }
 
-/** hostnames are the Hostname cells of the desktop table, top to bottom. */
+/** topics are the MQTT topics in the name cells' tooltips of the desktop table, top to bottom (#410: the Hostname column is gone). */
 // The stack's own devices announce themselves too; only the three seeded ones are compared.
-const ours = new Set(devices.map((d) => d.host));
-const hostnames = async (page: Page) => (await page.locator(".add-disc-table tbody tr td:nth-child(3)").allTextContents()).filter((h) => ours.has(h));
+const ours = new Set(devices.map((d) => d.topic));
+const topics = async (page: Page) =>
+  (await page.locator(".add-disc-table tbody tr td.name").evaluateAll((cells) => cells.map((c) => (c.getAttribute("title") ?? "").split(" · topic ")[1] ?? ""))).filter((t) => ours.has(t));
 
 async function shot(page: Page, name: string) {
   if (!shots) return;
@@ -97,27 +98,27 @@ test("the state chips filter the list and the headers sort it", async ({ page })
   await expect(page.getByRole("columnheader", { name: "Model" })).toHaveCount(0);
   await expect(page.getByRole("columnheader", { name: "Firmware" })).toHaveCount(0);
   await expect(page.getByRole("columnheader", { name: "Device name" })).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "Hostname" })).toBeVisible();
+  for (const gone of ["Hostname", "MAC", "First seen"]) await expect(page.getByRole("columnheader", { name: gone })).toHaveCount(0);
   // default: last seen, newest first
-  expect(await hostnames(page)).toEqual(["balcony-plug-5e6f", "tasmota-attic-3c4d", "workshop-lamp-1a2b"]);
+  expect(await topics(page)).toEqual(["balcony_plug", "attic_fan", "workshop_lamp"]);
 
   await page.getByRole("link", { name: /^Offline\s*3$/ }).click();
   await expect(page).toHaveURL(/state=offline/);
-  expect(await hostnames(page)).toEqual(["balcony-plug-5e6f", "tasmota-attic-3c4d", "workshop-lamp-1a2b"]);
+  expect(await topics(page)).toEqual(["balcony_plug", "attic_fan", "workshop_lamp"]);
   await page.getByRole("link", { name: /^Online\s*\d+$/ }).click();
   await expect(page).toHaveURL(/state=online/);
-  expect(await hostnames(page)).toEqual([]); // the offline ones are not in the online list
+  expect(await topics(page)).toEqual([]); // the offline ones are not in the online list
   await page.getByRole("link", { name: /^All\s*\d+$/ }).click();
 
   // a header sorts ascending, a second click flips it; the filter chip keeps the sort
   await page.getByRole("columnheader", { name: "IP" }).getByRole("link").click();
-  expect(await hostnames(page)).toEqual(["tasmota-attic-3c4d", "workshop-lamp-1a2b", "balcony-plug-5e6f"]); // .9 < .11 < .100
+  expect(await topics(page)).toEqual(["attic_fan", "workshop_lamp", "balcony_plug"]); // .9 < .11 < .100
   await expect(page.getByRole("columnheader", { name: "IP" })).toHaveAttribute("aria-sort", "ascending");
   await page.getByRole("columnheader", { name: "IP" }).getByRole("link").click();
-  expect(await hostnames(page)).toEqual(["balcony-plug-5e6f", "workshop-lamp-1a2b", "tasmota-attic-3c4d"]);
+  expect(await topics(page)).toEqual(["balcony_plug", "workshop_lamp", "attic_fan"]);
   await page.getByRole("link", { name: /^Offline\s*3$/ }).click();
   await expect(page).toHaveURL(/sort=ip/);
-  expect(await hostnames(page)).toEqual(["balcony-plug-5e6f", "workshop-lamp-1a2b", "tasmota-attic-3c4d"]);
+  expect(await topics(page)).toEqual(["balcony_plug", "workshop_lamp", "attic_fan"]);
 });
 
 for (const width of [375, 1280]) {
@@ -127,7 +128,7 @@ for (const width of [375, 1280]) {
       await open(page, "?sort=name&dir=asc", width);
       await expectNoOverflow(page, "New devices list");
       await shot(page, `add-devices-${width}-${scheme}`);
-      await page.goto(app.url + "/discovery?state=online&ignored=1");
+      await page.goto(app.url + "/devices/new?state=online&ignored=1");
       await shot(page, `add-devices-filtered-${width}-${scheme}`);
     });
   }

@@ -189,7 +189,7 @@ test("e-mail: Send test delivers one message and the password stays write-only",
 test("a failed snapshot is delivered, and the failed delivery shows in the status line", async ({ page }) => {
   hook.seen.length = 0;
   await page.setExtraHTTPHeaders(admin);
-  await page.goto(app.url + "/settings/system?tab=backups");
+  await page.goto(app.url + "/settings/system/snapshots");
   await page.locator("[data-key='SNAPSHOT_SCHEDULE'] .swtrack").click();
   // A directory under the name of the snapshot about to be written (this minute and the next two): renaming a
   // file onto a directory fails for every user, root included, and the settings page keeps listing fine.
