@@ -3,9 +3,11 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/store"
@@ -20,9 +22,17 @@ import (
 type tmplStep struct {
 	Text, Cmd, Label string
 	Tone             ui.Tone
+	Backup           tmplBackup // the backup step links the backup taken before the change
+}
+
+// tmplBackup is the backup a job took before it changed the device: the restore path when something went wrong.
+type tmplBackup struct {
+	At   time.Time
+	Href string
 }
 
 type tmplCard struct {
+	Backup           tmplBackup
 	Name, Href, Rank string
 	Tone             ui.Tone
 	Steps            []tmplStep
@@ -59,7 +69,7 @@ func earlyFailure(err string) bool {
 
 // templateCardOf is the card of one device of a template transaction. names maps the jobs of the
 // transaction to their device names, for "stopped after X failed".
-func templateCardOf(j jobView, base string, names map[model.JobID]string) tmplCard {
+func templateCardOf(j jobView, base string, names map[model.JobID]string, bk tmplBackup) tmplCard {
 	c := tmplCard{Name: j.Device, Href: base + "/devices/" + strconv.FormatInt(int64(j.Job.DeviceID), 10), Tone: ui.ToneNeutral}
 	cmd, _, _ := strings.Cut(j.Job.Commands, "\n")
 	short := "Template {…}"
@@ -118,11 +128,17 @@ func templateCardOf(j jobView, base string, names map[model.JobID]string) tmplCa
 	if sent {
 		sendText, sendCmd = short, cmd
 	}
+	if steps[0].label == "Done" {
+		c.Backup = bk
+	}
 	texts := []string{"Backup", "Read again" + readNote, sendText, "Verify" + verifyNote}
 	for i, t := range texts {
 		s := tmplStep{Text: t, Label: steps[i].label, Tone: steps[i].tone}
 		if i == 2 {
 			s.Cmd = sendCmd
+		}
+		if i == 0 && !c.Backup.At.IsZero() {
+			s.Backup = c.Backup
 		}
 		c.Steps = append(c.Steps, s)
 	}
@@ -190,4 +206,44 @@ func (h *handler) templateFacts(r *http.Request, batch model.BatchID) string {
 		}
 	}
 	return s + " · "
+}
+
+// templateBackup finds the backup the job took before it changed the device: the newest dump of the
+// device taken since the job was created (the engine takes it as the job's first step). Zero when
+// there is none, or backups cannot be listed.
+func (h *handler) templateBackup(r *http.Request, j model.Job) tmplBackup {
+	if h.d.Backups == nil {
+		return tmplBackup{}
+	}
+	list, err := h.d.Backups.List(r.Context(), j.DeviceID)
+	if err != nil {
+		return tmplBackup{}
+	}
+	var best model.Backup
+	for _, b := range list {
+		if b.Kind == model.BackupConfigDump && !b.TakenAt.Before(j.CreatedAt) && b.TakenAt.After(best.TakenAt) {
+			best = b
+		}
+	}
+	if best.ID == 0 {
+		return tmplBackup{}
+	}
+	return tmplBackup{At: best.TakenAt, Href: httpBase(r) + "/devices/" + devStr(j.DeviceID) + "/backups"}
+}
+
+// templateCheckAgain is the address of "Check again…": the preview of the same group and reference for
+// the devices of the transaction, read afresh (the preview drops those that match now or cannot take
+// the template, and the new digest covers what it finds). The group and reference come from the
+// transaction's start record; without it the link opens the tab.
+func (h *handler) templateCheckAgain(r *http.Request, batch model.BatchID, jobs []jobView) string {
+	d, ok := h.templateStartOf(r, batch)
+	family, name, cut := strings.Cut(d.Group, " ")
+	if !ok || !cut || d.Reference <= 0 {
+		return policyTemplatesPath
+	}
+	q := url.Values{"family": {family}, "name": {name}, "ref": {strconv.FormatInt(d.Reference, 10)}, "how": {d.How}}
+	for _, j := range jobs {
+		q.Add("pick", devStr(j.Job.DeviceID))
+	}
+	return policyTemplatesPath + "/preview?" + q.Encode()
 }

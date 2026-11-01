@@ -1094,10 +1094,7 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 		p.RetryN = 0
 		p.State = strings.NewReplacer("done", "applied", "cancelled", "stopped").Replace(p.State)
 		if !b.Active && b.Failed+b.Canceled > 0 {
-			p.CheckAgain = b.Base + policyTemplatesPath
-			if ref := h.templateRefOf(r, b.Batch); ref != 0 {
-				p.CheckAgain += "?ref=" + devStr(ref)
-			}
+			p.CheckAgain = b.Base + h.templateCheckAgain(r, b.Batch, b.Jobs)
 		}
 	case p.Policy:
 		changes := 0
@@ -1134,7 +1131,7 @@ func (h *handler) txnPageData(w http.ResponseWriter, r *http.Request) (txnPage, 
 	}
 	for _, j := range b.Jobs {
 		if p.Template {
-			p.TCards = append(p.TCards, templateCardOf(j, b.Base, names))
+			p.TCards = append(p.TCards, templateCardOf(j, b.Base, names, h.templateBackup(r, j.Job)))
 			continue
 		}
 		if p.Policy {

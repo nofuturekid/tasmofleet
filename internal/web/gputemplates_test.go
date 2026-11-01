@@ -112,6 +112,13 @@ func TestGPIOTemplatesTabIsReadOnlyForOperators(t *testing.T) {
 	if r.StatusCode != 403 {
 		t.Errorf("operator preview: %d, want 403", r.StatusCode)
 	}
+	// the preview changes nothing, so "Check again…" can link to it; it is still admin-only
+	if r, _ := e.do(t, "GET", "/policy/templates/preview?family=esp8266&name=Gosund+SP111&ref=10&pick=12", "operator", nil); r.StatusCode != 403 {
+		t.Errorf("operator GET preview: %d, want 403", r.StatusCode)
+	}
+	if r, body := e.do(t, "GET", "/policy/templates/preview?family=esp8266&name=Gosund+SP111&ref=10&how=chosen&pick=12", "admin", nil); r.StatusCode != 200 || !strings.Contains(body, "Back up, apply and restart 1 device") {
+		t.Errorf("admin GET preview: %d\n%s", r.StatusCode, body)
+	}
 	f := fake
 	r, _ = e.do(t, "POST", "/policy/templates/apply", "operator", url.Values{"csrf": {"tok"}, "family": {"esp8266"}, "name": {"Gosund SP111"}, "ref": {"10"}, "pick": {"12"}, "confirm": {"1"}, "digest": {"abc123"}})
 	if r.StatusCode != 403 || f.gotApply != nil {

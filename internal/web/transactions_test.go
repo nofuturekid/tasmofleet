@@ -234,6 +234,7 @@ func TestTemplateTransactionShowsStepsStopAndCheckAgain(t *testing.T) {
 		{ID: 2, BatchID: 9, DeviceID: 2, Kind: model.KindTemplate, Commands: cmd, State: model.JobFailed, LastError: "the device did not answer in time", CreatedAt: now},
 		{ID: 3, BatchID: 9, DeviceID: 3, Kind: model.KindTemplate, Commands: cmd, State: model.JobCancelled, LastError: "Nothing was sent: the transaction stopped after job 2 failed", CreatedAt: now},
 	}
+	e.bk.list = []model.Backup{{ID: 5, DeviceID: 1, Kind: model.BackupConfigDump, TakenAt: now.Add(time.Second)}}
 	e.aud.Record(t.Context(), model.AuditEvent{Action: "policy.template.start", Target: "transaction:9", Detail: `{"group":"esp8266 Gosund SP111","reference":1,"how":"chosen"}`})
 	_, body := e.do(t, "GET", "/transactions/9", "admin", nil)
 	for _, want := range []string{"Gosund SP111, reference kitchen (chosen) · 3 devices, one at a time", "<h1>Apply GPIO template</h1>", "started from Policy by adam on ", "<b>1</b> applied", "<b>1</b> stopped", "Check again…", ">Applied<", ">Not started<",
@@ -244,6 +245,16 @@ func TestTemplateTransactionShowsStepsStopAndCheckAgain(t *testing.T) {
 	}
 	if strings.Contains(body, "Retry failed") {
 		t.Error("a template transaction is checked again, not retried")
+	}
+	// "Check again…" opens a fresh preview of the same group and reference for the devices of the transaction
+	for _, want := range []string{`/policy/templates/preview?`, "family=esp8266", "name=Gosund+SP111", "ref=1", "how=chosen", "pick=1", "pick=2", "pick=3"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Check again lacks %q", want)
+		}
+	}
+	// the device that was changed links the backup taken before the change: the restore path
+	if !strings.Contains(body, `<a href="/tf/devices/1/backups">backup <time`) {
+		t.Error("the backup step does not link the backup taken before the change")
 	}
 	r, _ := e.do(t, "GET", "/transactions/9/retry", "admin", nil)
 	if r.StatusCode != 409 {

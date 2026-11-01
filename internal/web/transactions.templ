@@ -622,6 +622,8 @@ templ tmplCardView(c tmplCard) {
 							<summary>{ st.Text }</summary>
 							<pre class="gt-cmd">{ st.Cmd }</pre>
 						</details>
+					} else if !st.Backup.At.IsZero() {
+						{ st.Text } · <a href={ templ.SafeURL(st.Backup.Href) }>backup <time { ui.StampAttrs(st.Backup.At, ui.StampShort)... }>{ ui.StampText(st.Backup.At, ui.StampShort) }</time></a>
 					} else {
 						{ st.Text }
 					}
