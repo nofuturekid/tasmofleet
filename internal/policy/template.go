@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"strconv"
@@ -61,6 +62,9 @@ func ParseTemplate(reply []byte) (GPIOTemplate, error) {
 	dec.UseNumber()
 	if err := dec.Decode(&raw); err != nil {
 		return GPIOTemplate{}, fmt.Errorf("template: %w", err)
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return GPIOTemplate{}, errors.New("template: data after the JSON object")
 	}
 	if raw.Name == nil || raw.GPIO == nil || raw.Flag == nil || raw.Base == nil {
 		return GPIOTemplate{}, errors.New("template: reply lacks NAME, GPIO, FLAG or BASE")
@@ -139,7 +143,9 @@ type TemplateDevice struct {
 	ID      model.DeviceID
 	Family  model.ChipFamily
 	Variant string // model.Identity.Variant
-	Wired   bool   // Ethernet board
+	// Hardware is model.Identity.Hardware (the raw StatusFWR.Hardware, e.g. "ESP8285N08").
+	Hardware string
+	Wired    bool // Ethernet board
 	// MQTTOnly: the device is reached over MQTT only (no HTTP).
 	MQTTOnly bool
 	// Live: the readings were taken now. Readings from a backup are shown but never applied (E5).
@@ -323,6 +329,9 @@ type DiffLine struct {
 	Text string
 }
 
+// adc0Pin is ADC0_PIN of the ESP8266 (tasmota_template.h): template slot 13 is the analog input.
+const adc0Pin = 17
+
 // DiffTemplates lists how have differs from want: pins by physical number first, then FLAG, then BASE.
 // The family must be known and both arrays must have its length, else no pin number can be named.
 func DiffTemplates(family model.ChipFamily, have, want GPIOTemplate) ([]DiffLine, error) {
@@ -342,8 +351,12 @@ func DiffTemplates(family model.ChipFamily, have, want GPIOTemplate) ([]DiffLine
 		}
 		pin, _ := tab.PhysicalPin(fam, i) // i < pins, so the pin exists
 		h, w := tab.FunctionName(fam, have.GPIO[i]), tab.FunctionName(fam, want.GPIO[i])
+		label := "GPIO" + strconv.Itoa(pin)
+		if family == model.ChipESP8266 && pin == adc0Pin {
+			label = "ADC0" // the analog input, not a GPIO of the board
+		}
 		out = append(out, DiffLine{Kind: DiffGPIO, Slot: i, Pin: pin, Have: h, Want: w,
-			HaveCode: have.GPIO[i], WantCode: want.GPIO[i], Text: fmt.Sprintf("GPIO%d: %s -> %s", pin, h, w)})
+			HaveCode: have.GPIO[i], WantCode: want.GPIO[i], Text: fmt.Sprintf("%s: %s -> %s", label, h, w)})
 	}
 	if have.Flag != want.Flag {
 		out = append(out, DiffLine{Kind: DiffFlag, Have: strconv.Itoa(have.Flag), Want: strconv.Itoa(want.Flag), Text: fmt.Sprintf("FLAG %d -> %d", have.Flag, want.Flag)})
@@ -381,7 +394,7 @@ func BuildTemplateCommand(t GPIOTemplate, targetArch string) (string, error) {
 	var b strings.Builder
 	b.WriteString(`Template {"NAME":"` + t.Name + `"`)
 	if targetArch != "" {
-		if strings.ContainsAny(targetArch, `"\;`) {
+		if !safeArch(targetArch) {
 			return "", fmt.Errorf("arch %q cannot be sent safely", targetArch)
 		}
 		b.WriteString(`,"ARCH":"` + targetArch + `"`)
@@ -396,6 +409,19 @@ func BuildTemplateCommand(t GPIOTemplate, targetArch string) (string, error) {
 	b.WriteString(`],"FLAG":` + strconv.Itoa(t.Flag) + `,"BASE":` + strconv.Itoa(t.Base) + `}`)
 	return b.String(), nil
 }
+
+// safeArch accepts what Tasmota's ARCH looks like (ESP8266, ESP32S3, ...): letters, digits and '_'.
+func safeArch(a string) bool {
+	for _, r := range a {
+		if (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return a != ""
+}
+
+// archOf is the ARCH a device of the family reports (ArchName: TASMOTA_ARCH upper-cased).
+func archOf(f model.ChipFamily) string { return strings.ToUpper(string(f)) }
 
 // Refusal is why a template may not be applied to a device; "" means it may.
 type Refusal string
@@ -413,6 +439,7 @@ const (
 	RefuseUnsafeName    Refusal = "unsafe-name"
 	RefuseEthernet      Refusal = "ethernet" // wired board, the change touches an ETH_* pin
 	RefuseMQTTOnly      Refusal = "mqtt-only"
+	RefuseRedPin        Refusal = "red-pin" // assigns a pin Tasmota marks dangerous to a device with other hardware
 )
 
 // PlanOptions are decisions of the caller.
@@ -445,6 +472,12 @@ func refuse(p ApplyPlan, r Refusal, format string, a ...any) ApplyPlan {
 // refused before its array length is looked at.
 func PlanApply(ref Reference, dev TemplateDevice, opts PlanOptions) ApplyPlan {
 	p := ApplyPlan{Device: dev.ID}
+	if !ref.Device.Live {
+		return refuse(p, RefuseNotLive, "the reference was read from a backup; only live readings are copied")
+	}
+	if ref.Device.State() != OnTemplate {
+		return refuse(p, RefuseNotOnTemplate, "the reference device does not run a user template")
+	}
 	if dev.ID == ref.Device.ID {
 		p.Matches = true
 		return p
@@ -478,8 +511,16 @@ func PlanApply(ref Reference, dev TemplateDevice, opts PlanOptions) ApplyPlan {
 	if rt.Arch != "" && dt.Arch != "" && rt.Arch != dt.Arch {
 		return refuse(p, RefuseArch, "the device reports ARCH %s, the reference %s", dt.Arch, rt.Arch)
 	}
+	for _, a := range []string{rt.Arch, dt.Arch} {
+		if a != "" && a != archOf(dev.Family) {
+			return refuse(p, RefuseArch, "ARCH %s does not belong to chip family %s", a, dev.Family)
+		}
+	}
 	if dev.Variant == "minimal" {
 		return refuse(p, RefuseMinimal, "the minimal firmware cannot change the template")
+	}
+	if redPinAssigned(dev.Family, diff) && (dev.Hardware == "" || dev.Hardware != ref.Device.Hardware) {
+		return refuse(p, RefuseRedPin, "the change assigns a pin that is dangerous on some hardware (flash or PSRAM) and the device's hardware (%q) is not known to equal the reference's (%q)", dev.Hardware, ref.Device.Hardware)
 	}
 	cmd, err := BuildTemplateCommand(rt, dt.Arch)
 	if err != nil {
@@ -496,9 +537,17 @@ func PlanApply(ref Reference, dev TemplateDevice, opts PlanOptions) ApplyPlan {
 	return p
 }
 
+// redPinAssigned reports whether the diff gives a red pin (support.ino RedPin) a function; clearing one is harmless.
+func redPinAssigned(family model.ChipFamily, diff []DiffLine) bool {
+	return slices.ContainsFunc(diff, func(l DiffLine) bool {
+		return l.Kind == DiffGPIO && l.WantCode != 0 && tasmotacmd.GPIO().RedPin(string(family), l.Pin)
+	})
+}
+
 func touchesEthernet(family model.ChipFamily, diff []DiffLine) bool {
 	tab := tasmotacmd.GPIO()
 	return slices.ContainsFunc(diff, func(l DiffLine) bool {
-		return l.Kind == DiffGPIO && (tab.IsEthernet(string(family), l.HaveCode) || tab.IsEthernet(string(family), l.WantCode))
+		return l.Kind == DiffGPIO && (tab.IsEthernet(string(family), l.HaveCode) || tab.IsEthernet(string(family), l.WantCode) ||
+			tab.IsEthernetSPI(string(family), l.HaveCode) || tab.IsEthernetSPI(string(family), l.WantCode))
 	})
 }

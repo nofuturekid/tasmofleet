@@ -169,8 +169,8 @@ func TestTemplateJSONIsPartial(t *testing.T) {
 		}
 		waitBoots(t, d, 2+i)
 	}
-	if got = cmUp(t, d, `Template {"FLAG":2,"BASE":1}`); !strings.HasSuffix(got, `"FLAG":2,"BASE":1}`) {
-		t.Errorf("flag and base: %s", got)
+	if got = cmUp(t, d, `Template {"GPIO":[],"FLAG":2,"BASE":1}`); !strings.HasSuffix(got, `"FLAG":2,"BASE":1}`) {
+		t.Errorf("flag with GPIO, and base: %s", got)
 	}
 }
 
@@ -252,6 +252,31 @@ func TestStatusReportsTheModule(t *testing.T) {
 	waitBoots(t, d, 1)
 	for _, c := range []string{"Status", "Status 0"} {
 		if got := cmUp(t, d, c); !strings.Contains(got, `"Module":1,`) {
+			t.Errorf("%s: %s", c, got)
+		}
+	}
+}
+
+func TestTemplateFlagNeedsGPIO(t *testing.T) {
+	// JsonTemplate reads FLAG only inside the GPIO block (support.ino:1944-1990): a FLAG sent alone is silently
+	// ignored. A planner that relied on FLAG alone would believe it had changed something.
+	d := nousDevice(t, DeviceSpec{})
+	if got := cm(t, d, `Template {"FLAG":2}`); got != nousTemplate {
+		t.Errorf("FLAG alone changed the template: %s", got)
+	}
+	waitBoots(t, d, 1) // it still restarts: the JSON was valid
+	if got := cmUp(t, d, `Template {"GPIO":[32],"FLAG":2}`); !strings.Contains(got, `"FLAG":2`) {
+		t.Errorf("FLAG with GPIO ignored: %s", got)
+	}
+}
+
+func TestMinimalImageHasNoTemplateCommands(t *testing.T) {
+	// The Template command is not in the command table of the minimal image at all (support_command.ino:25,
+	// the #ifndef FIRMWARE_MINIMAL around the table), so it answers Unknown and changes nothing; the
+	// read-only guard inside CmndTemplate is unreachable there.
+	d := add(t, newTestFleet(t, "", Extra{}), DeviceSpec{Name: "min", Profile: ProfileESP8266Min})
+	for _, c := range []string{`Template {"NAME":"X","GPIO":[0],"FLAG":0,"BASE":1}`, "Template", "Module 0", "Module"} {
+		if got := cm(t, d, c); !strings.HasPrefix(got, `{"Command":"Unknown"`) {
 			t.Errorf("%s: %s", c, got)
 		}
 	}

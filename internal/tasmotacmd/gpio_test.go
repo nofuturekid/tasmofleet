@@ -117,3 +117,46 @@ func TestPhysicalPinMapping(t *testing.T) {
 		t.Error("negative slot has a pin")
 	}
 }
+
+func TestEthernetSPIBusFunctions(t *testing.T) {
+	// W5500/DM9051/KSZ8851 boards use the hardware SPI bus for their Ethernet chip (xdrv_82_esp32_ethernet.ino:247-300),
+	// so its clock, MOSI and MISO belong to the network just like the ETH_* pins; the display and sensor SPI
+	// functions (chip select, data/command) do not.
+	ids := map[string]bool{}
+	for i, f := range GPIO().Functions["esp32"] {
+		got := GPIO().IsEthernetSPI("esp32", i<<5)
+		want := f.ID == "GPIO_SPI_CLK" || f.ID == "GPIO_SPI_MOSI" || f.ID == "GPIO_SPI_MISO"
+		if got != want {
+			t.Errorf("%s: %v", f.ID, got)
+		}
+		if got {
+			ids[f.ID] = true
+		}
+	}
+	if len(ids) != 3 {
+		t.Errorf("found %v", ids)
+	}
+	if GPIO().IsEthernetSPI("esp32", 1) || GPIO().IsEthernetSPI("", 7<<5) {
+		t.Error("User or unknown family counted")
+	}
+}
+
+func TestRedPins(t *testing.T) {
+	// support.ino RedPin (1821): the pins Tasmota itself marks as dangerous to change. ESP8266: 9 and 10 (flash on ESP8285 parts);
+	// classic ESP32: 6-11 (flash) and 16/17 (PSRAM on some modules).
+	red := map[string][]int{"esp8266": {9, 10}, "esp32": {6, 7, 8, 9, 10, 11, 16, 17}}
+	for fam, pins := range red {
+		for p := 0; p < 40; p++ {
+			want := false
+			for _, r := range pins {
+				want = want || r == p
+			}
+			if got := GPIO().RedPin(fam, p); got != want {
+				t.Errorf("%s pin %d: %v", fam, p, got)
+			}
+		}
+	}
+	if GPIO().RedPin("esp32s3", 9) || GPIO().RedPin("", 9) {
+		t.Error("only esp8266 and classic esp32 are covered")
+	}
+}

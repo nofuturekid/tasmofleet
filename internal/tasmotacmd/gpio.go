@@ -146,3 +146,27 @@ func (t *GPIOTable) IsEthernet(family string, value int) bool {
 	fn, ok := t.function(family, value)
 	return ok && strings.HasPrefix(fn.ID, "GPIO_ETH_")
 }
+
+// IsEthernetSPI reports whether the value is a hardware SPI bus function (clock, MOSI, MISO). SPI
+// Ethernet chips (W5500, DM9051, KSZ8851) sit on that bus (xdrv_82_esp32_ethernet.ino:247-300); the
+// template does not say whether the board has one, so on a wired board these count as network pins.
+func (t *GPIOTable) IsEthernetSPI(family string, value int) bool {
+	if value == userValue {
+		return false
+	}
+	fn, ok := t.function(family, value)
+	return ok && (fn.ID == "GPIO_SPI_CLK" || fn.ID == "GPIO_SPI_MOSI" || fn.ID == "GPIO_SPI_MISO")
+}
+
+// RedPin is Tasmota's RedPin() (support.ino:1821): a pin that may be dangerous to change. Only the
+// ESP8266 (GPIO9, 10: flash pins of an ESP8285) and the classic ESP32 (6-11 flash, 16/17 PSRAM on
+// some modules) are covered; the other families answer false, which means "not judged", not "safe".
+func (t *GPIOTable) RedPin(family string, pin int) bool {
+	switch family {
+	case GPIOBuild8266:
+		return pin == 9 || pin == 10
+	case GPIOBuild32:
+		return (pin >= 6 && pin <= 11) || pin == 16 || pin == 17
+	}
+	return false
+}

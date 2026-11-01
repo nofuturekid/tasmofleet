@@ -240,16 +240,17 @@ func (d *simDevice) parseTemplateJSON(old tplState, data string) (tplState, erro
 			t.Name = name
 		}
 	}
+	// FLAG is read inside the GPIO block of JsonTemplate: without a GPIO array it is ignored.
 	if v, ok := root["GPIO"]; ok {
 		var arr []json.RawMessage
 		if json.Unmarshal(v, &arr) == nil {
 			for i := 0; i < len(t.GPIO) && i < len(arr); i++ {
 				t.GPIO[i] = uintOf(arr[i])
 			}
+			if f, ok := root["FLAG"]; ok {
+				t.Flag = uintOf(f)
+			}
 		}
-	}
-	if v, ok := root["FLAG"]; ok {
-		t.Flag = uintOf(v)
 	}
 	if v, ok := root["BASE"]; ok {
 		b := uintOf(v)

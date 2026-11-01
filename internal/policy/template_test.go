@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/nofuturekid/tasmofleet/internal/model"
+	"github.com/nofuturekid/tasmofleet/internal/tasmotacmd"
 )
 
 // Tests for the GPIO template comparison (#327). The rules protect hardware: a template written to
@@ -585,7 +586,7 @@ func TestPlanEthernet(t *testing.T) {
 	}
 	// Same ETH pin on both, other slot differs: the wired board keeps its network.
 	ethBoth := with(dev, 4, eth)
-	if p := plan(t, ref, wired(with(ethBoth, 12, 0)), PlanOptions{}); p.Refusal != RefuseNone {
+	if p := plan(t, ref, wired(with(ethBoth, 11, 160)), PlanOptions{}); p.Refusal != RefuseNone {
 		t.Errorf("wired with untouched ETH: %+v", p)
 	}
 }
@@ -623,5 +624,204 @@ func TestFingerprintCoversLayoutOnly(t *testing.T) {
 	n.Name, n.Arch = "x", ""
 	if n.Fingerprint() != fp {
 		t.Error("NAME or ARCH in the fingerprint")
+	}
+}
+
+func TestParseTemplateBoundaries(t *testing.T) {
+	// The limits are the widths the device stores (16-bit pins and FLAG, 8-bit module). A limit one too
+	// low rejects a legal template, one too high lets a value through that the device would truncate.
+	ok := map[string]string{
+		"GPIO 65535": `{"NAME":"x","GPIO":[65535],"FLAG":0,"BASE":1}`,
+		"FLAG 65535": `{"NAME":"x","GPIO":[0],"FLAG":65535,"BASE":1}`,
+		"BASE 255":   `{"NAME":"x","GPIO":[0],"FLAG":0,"BASE":255}`,
+		"BASE 1":     `{"NAME":"x","GPIO":[0],"FLAG":0,"BASE":1}`,
+	}
+	for name, in := range ok {
+		if _, err := ParseTemplate([]byte(in)); err != nil {
+			t.Errorf("%s refused: %v", name, err)
+		}
+	}
+	bad := map[string]string{
+		"FLAG 65536": `{"NAME":"x","GPIO":[0],"FLAG":65536,"BASE":1}`,
+		"BASE 256":   `{"NAME":"x","GPIO":[0],"FLAG":0,"BASE":256}`,
+	}
+	for name, in := range bad {
+		if _, err := ParseTemplate([]byte(in)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
+func TestParseTemplateRejectsTrailingData(t *testing.T) {
+	// A reply that continues after the JSON object is not a Template reply we understand (two objects glued
+	// together by a proxy or a log line): taking the first and ignoring the rest could hide a wrong device.
+	in := `{"NAME":"x","GPIO":[0],"FLAG":0,"BASE":1}`
+	for _, tail := range []string{`{}`, ` x`, `,`} {
+		if _, err := ParseTemplate([]byte(in + tail)); err == nil {
+			t.Errorf("trailing %q accepted", tail)
+		}
+	}
+	if _, err := ParseTemplate([]byte(in + " \n")); err != nil {
+		t.Errorf("trailing whitespace refused: %v", err)
+	}
+}
+
+func TestPlanRefusesAReferenceThatIsNotLiveOrNotOnATemplate(t *testing.T) {
+	// The reference is what gets written to other devices. A reading from a backup may be months old, and a
+	// device on a built-in module has an inactive stored template (T1): neither may be copied (E5).
+	dev := with(nous(t, 2), 9, 224)
+	snap := nous(t, 1)
+	snap.Live = false
+	if p := PlanApply(Reference{Device: snap}, dev, PlanOptions{}); p.Refusal != RefuseNotLive || len(p.Commands) != 0 {
+		t.Errorf("snapshot reference: %+v", p)
+	}
+	onModule := nous(t, 1)
+	onModule.Module = &ModuleReading{Number: 1, Name: "Sonoff Basic"}
+	if p := PlanApply(Reference{Device: onModule}, dev, PlanOptions{}); p.Refusal != RefuseNotOnTemplate || len(p.Commands) != 0 {
+		t.Errorf("built-in module reference: %+v", p)
+	}
+	unread := nous(t, 1)
+	unread.Template = nil
+	if p := PlanApply(Reference{Device: unread}, dev, PlanOptions{}); p.Refusal != RefuseNotOnTemplate {
+		t.Errorf("reference without template: %+v", p)
+	}
+	// An invalid reference is not "matches" either, even for the reference's own row.
+	if p := PlanApply(Reference{Device: snap}, snap, PlanOptions{}); p.Matches {
+		t.Errorf("snapshot reference matches itself: %+v", p)
+	}
+}
+
+func TestPlanEthernetSPIBus(t *testing.T) {
+	// A W5500, DM9051 or KSZ8851 board talks to its Ethernet chip over the hardware SPI bus
+	// (xdrv_82_esp32_ethernet.ino:247-300). Moving the SPI clock, MOSI or MISO on a wired board cuts it off just
+	// like moving an ETH pin, and the template alone does not say which kind of Ethernet the board has.
+	spiClk := 0
+	for i, f := range tasmotacmd.GPIO().Functions["esp32"] {
+		if f.ID == "GPIO_SPI_CLK" {
+			spiClk = i << 5
+		}
+	}
+	if spiClk == 0 {
+		t.Fatal("no SPI_CLK function")
+	}
+	ref := with(fixtureDevice(t, 1, "office-monitor-guest", model.ChipESP32), 4, spiClk)
+	dev := fixtureDevice(t, 2, "office-monitor-guest", model.ChipESP32)
+	wired := dev
+	wired.Wired = true
+	if p := plan(t, ref, wired, PlanOptions{}); p.Refusal != RefuseEthernet {
+		t.Errorf("wired gets SPI clock: %+v", p)
+	}
+	plain := dev
+	plain.ID = 1
+	if p := plan(t, plain, with(wired, 4, spiClk), PlanOptions{}); p.Refusal != RefuseEthernet {
+		t.Errorf("wired loses SPI clock: %+v", p)
+	}
+	if p := plan(t, ref, dev, PlanOptions{}); p.Refusal != RefuseNone {
+		t.Errorf("Wi-Fi device with SPI diff: %+v", p)
+	}
+}
+
+func TestPlanRedPin(t *testing.T) {
+	// Pins GPIO9/10 of an ESP8285 are the flash pins of an ESP8266EX (support.ino RedPin, 1821): the same
+	// template assigned to a chip of the other kind can stop the device from booting. So assigning a red pin
+	// is only allowed when the target has the same hardware as the reference, i.e. the same wiring.
+	ref := with(nous(t, 1), 6, 224) // slot 6 = GPIO9
+	ref.Hardware = "ESP8285N08"
+	dev := nous(t, 2)
+	for _, tc := range []struct {
+		name, hw string
+		want     Refusal
+	}{
+		{"same hardware", "ESP8285N08", RefuseNone},
+		{"other hardware", "ESP8266EX", RefuseRedPin},
+		{"unknown hardware", "", RefuseRedPin},
+	} {
+		d := dev
+		d.Hardware = tc.hw
+		if p := plan(t, ref, d, PlanOptions{}); p.Refusal != tc.want {
+			t.Errorf("%s: %+v", tc.name, p)
+		}
+	}
+	// Taking a red pin away (assigning None) is not an assignment; other pins are not red.
+	d := with(dev, 7, 224) // GPIO10 in use on the device, None in the reference
+	d.Hardware = "ESP8266EX"
+	if p := plan(t, nous(t, 1), d, PlanOptions{}); p.Refusal != RefuseNone {
+		t.Errorf("clearing a red pin: %+v", p)
+	}
+	d = with(nous(t, 2), 9, 224)
+	d.Hardware = "ESP8266EX"
+	r := nous(t, 1)
+	r.Hardware = "ESP8285N08"
+	if p := plan(t, r, d, PlanOptions{}); p.Refusal != RefuseNone {
+		t.Errorf("non-red pin with other hardware: %+v", p)
+	}
+	// Classic ESP32: GPIO16/17 are PSRAM on some modules (slot 12 = GPIO16).
+	e1 := with(fixtureDevice(t, 1, "office-monitor-guest", model.ChipESP32), 12, 224)
+	e1.Hardware = "ESP32-D0WD-V3"
+	e2 := fixtureDevice(t, 2, "office-monitor-guest", model.ChipESP32)
+	e2.Hardware = "ESP32-PICO-D4"
+	if p := plan(t, e1, e2, PlanOptions{}); p.Refusal != RefuseRedPin {
+		t.Errorf("esp32 GPIO16: %+v", p)
+	}
+}
+
+func TestPlanArchMustMatchTheFamily(t *testing.T) {
+	// Both replies say ESP32 but the device is an ESP8266 by its hardware: one of the two readings is wrong,
+	// so nothing is written.
+	ref, dev := nous(t, 1), with(nous(t, 2), 9, 224)
+	for _, d := range []*TemplateDevice{&ref, &dev} {
+		c := *d.Template
+		c.Arch = "ESP32"
+		d.Template = &c
+	}
+	if p := plan(t, ref, dev, PlanOptions{}); p.Refusal != RefuseArch {
+		t.Errorf("%+v", p)
+	}
+	// The reference alone, with the right family, but a wrong ARCH.
+	ref2, dev2 := nous(t, 1), with(nous(t, 2), 9, 224)
+	c := *ref2.Template
+	c.Arch = "ESP32S3"
+	ref2.Template = &c
+	if p := plan(t, ref2, dev2, PlanOptions{}); p.Refusal != RefuseArch {
+		t.Errorf("reference arch: %+v", p)
+	}
+	// ESP32 family names map to their upper-case ARCH.
+	e1 := with(fixtureDevice(t, 1, "office-monitor-guest", model.ChipESP32), 4, 224)
+	e2 := fixtureDevice(t, 2, "office-monitor-guest", model.ChipESP32)
+	if p := plan(t, e1, e2, PlanOptions{}); p.Refusal != RefuseNone {
+		t.Errorf("esp32: %+v", p)
+	}
+}
+
+func TestBuildCommandRefusesUnsafeArch(t *testing.T) {
+	// ARCH comes from the device's own reply and is pasted into the command; a control character
+	// there would corrupt it like a bad NAME.
+	tpl := GPIOTemplate{Name: "x", GPIO: []int{0}, Base: 1}
+	for _, arch := range []string{"ES\nP8266", "ES\x00P", `ES"P`, `ES\P`, "ES;P", "ESP 8266", "ESP\u202e"} {
+		if _, err := BuildTemplateCommand(tpl, arch); err == nil {
+			t.Errorf("arch %q accepted", arch)
+		}
+	}
+	if _, err := BuildTemplateCommand(tpl, "ESP32S3"); err != nil {
+		t.Errorf("normal arch refused: %v", err)
+	}
+}
+
+func TestDiffNamesTheADCNotGPIO17(t *testing.T) {
+	// ESP8266 template slot 13 is the analog input; Tasmota and the board silkscreen call it A0, and "GPIO17" does not exist on the board.
+	have := GPIOTemplate{GPIO: make([]int, 14), Base: 1}
+	want := GPIOTemplate{GPIO: make([]int, 14), Base: 1}
+	want.GPIO[13] = 224
+	lines, err := DiffTemplates(model.ChipESP8266, have, want)
+	if err != nil || len(lines) != 1 || lines[0].Text != "ADC0: None -> Relay1" || lines[0].Pin != 17 {
+		t.Fatalf("%+v %v", lines, err)
+	}
+	// On the ESP32 pin 17 is a normal GPIO.
+	e := GPIOTemplate{GPIO: make([]int, 36), Base: 1}
+	w := GPIOTemplate{GPIO: make([]int, 36), Base: 1}
+	w.GPIO[13] = 224 // slot 13 = GPIO17
+	lines, _ = DiffTemplates(model.ChipESP32, e, w)
+	if len(lines) != 1 || lines[0].Text != "GPIO17: None -> Relay1" {
+		t.Errorf("%+v", lines)
 	}
 }
