@@ -62,10 +62,14 @@ func baseName(d model.Device) string {
 	return fmt.Sprintf("device-%d", int64(d.ID))
 }
 
-// fileName is the name of one file of a run; kind "dmp" is the plain dump.
+// fileName is the name of one file of a run; kind "dmp" is the plain dump,
+// "files" the tar of the device's files.
 func fileName(taken string, base string, kind model.BackupKind) string {
 	if kind == model.BackupConfigDump {
 		return taken + "_" + base + ".dmp"
+	}
+	if kind == model.BackupFiles {
+		return taken + "_" + base + ".files.tar"
 	}
 	return taken + "_" + base + "." + string(kind) + ".json"
 }

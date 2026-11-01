@@ -8,7 +8,8 @@ always upgrade automatically.
 
 ### Added
 
-- Groundwork for backing up ESP32 files (part of #324): the device client can list, download and upload files of the flash file system (`UfsList`, `GET /ufsd`, `POST /ufsu`), and the simulator models that file system from live captures. Nothing uses it yet.
+- Backups include the flash files of an ESP32 (and any build with a file system and firmware 14.6.0 or newer), part of #324: each backup run stores one more file, `<stamp>_<host>.files.tar`, with Berry scripts, folders and `tlskey` (1 MiB per file, 4 MiB and 100 files per run; bigger files are listed in the archive's manifest, not stored). The archive is a secret like the `.dmp`. A device without a file system, with older firmware or reachable over MQTT only gets a note instead. Retention, Keep and delete treat the archive as part of its run. No database migration; the backup pages and restore follow in later changes
+- Groundwork for backing up ESP32 files (part of #324): the device client can list, download and upload files of the flash file system (`UfsList`, `GET /ufsd`, `POST /ufsu`), and the simulator models that file system from live captures.
 - The "Devices without a backup" tile on Settings, Backups now opens the device list narrowed to exactly those devices. The list has a new "No backup" chip (`?chip=nobackup`) with the tile's count, so the two always agree. On a phone the active filter chip is scrolled into view in its row, so a filtered list never looks unfiltered (#381, thanks @Noschvie)
 
 ### Changed

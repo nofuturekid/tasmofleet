@@ -14,6 +14,7 @@ const (
 	BackupConfigDump BackupKind = "dmp"      // /dl download, restorable through the Tasmota web UI
 	BackupSnapshot   BackupKind = "snapshot" // JSON of Status 1..11, read-only reference
 	BackupDecoded    BackupKind = "decoded"  // decode-config JSON of a dmp (secrets inside, see spec)
+	BackupFiles      BackupKind = "files"    // tar of the device's flash files plus a manifest (secret: holds tlskey)
 )
 
 // BackupTrigger says what started a backup run (the list shows it as

@@ -1334,6 +1334,35 @@ No migration, no store contract change and no new dependency.
    version ≥ the device firmware version. It is stamped with the decoder version. If the
    device is newer, only 1+2 are stored and the backup is flagged "decoder outdated".
 
+4. **Files archive** (0.26.0, #324) `<stamp>_<host>.files.tar`, kind `files`, for an ESP32 or any build whose
+   firmware is >= 14.6.0 and that has a flash file system (`tasmota.FilesSupported`: `UfsType` 2 or 3).
+   It holds every file Tasmota's own file manager shows on the flash file system (the SD card is never
+   read), `/tlskey` included, within the limits below. Hidden dot files (`/.settings*`, `/.drvset*`) are
+   not listed by the device and not needed: they travel in the `.dmp`. The first tar entry is
+   `.tasmofleet-manifest.json` (`fs_type`, `fs_size_kb`, `fs_free_kb`, `files[]` = stored files with
+   `path` (device path, leading slash), `size`, `sha256`, `stored`, `mod_time` (device clock, no zone),
+   `private_key`; `skipped[]` = listed but not stored with `path`, `size`, `reason`); the other entries
+   are the stored files under their device path without the leading slash, with the device's mtime.
+   Limits: 1 MiB per file, 4 MiB stored per run, 100 files read, 100 folders listed, folder depth 4.
+   A file over a limit is in `skipped`, not in the tar. Files are best effort: a file that cannot be read,
+   an unlistable folder or a device that stops answering never fails the run; the archive row's note says
+   `files incomplete: N files not stored`, and after a lost link nothing further is requested (every call
+   would wait for its own timeout). Without an archive the run says why in the last sentence of the dump's
+   note, `files not backed up: no filesystem | firmware older than 14.6.0 | they need HTTP | <failure>`
+   (MQTT cannot carry files: `transport.Router` forwards file calls to HTTP only, `ErrFilesNeedHTTP` for
+   a call pinned to MQTT, and a run whose calls so far all went over MQTT does not try). No migration:
+   `backups.kind` is free text, and a run is still all rows with one `TakenAt`, so retention, Keep, delete
+   and the orphan handling cover the archive unchanged. Order inside a run: dump, snapshot, `UfsType`,
+   `UfsList` per folder (name order), one `GET /ufsd` per file.
+
+   Read API for the UI and for restore (`*backup.Manager`, not part of `Service`):
+   `RunFiles(ctx, id) (RunFiles, error)` (archive row, manifest, or `Note` = why not; any file id of the
+   run names it), `OpenFilesArchive(ctx, id) (*FilesArchive, error)` (`ErrNoFilesArchive`, `ErrIntegrity`,
+   `ErrBadArchive`; `Manifest`, `Read(devicePath)`), `ParseFilesArchive([]byte)` (strict: manifest first,
+   every path through `tasmota.CheckFSPath`, size and SHA-256 per file, nothing unlisted, regular entries
+   only), `FilesNoteOf(dumpNote)`, `IsPrivateKey(devicePath)` (exactly `/tlskey`; set again on reading,
+   whatever the manifest says).
+
 Files are `0600`, written via temp file + rename, and SHA-256 indexed.
 
 Over MQTT (0.20.0, #257) the raw `.dmp` comes from `FileDownload {"Password":…,"Type":2}` instead of
@@ -1370,7 +1399,9 @@ MQTT (or pinned to it): own mode sends the sealed value, broker mode the live `M
 
 ### 12.3 Secrets in backups
 
-`.dmp` and decoded JSON contain Wi-Fi passwords, MQTT password and WebPassword. So:
+`.dmp` and decoded JSON contain Wi-Fi passwords, MQTT password and WebPassword; the files archive
+holds `/tlskey` (a private key) and Berry scripts that routinely embed tokens, and is handled exactly
+like the `.dmp` (no content viewer; the UI shows names, sizes and "private key" for `/tlskey`). So:
 backup files are 0600, downloads need the admin role and are audited, and the UI never
 shows the decoded secrets. The diff/drift view redacts keys matching
 `(?i)password|passwd|ssid.*pass|token|secret|key`. Backups do not go into logs or metrics.

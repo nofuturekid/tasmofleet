@@ -116,7 +116,7 @@ func TestRealDecoderBackupViaSimulator(t *testing.T) {
 
 	want, _ := os.ReadFile(syntheticDump)
 	raw, meta, err := s.m.Open(t.Context(), mustKind(t, got, model.BackupConfigDump).ID)
-	if err != nil || !bytes.Equal(raw, want) || meta.Note != "" {
+	if err != nil || !bytes.Equal(raw, want) || withoutFilesNote(meta.Note) != "" {
 		t.Fatalf("dump differs from what the device served: %v note=%q", err, meta.Note)
 	}
 
@@ -159,6 +159,16 @@ func TestRealDecoderBackupViaSimulator(t *testing.T) {
 	}
 }
 
+// withoutFilesNote drops the files sentence a run's dump note ends with ("files not backed up: no
+// filesystem" for this ESP8266 simulator): these tests are about the decoder's notes.
+func withoutFilesNote(n string) string {
+	i := strings.LastIndex(n, NoteFilesPrefix)
+	if i < 0 {
+		return n
+	}
+	return strings.TrimSuffix(strings.TrimSpace(n[:i]), ";")
+}
+
 func mustKind(t *testing.T, bs []model.Backup, k model.BackupKind) model.Backup {
 	t.Helper()
 	b, ok := byKind(bs, k)
@@ -181,7 +191,7 @@ func TestRealDecoderOutdatedWhenDeviceIsNewer(t *testing.T) {
 	if _, ok := byKind(got, model.BackupDecoded); ok {
 		t.Error("decoded JSON stored although the decoder is older than the device")
 	}
-	if d := mustKind(t, got, model.BackupConfigDump); d.Note != NoteDecoderOutdated {
+	if d := mustKind(t, got, model.BackupConfigDump); withoutFilesNote(d.Note) != NoteDecoderOutdated {
 		t.Errorf("dump note %q, want %q", d.Note, NoteDecoderOutdated)
 	}
 }
@@ -201,7 +211,7 @@ func TestRealDecoderRejectsCorruptDumpButKeepsIt(t *testing.T) {
 	if _, ok := byKind(got, model.BackupDecoded); ok {
 		t.Error("decoded JSON stored for a corrupt dump")
 	}
-	if d := mustKind(t, got, model.BackupConfigDump); d.Note != NoteDecodeFailed {
+	if d := mustKind(t, got, model.BackupConfigDump); withoutFilesNote(d.Note) != NoteDecodeFailed {
 		t.Errorf("dump note %q, want %q", d.Note, NoteDecodeFailed)
 	}
 }
@@ -221,7 +231,7 @@ func TestSlowDecoderStubDoesNotBlockBackup(t *testing.T) {
 	if time.Since(start) > 10*time.Second {
 		t.Errorf("backup took %v", time.Since(start))
 	}
-	if d := mustKind(t, got, model.BackupConfigDump); d.Note != NoteDecodeFailed {
+	if d := mustKind(t, got, model.BackupConfigDump); withoutFilesNote(d.Note) != NoteDecodeFailed {
 		t.Errorf("note %q, want %q", d.Note, NoteDecodeFailed)
 	}
 }

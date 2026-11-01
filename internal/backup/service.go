@@ -283,6 +283,19 @@ func (m *Manager) backup(ctx context.Context, owner, dev model.Device, note stri
 		dmpNote = strings.TrimSuffix(dmpNote, ";")
 	}
 
+	// Files are best effort: the dump stays authoritative, so nothing here fails the run (only
+	// shutdown does). Without an archive the reason is the last sentence of the dump note.
+	fr, err := m.filesStep(ctx, target, fwVersion, m.o.Clock.Now())
+	if err != nil {
+		return nil, fwVersion, err
+	}
+	if fr.runNote != "" {
+		if dmpNote != "" {
+			dmpNote += "; "
+		}
+		dmpNote += fr.runNote
+	}
+
 	m.dirMu.Lock()
 	unlock := sync.OnceFunc(m.dirMu.Unlock)
 	defer unlock()
@@ -302,6 +315,9 @@ func (m *Manager) backup(ctx context.Context, owner, dev model.Device, note stri
 	}
 	if decoded != nil {
 		files = append(files, outFile{model.BackupDecoded, "json", decoded, "", decoderVersion})
+	}
+	if fr.archive != nil {
+		files = append(files, outFile{model.BackupFiles, "tar", fr.archive, fr.archiveNote, ""})
 	}
 
 	var stored []model.Backup

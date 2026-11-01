@@ -251,7 +251,7 @@ func (m *Manager) verify(ctx context.Context, j Job, dmp []byte, take func() ([]
 			freshDmp, _, err = m.o.Backups.Open(ctx, b.ID)
 		case model.BackupDecoded:
 			freshDec, _, err = m.o.Backups.Open(ctx, b.ID)
-		case model.BackupSnapshot:
+		case model.BackupSnapshot, model.BackupFiles:
 			// not needed for the comparison
 		}
 		if err != nil {
