@@ -672,3 +672,29 @@ func TestOverviewCardsSitInTwoStacksWithThePhoneOrder(t *testing.T) {
 		}
 	}
 }
+
+// Why (#435, checked for #420): a tile that says "No live link", or that MQTT works but HTTP does
+// not, must read as a warning, never green. The tone decides the value's colour class; the layout
+// fix (smaller value, no nowrap) must not touch it.
+func TestReachTileWarnsWhenThereIsNoLiveLinkOrHTTPFails(t *testing.T) {
+	stale := now0.Add(-3*24*time.Hour - 4*time.Hour)
+	failing := transport.HTTPState{State: transport.HTTPFailing, Kind: transport.HTTPFailUnreachable, Since: now0.Add(-time.Hour)}
+	for _, tc := range []struct {
+		name  string
+		d     model.Device
+		hl    model.Health
+		http  transport.HTTPState
+		value string
+	}{
+		{"no MQTT configured, HTTP stale", model.Device{}, model.Health{State: model.HealthOnline, LastSeen: stale, SeenHTTP: stale}, transport.HTTPState{}, "No live link"},
+		{"on our broker but silent, HTTP failing", model.Device{MQTT: model.MQTTOurs}, model.Health{State: model.HealthOnline, LastSeen: stale, SeenHTTP: stale}, failing, "No live link"},
+		{"MQTT connected, HTTP failing", model.Device{MQTT: model.MQTTOurs}, onlineHealth(nil), failing, "MQTT"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tl := reachTile(tc.d, tc.hl, tc.http, now0)
+			if tl.Value != tc.value || toneClass(tl.Tone) != "t-warn" {
+				t.Fatalf("value %q class %q, want %q with t-warn", tl.Value, toneClass(tl.Tone), tc.value)
+			}
+		})
+	}
+}
