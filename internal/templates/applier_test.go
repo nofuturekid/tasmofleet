@@ -101,3 +101,64 @@ func (s scripted) Command(ctx context.Context, t tasmota.Target, cmnd string) (j
 	s.hook()
 	return s.fakeFleet.Command(ctx, t, cmnd)
 }
+
+// Why: the stored template changes at once, long before the device restarts. A read-back that only
+// compared the layout would call the change done while the old pin map is still running. After a send
+// from this process, the verify waits until the uptime shows a restart.
+func TestVerifyWaitsForTheRestartAfterASend(t *testing.T) {
+	f := newFleet()
+	id := f.add("a", "NOUS A1T", 21)
+	d, _ := f.GetDevice(context.Background(), id)
+	now := t0
+	bootAt := t0.Add(-time.Hour) // the device booted an hour ago
+	f.uptime = func(model.DeviceID) time.Duration { return now.Sub(bootAt) }
+	f.template[id] = tplJSON("NOUS A1T", 52) // stored template is new at once
+	a := &Applier{Client: f, Now: func() time.Time { return now }, Attempts: 6, Pause: 5 * time.Second, Settle: time.Second,
+		Wait: func(_ context.Context, d time.Duration) error {
+			now = now.Add(d)
+			if now.After(t0.Add(12 * time.Second)) {
+				bootAt = t0.Add(10 * time.Second) // restarted at +10 s
+			}
+			return nil
+		}}
+	if err := a.Send(context.Background(), d, "Template {}"); err == nil {
+		// fakeFleet answers only reads; the send itself fails, which the engine tolerates
+		t.Fatal("expected the fake to refuse the write")
+	}
+	if _, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52)); err != nil {
+		t.Fatal(err)
+	}
+	if now.Before(t0.Add(11 * time.Second)) {
+		t.Fatalf("verify returned at +%v, before the restart", now.Sub(t0))
+	}
+}
+
+// Why: a device that keeps its old pin map running (no restart) must fail the job, not pass on the stored layout.
+func TestVerifyFailsWhenTheDeviceNeverRestarts(t *testing.T) {
+	f := newFleet()
+	id := f.add("a", "NOUS A1T", 21)
+	d, _ := f.GetDevice(context.Background(), id)
+	now := t0
+	f.uptime = func(model.DeviceID) time.Duration { return time.Hour + now.Sub(t0) }
+	f.template[id] = tplJSON("NOUS A1T", 52)
+	a := &Applier{Client: f, Now: func() time.Time { return now }, Attempts: 3, Pause: 5 * time.Second,
+		Wait: func(_ context.Context, d time.Duration) error { now = now.Add(d); return nil }}
+	_ = a.Send(context.Background(), d, "Template {}")
+	_, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52))
+	if err == nil || !strings.Contains(err.Error(), "has not restarted") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+// Why: after a server restart a job resumed in verify has no note of the send, and a device whose layout
+// already matched needed no send: there the layout alone decides, or those jobs could never finish.
+func TestVerifyWithoutASendOfThisProcessChecksTheLayoutOnly(t *testing.T) {
+	f := newFleet()
+	id := f.add("a", "NOUS A1T", 52)
+	d, _ := f.GetDevice(context.Background(), id)
+	f.uptime = func(model.DeviceID) time.Duration { return time.Hour }
+	a := &Applier{Client: f, Wait: func(context.Context, time.Duration) error { return nil }}
+	if _, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52)); err != nil {
+		t.Fatal(err)
+	}
+}
