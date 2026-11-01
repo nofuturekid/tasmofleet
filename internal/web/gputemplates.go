@@ -726,6 +726,8 @@ func (h *handler) gtPreviewOf(pv templates.Preview, req templates.Request, how s
 		p.Rows = append(p.Rows, r)
 	}
 	for _, e := range pv.Excluded {
+		// Apply must judge the same request as this preview, or its digest cannot match.
+		p.Fields = append(p.Fields, ui.KVRow{Key: "pick", Value: devStr(e.Device.ID)})
 		p.Excluded = append(p.Excluded, gtExcl{Name: e.Device.Name, Href: h.devHrefOf(e.Device.ID), Why: e.Why})
 	}
 	// The reference as a table: the entries that are not None, then FLAG and BASE.

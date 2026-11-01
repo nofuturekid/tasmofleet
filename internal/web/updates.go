@@ -1618,6 +1618,8 @@ func (h *handler) batchRetry(w http.ResponseWriter, r *http.Request) {
 		h.message(w, r, http.StatusForbidden, h.view(r, "Retry refused", "transactions", "Only an active admin can retry a command transaction."))
 	case errors.Is(err, ota.ErrBatchRunning):
 		h.message(w, r, http.StatusConflict, h.view(r, "Retry not started", "transactions", "The transaction still has running jobs."))
+	case errors.Is(err, ota.ErrNotRetryable):
+		h.refuseTemplateRetry(w, r)
 	case errors.Is(err, ota.ErrNothingToRetry):
 		text := "Nothing is left to retry."
 		for _, s := range res.Skipped {
