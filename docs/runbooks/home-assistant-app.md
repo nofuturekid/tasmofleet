@@ -6,14 +6,17 @@ real Home Assistant. Never test on the household's instance.
 
 ## What CI proves without a Supervisor
 
-`tools/ha-app-smoke.sh <image>` (run by `image.yml` on every pull request that touches the Dockerfile and
-on every release) starts the `ha` image like the Supervisor does: root-owned empty `/data`, an
-`options.json`, `SUPERVISOR_TOKEN` set, no `TASMOFLEET_` variables. It asserts `/readyz` is 200 on the UI
-port, the log is plain text, and a malformed `options.json` stops the container with an error naming the file.
+`tools/ha-app-smoke.sh <ha-image> [<default-image>]` (job `ha-app` of `image.yml`, on pull requests that touch the
+image, the profile or the app folder, and on `main`) first checks the image metadata: the `ha` image runs as root and has
+the `io.hass.type/version/arch` labels, the default image stays non-root and has none. It then starts the `ha` image
+like the Supervisor does: a fresh root-owned `/data` volume that is not filled from the image, an `options.json`,
+`SUPERVISOR_TOKEN` set, no `TASMOFLEET_` variables. It asserts `/readyz` is 200 on the UI port, the log is plain
+text, and a malformed `options.json` stops the container with an error naming the file. The job also cross-builds the
+arm64 variant and checks its `io.hass.arch=aarch64` label.
 
 ```sh
 docker build --target ha -t tasmofleet-ha:dev .
-tools/ha-app-smoke.sh tasmofleet-ha:dev
+tools/ha-app-smoke.sh tasmofleet-ha:dev tasmofleet:dev   # second image: docker build -t tasmofleet:dev .
 ```
 
 What it cannot prove: that a Supervisor accepts `config.yaml`, shows the ports, `webui` link and options

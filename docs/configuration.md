@@ -149,13 +149,13 @@ Inside a Home Assistant app (the Supervisor sets `SUPERVISOR_TOKEN`) TasmoFleet 
 Assistant profile*; without that variable nothing below applies and Docker, Compose and Unraid
 installs behave as described above.
 
-- The Supervisor writes the options of the app page to `<DATA_DIR>/options.json` (`/data/options.json`).
+- The Supervisor writes the options of the app page to `/data/options.json`. That path is fixed, it does not follow `TASMOFLEET_DATA_DIR`.
   The file must exist and may contain only the options below; a missing, malformed or unknown
   entry stops the start with an error that names the file. An unset, empty or `null` option counts as
   not set.
 - Order of precedence: environment variable, then the env file, then the app option, then the profile
   default.
-- Profile defaults: `TASMOFLEET_DATA_DIR=/data`, `TASMOFLEET_LISTEN=:8080`,
+- Profile defaults: `TASMOFLEET_LISTEN=:8080`,
   `TASMOFLEET_FIRMWARE_LISTEN=:80` (the container ports the app maps) and `TASMOFLEET_LOG_FORMAT=text`
   (the app's Log tab shows plain text).
 - Options are bootstrap settings only. Everything else is set on the System settings page.

@@ -1956,8 +1956,8 @@ Validation errors at start name the key and stop the process. Settings saved on 
 same validators; a stored value that stops validating is skipped with a log line and shown on the page.
 
 **Home Assistant profile (#442, part of #209).** When `SUPERVISOR_TOKEN` is set (a Home Assistant app),
-`config.Load` reads `<DATA_DIR>/options.json`, which the Supervisor writes, as one more bootstrap source
-and applies the profile defaults (`DATA_DIR=/data`, `LISTEN=:8080`, `FIRMWARE_LISTEN=:80`,
+`config.Load` reads `/data/options.json` (fixed, not `DATA_DIR`), which the Supervisor writes, as one more bootstrap source
+and applies the profile defaults (`LISTEN=:8080`, `FIRMWARE_LISTEN=:80`,
 `LOG_FORMAT=text`). Precedence: environment, env file, option, profile default. The file must exist and
 contain only known options (`initial_admin_password` so far); anything else stops the start with an error
 naming the file. Options are bootstrap and security settings only, so the principle above is unchanged:

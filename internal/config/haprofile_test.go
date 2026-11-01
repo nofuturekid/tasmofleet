@@ -8,8 +8,13 @@ import (
 )
 
 // haEnv is the environment of an app container: the Supervisor sets SUPERVISOR_TOKEN and
-// writes /data/options.json (here <dir>/options.json, because DATA_DIR points at dir).
-func haEnv(dir string, extra ...string) []string {
+// writes /data/options.json. Tests cannot write /data, so haEnv points the profile's fixed options
+// location at <dir>/options.json for the duration of the test.
+func haEnv(t *testing.T, dir string, extra ...string) []string {
+	t.Helper()
+	old := haOptionsPath
+	haOptionsPath = filepath.Join(dir, "options.json")
+	t.Cleanup(func() { haOptionsPath = old })
 	return append([]string{"PATH=/usr/bin", "SUPERVISOR_TOKEN=fake-token-for-tests", "TASMOFLEET_DATA_DIR=" + dir}, extra...)
 }
 
@@ -60,7 +65,7 @@ func TestEmptySupervisorTokenIsNotTheHAProfile(t *testing.T) {
 func TestHAProfileDefaults(t *testing.T) {
 	dir := t.TempDir()
 	writeOptions(t, dir, `{}`)
-	c, err := Load(haEnv(dir))
+	c, err := Load(haEnv(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,18 +80,39 @@ func TestHAProfileDefaults(t *testing.T) {
 	}
 }
 
+// Why: the Supervisor writes its options to /data/options.json whatever TASMOFLEET_DATA_DIR says.
+// A container with a different data directory must still get its app options, and a stale
+// options.json inside that directory must not be mistaken for them.
+func TestHAOptionsLocationIsFixedNotDataDir(t *testing.T) {
+	if haOptionsFile != "/data/options.json" {
+		t.Fatalf("the Supervisor's options file is /data/options.json, the code says %q", haOptionsFile)
+	}
+	supervisorDir, otherData := t.TempDir(), t.TempDir()
+	writeOptions(t, supervisorDir, `{"initial_admin_password": "from-supervisor"}`)
+	writeOptions(t, otherData, `{"initial_admin_password": "stale-in-data-dir"}`)
+	env := haEnv(t, supervisorDir) // points the options location at supervisorDir
+	env[len(env)-1] = "TASMOFLEET_DATA_DIR=" + otherData
+	c, err := Load(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.InitialAdminPassword != "from-supervisor" || c.DataDir != otherData {
+		t.Errorf("options come from the Supervisor's location, data from DATA_DIR: password %q data %q", c.InitialAdminPassword, c.DataDir)
+	}
+}
+
 // Why: an explicit environment variable is the operator's override and wins over the app options.
 func TestHAOptionsFeedBootstrapSettings(t *testing.T) {
 	dir := t.TempDir()
 	writeOptions(t, dir, `{"initial_admin_password": "from-options"}`)
-	c, err := Load(haEnv(dir))
+	c, err := Load(haEnv(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.InitialAdminPassword != "from-options" {
 		t.Errorf("option not applied: %q", c.InitialAdminPassword)
 	}
-	c, err = Load(haEnv(dir, "TASMOFLEET_INITIAL_ADMIN_PASSWORD=from-env", "TASMOFLEET_LOG_FORMAT=json"))
+	c, err = Load(haEnv(t, dir, "TASMOFLEET_INITIAL_ADMIN_PASSWORD=from-env", "TASMOFLEET_LOG_FORMAT=json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +127,7 @@ func TestHAOptionsEmptyOrNullCountAsNotSet(t *testing.T) {
 	for _, body := range []string{`{}`, `{"initial_admin_password": ""}`, `{"initial_admin_password": null}`} {
 		dir := t.TempDir()
 		writeOptions(t, dir, body)
-		c, err := Load(haEnv(dir))
+		c, err := Load(haEnv(t, dir))
 		if err != nil {
 			t.Fatalf("%s: %v", body, err)
 		}
@@ -126,14 +152,14 @@ func TestHAProfileFailsLoudOnBadOptions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeOptions(t, dir, body)
-			_, err := Load(haEnv(dir))
+			_, err := Load(haEnv(t, dir))
 			if err == nil || !strings.Contains(err.Error(), "options.json") {
 				t.Fatalf("want an error naming options.json, got %v", err)
 			}
 		})
 	}
 	t.Run("missing", func(t *testing.T) {
-		_, err := Load(haEnv(t.TempDir()))
+		_, err := Load(haEnv(t, t.TempDir()))
 		if err == nil || !strings.Contains(err.Error(), "options.json") {
 			t.Fatalf("want an error naming options.json, got %v", err)
 		}

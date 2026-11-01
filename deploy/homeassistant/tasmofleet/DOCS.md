@@ -10,11 +10,11 @@ today.
 
 ## Open the web interface
 
-1. Start the app and open its log. On the first start it prints a one-time setup link (and, without
-   the option below, creates the first administrator `admin`).
+1. Start the app and open its log. On the first start it creates the first administrator `admin` (with the
+   password from the option below, or a random one) and prints a one-time setup link.
 2. Click **Open Web UI**, or browse to `https://<your Home Assistant host>:8080`. The certificate is
    self-signed, so the browser warns once; accept it.
-3. Follow the setup link to set the administrator password, then sign in. TasmoFleet has its own
+3. Follow the setup link to set the administrator password (or sign in as `admin` with the option's password and change it), then sign in. TasmoFleet has its own
    accounts; Home Assistant users get no access automatically.
 
 ## Ports
@@ -45,7 +45,9 @@ Settings live in TasmoFleet's own database (System settings page), not in this a
 | ------------------------ | ----------------------------------------------------------------------------------------------- |
 | `initial_admin_password` | Optional. Password of the first administrator on a fresh install; changed at the first sign-in. |
 
-Everything else is set in TasmoFleet itself. The full variable reference is in
+The option is only used on the first start. **After your first sign-in, clear the option**: it stays in
+this app's configuration and therefore in every Home Assistant backup of the app. Everything else is set in
+TasmoFleet itself. The full variable reference is in
 [docs/configuration.md](https://github.com/nofuturekid/tasmofleet/blob/main/docs/configuration.md#home-assistant-app).
 
 ## Data and backups

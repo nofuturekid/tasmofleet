@@ -60,7 +60,7 @@ func Load(environ []string) (Config, error) {
 
 	haProfile := inHomeAssistant(environ)
 	if haProfile {
-		if err := applyHAProfile(env, dataDir); err != nil {
+		if err := applyHAProfile(env); err != nil {
 			return Config{}, err
 		}
 	}

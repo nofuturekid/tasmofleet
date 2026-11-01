@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 )
@@ -23,8 +22,11 @@ import (
 // because the Supervisor, not the operator, sets it.
 const supervisorTokenKey = "SUPERVISOR_TOKEN"
 
-// haOptionsFile is the Supervisor's options file, relative to the data directory.
-const haOptionsFile = "options.json"
+// haOptionsFile is where the Supervisor writes the options, whatever TASMOFLEET_DATA_DIR says. The
+// variable haOptionsPath starts as this value; only tests change it (they cannot write /data).
+const haOptionsFile = "/data/options.json"
+
+var haOptionsPath = haOptionsFile
 
 // haOptions are the keys of /data/options.json this build understands. They must equal the
 // schema of deploy/homeassistant/tasmofleet/config.yaml (a test compares them).
@@ -35,10 +37,10 @@ type haOptions struct {
 }
 
 // haDefaults replace the generic defaults inside an app, unless the environment, the env file
-// or an option sets the key. The Log tab shows plain text, not JSON lines; the data directory
-// and the two listeners are the container layout the app's port mapping refers to.
+// or an option sets the key. The Log tab shows plain text, not JSON lines; the two listeners are the
+// container ports the app's port mapping refers to. (The data directory needs no entry: /data is
+// already the default.)
 var haDefaults = map[string]string{
-	"DATA_DIR":        "/data",
 	"LISTEN":          ":8080",
 	"FIRMWARE_LISTEN": ":80",
 	"LOG_FORMAT":      "text",
@@ -68,8 +70,8 @@ func inHomeAssistant(environ []string) bool {
 // applyHAProfile fills env (key without prefix) from options.json and the profile defaults. Keys
 // already in env win: the environment and the env file are the operator's explicit choice.
 // A missing, unreadable or unknown options file is an error, never silently ignored.
-func applyHAProfile(env map[string]string, dataDir string) error {
-	path := filepath.Join(dataDir, haOptionsFile)
+func applyHAProfile(env map[string]string) error {
+	path := haOptionsPath
 	raw, err := os.ReadFile(path) //nolint:gosec // fixed file name inside the data directory
 	if err != nil {
 		return fmt.Errorf("home assistant app: %s: %w (SUPERVISOR_TOKEN is set, so the Supervisor must have written it)", path, err)

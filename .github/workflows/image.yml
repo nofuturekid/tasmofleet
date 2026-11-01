@@ -16,8 +16,9 @@
 # aarch64 decoder build (Dockerfile).
 # Before anything is pushed, the arm64 image is built, loaded and started under QEMU (version, and
 # the decoder decodes a real backup fixture).
-# The Home Assistant app image (Dockerfile target "ha", deploy/homeassistant) is built and smoke-tested on
-# every run but not pushed anywhere yet; publishing it comes with #444.
+# The Home Assistant app image (Dockerfile target "ha", deploy/homeassistant) is built and smoke-tested in its
+# own job (ha-app) on every run, so it can never block the Docker/Unraid publish; it is not pushed anywhere
+# yet, publishing it comes with #444.
 # Layers are cached in the GitHub Actions cache.
 name: image
 
@@ -40,6 +41,9 @@ on:
       - "go.mod"
       - "go.sum"
       - ".github/workflows/image.yml"
+      - "internal/config/haprofile.go"
+      - "tools/ha-app-smoke.sh"
+      - "deploy/homeassistant/**"
   workflow_dispatch:
 
 permissions:
@@ -183,20 +187,6 @@ jobs:
             -v "$PWD/$fx/synthetic-15.6.0.3.dmp:/in/s.dmp:ro" tasmofleet:smoke-arm64 \
             --source /in/s.dmp --output-format json | jq -S 'del(.header.env)' > /tmp/decoded-arm64.json
           jq -S . "$fx/decoded.json" | diff - /tmp/decoded-arm64.json
-      # Home Assistant app image (target "ha", deploy/homeassistant): started the way the Supervisor
-      # starts it, with a fake SUPERVISOR_TOKEN and options.json (tools/ha-app-smoke.sh).
-      - uses: docker/build-push-action@v7.4.0
-        with:
-          context: .
-          target: ha
-          platforms: linux/amd64
-          load: true
-          provenance: false
-          tags: tasmofleet-ha:smoke
-          build-args: VERSION=${{ steps.v.outputs.version }}
-          cache-from: type=gha
-      - name: HA app image smoke run
-        run: tools/ha-app-smoke.sh tasmofleet-ha:smoke
       - uses: docker/build-push-action@v7.4.0
         with:
           context: .
@@ -279,3 +269,63 @@ jobs:
             '{full_description:$fd, description:$d}' |
             curl -fsS -o /dev/null -X PATCH -H "Authorization: JWT $jwt" -H 'Content-Type: application/json' -d @- \
               "https://hub.docker.com/v2/repositories/$user/tasmofleet/"
+
+  # Home Assistant app image (Dockerfile target "ha"), built and tested apart from the job above: a
+  # failure here is red on its own and never stops the Docker/Unraid image from being published.
+  # Not run for tags: the called workflow's result gates the GitHub release (ci.yml job release), and the
+  # app image is not part of the release yet. The tagged commit has run this job on main.
+  ha-app:
+    name: Home Assistant app image (build and test, not published)
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          tags: tasmofleet:smoke-default
+          build-args: WITH_DECODER=false
+          cache-from: type=gha
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          target: ha
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          tags: tasmofleet-ha:smoke
+          build-args: |
+            VERSION=ci
+            WITH_DECODER=false
+          cache-from: type=gha
+      - name: HA app image smoke run (started like the Supervisor starts it)
+        run: tools/ha-app-smoke.sh tasmofleet-ha:smoke tasmofleet:smoke-default
+      # The aarch64 stage and its io.hass.arch label are cross-built and inspected on every run (no
+      # emulation, the container is not started here).
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          target: ha
+          platforms: linux/arm64
+          load: true
+          provenance: false
+          tags: tasmofleet-ha:smoke-arm64
+          build-args: |
+            VERSION=ci
+            WITH_DECODER=false
+          cache-from: type=gha
+      - name: HA app image for arm64 carries the aarch64 label
+        run: |
+          set -eu
+          i=tasmofleet-ha:smoke-arm64
+          [ "$(docker image inspect -f '{{.Architecture}}' $i)" = arm64 ]
+          [ "$(docker image inspect -f '{{index .Config.Labels "io.hass.arch"}}' $i)" = aarch64 ]
+          [ "$(docker image inspect -f '{{index .Config.Labels "io.hass.type"}}' $i)" = app ]
+          [ "$(docker image inspect -f '{{.Config.User}}' $i)" = root ]
