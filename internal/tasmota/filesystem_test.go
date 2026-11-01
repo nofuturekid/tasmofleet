@@ -397,6 +397,10 @@ func TestUploadFile_NoRequestSlipsBetweenGetAndPost(t *testing.T) {
 			time.Sleep(200 * time.Millisecond) // a window for a concurrent request
 			_, _ = w.Write([]byte("<html>Manage File system</html>"))
 		case "/ufsu":
+			// Read the multipart body before answering, as a device does. Answering first lets the
+			// server close the connection while the client is still writing the body, which fails
+			// the upload with "connection reset by peer" / "broken pipe" (#452).
+			_, _ = io.Copy(io.Discard, r.Body)
 			_, _ = w.Write([]byte("Upload <font color='#008000'>Successful</font>"))
 		default:
 			_, _ = w.Write([]byte(`{"Status":{}}`))
