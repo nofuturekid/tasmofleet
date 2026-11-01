@@ -111,7 +111,11 @@ templ txnBody(p txnPage) {
 				<h1>{ p.Title }</h1>
 				<span id="txn-state" class={ "bdg", "bdg-lg", "t-" + string(p.StateTone) }>{ p.State }</span>
 			</div>
-			<p class="pghead-sub"><span class="mono" data-visual-mask>{ p.ID }</span> · { p.Sub }</p>
+			if p.Template {
+				<p class="pghead-sub"><span class="mono" data-visual-mask>{ p.ID }</span> · { p.SubPre }<time { ui.StampAttrs(p.SubAt, ui.StampShort)... }>{ ui.StampText(p.SubAt, ui.StampShort) }</time>{ p.SubPost }</p>
+			} else {
+				<p class="pghead-sub"><span class="mono" data-visual-mask>{ p.ID }</span> · { p.Sub }</p>
+			}
 			if p.RetryOf != 0 || len(p.RetriedBy) > 0 {
 				<p class="pghead-sub upd-links">
 					if p.RetryOf != 0 {
@@ -149,7 +153,12 @@ templ txnBody(p txnPage) {
 					data-dlg-dismiss="Keep running"
 				>Cancel remaining</a>
 			}
-			if p.Policy {
+			if p.CheckAgain != "" {
+				<a class="btn" href={ templ.SafeURL(p.CheckAgain) }>Check again…</a>
+			}
+			if p.Template {
+				@ui.Button(ui.Btn{Label: "Back to policy", Kind: "primary", Href: p.Base + policyTemplatesPath})
+			} else if p.Policy {
 				@ui.Button(ui.Btn{Label: "Back to policy", Kind: "primary", Href: p.Base + "/policy"})
 			}
 		</div>
@@ -157,7 +166,7 @@ templ txnBody(p txnPage) {
 	<section id="batch-summary" class="ucard upd-prog" aria-label="Progress">
 		@ui.SegBar(p.Bar)
 		<div class="upd-counts" role="status">
-			if p.Policy {
+			if p.Policy || p.Template {
 				<span><b>{ strconv.Itoa(p.Done) }</b> applied</span>
 				<span><b class="upd-bad">{ strconv.Itoa(p.Failed) }</b> failed</span>
 				if p.Running > 0 {
@@ -172,7 +181,9 @@ templ txnBody(p txnPage) {
 				<span><b>{ strconv.Itoa(p.Queued) }</b> queued</span>
 				<span><b class="upd-bad">{ strconv.Itoa(p.Failed) }</b> failed</span>
 			}
-			if p.Canceled > 0 {
+			if p.Canceled > 0 && p.Template {
+				<span><b>{ strconv.Itoa(p.Canceled) }</b> stopped</span>
+			} else if p.Canceled > 0 {
 				<span><b>{ strconv.Itoa(p.Canceled) }</b> cancelled</span>
 			}
 			if p.CancelPending > 0 {
@@ -181,7 +192,19 @@ templ txnBody(p txnPage) {
 			<span class="upd-of">of { strconv.Itoa(p.Total) }</span>
 		</div>
 	</section>
-	if p.Policy {
+	if p.Template {
+		<div class="gt-txn">
+			@ui.CardStacks(3) {
+				for _, col := range tmplColumns(p.TCards) {
+					@ui.CardStack(1) {
+						for _, c := range col {
+							@tmplCardView(c)
+						}
+					}
+				}
+			}
+		</div>
+	} else if p.Policy {
 		<div class="upd-cards">
 			for _, c := range p.Cards {
 				<section class="upd-dev" aria-label={ c.Name }>
@@ -581,4 +604,33 @@ templ previewFields(p previewPage, csrf string, ids []string, start bool) {
 			<input type="hidden" name={ "language_" + id } value={ l }/>
 		}
 	}
+}
+
+// tmplCardView is one device of an "Apply GPIO template" transaction: backup, read again, send, verify.
+// Mockup: gpio-templates-mockup/3a and 3b.
+templ tmplCardView(c tmplCard) {
+	<section class={ "upd-dev", c.Rank } aria-label={ c.Name }>
+		<div class="upd-dev-head">
+			<span class={ "upd-dot", "t-" + string(c.Tone) } aria-hidden="true"></span>
+			<a href={ templ.SafeURL(c.Href) }>{ c.Name }</a>
+		</div>
+		for _, st := range c.Steps {
+			<div class="upd-change">
+				<div class="upd-change-t gt-step">
+					if st.Cmd != "" {
+						<details class="gt-cmd-d">
+							<summary>{ st.Text }</summary>
+							<pre class="gt-cmd">{ st.Cmd }</pre>
+						</details>
+					} else {
+						{ st.Text }
+					}
+				</div>
+				@ui.Badge(st.Tone, st.Label)
+			</div>
+		}
+		if c.Reason != "" {
+			<p class={ "upd-why", templ.KV("gt-stopped", c.Stopped) }>{ c.Reason }</p>
+		}
+	</section>
 }
