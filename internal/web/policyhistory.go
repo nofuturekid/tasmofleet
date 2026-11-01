@@ -169,7 +169,7 @@ func (h *handler) historyRender(w http.ResponseWriter, r *http.Request, live boo
 	if live && p.Head.Line != nil && p.Head.Line.State != "failed" {
 		v.Flash = "Live check finished · " + deviateText(p.Head.Fleet.Deviating)
 	}
-	p.Head.Tabs = h.policyTabs(v.Base, "history", len(st.Specs), p.Head.Fleet.Deviating)
+	p.Head.Tabs = h.policyTabs(v.Base, "history", len(st.Specs), p.Head.Fleet.Deviating, 0)
 
 	cursor := ""
 	if before > 0 {
