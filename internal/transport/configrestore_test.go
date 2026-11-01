@@ -45,4 +45,8 @@ func TestRestoreConfigRefusesAPinnedMQTTPath(t *testing.T) {
 	if err == nil || len(h.fsCalls) != 0 {
 		t.Fatalf("err %v calls %v", err, h.fsCalls)
 	}
+	// #432 review L1: the restore must fail at once, not wait for a restart that never comes.
+	if !errors.Is(err, tasmota.ErrNotSent) {
+		t.Errorf("err %v does not say that nothing was sent", err)
+	}
 }

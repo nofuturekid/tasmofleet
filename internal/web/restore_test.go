@@ -327,8 +327,8 @@ func TestRestoreJobPagePollsUntilTerminal(t *testing.T) {
 	}
 }
 
-// Why: without the firmware listener (no FIRMWARE_BASE_URL) there is no
-// restore; the pages must not exist rather than fail half way.
+// Why: without the restore service (no backups) there is no restore; the pages must not exist
+// rather than fail half way.
 func TestRestoreRoutesAbsentWithoutService(t *testing.T) {
 	e := setup(t)
 	e.bk.list = []model.Backup{{ID: 5, DeviceID: 1, Kind: model.BackupConfigDump, Path: "backups/1/a.dmp"}}

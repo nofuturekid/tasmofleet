@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/nofuturekid/tasmofleet/internal/backup"
 	"github.com/nofuturekid/tasmofleet/internal/model"
@@ -273,6 +276,49 @@ func TestReplaceSwapConflictFailsAndLeavesTheEntryAlone(t *testing.T) {
 	}
 }
 
+// Why (#432 review M1): only a proven restart of the new board may let the entry take it over.
+// An upload whose outcome is unknown and that never restarted the board, followed by one failed
+// poll (a Wi-Fi hiccup), must not count as a restart: the entry would move onto a board that
+// still runs its factory configuration. A refused upload is certain and never swaps either.
+func TestReplaceWithoutAProvenRestartNeverSwaps(t *testing.T) {
+	for name, uploadErr := range map[string]error{
+		"unknown outcome, no restart, one failed poll": tasmota.ErrTimeout,
+		"refused upload": fmt.Errorf("%w: File invalid", tasmota.ErrUploadRefused),
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newReplaceFlow(t, "15.6.0", "15.6.0", simulator.ProfileESP8266_4M)
+			e.dumpBackup(t, e.dumpA)
+			e.newSim.SetConfigDump(e.dumpB)
+			e.breakOld(t)
+			before, _ := e.st.GetDevice(t.Context(), e.dev)
+			e.cl.swallowErr = uploadErr // nothing reaches the board
+			var failedOnce atomic.Bool
+			e.cl.failCmd = func(c string) error {
+				if c == "Status 5" && len(e.cl.sent("RestoreConfig")) > 0 && failedOnce.CompareAndSwap(false, true) {
+					return tasmota.ErrUnreachable
+				}
+				return nil
+			}
+			e.m.o.RebootTimeout = 600 * time.Millisecond
+			job, err := e.m.StartReplace(t.Context(), "alice", e.req(0), StartOptions{AllowUnknownFamily: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := e.finish(t, job.ID)
+			if done.State != store.RestoreFailed {
+				t.Fatalf("job: %+v", done)
+			}
+			after, _ := e.st.GetDevice(t.Context(), e.dev)
+			if after.MAC != before.MAC || after.Address != before.Address {
+				t.Errorf("the entry moved onto the board without a proven restart:\nbefore %+v\nafter  %+v", before, after)
+			}
+			if got := e.newDump(t); !bytes.Equal(got, e.dumpB) {
+				t.Error("the new board's configuration changed")
+			}
+		})
+	}
+}
+
 // Why: the expected identity is the NEW board's MAC recorded before the
 // start. If another host takes over the address after the preview, the dump
 // must not go to it.
@@ -411,9 +457,9 @@ func TestRestoreStoresAMissingMAC(t *testing.T) {
 	}
 }
 
-// Why: the recorded identity is the one re-checked right before the token is
-// issued, so a host swapped in after the confirmation gets nothing.
-func TestAdoptedMACIsRecheckedBeforeTheTokenIsIssued(t *testing.T) {
+// Why: the recorded identity is the one re-checked right before the upload is
+// sent, so a host swapped in after the confirmation gets nothing.
+func TestAdoptedMACIsRecheckedBeforeTheUpload(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
 	dev := e.device

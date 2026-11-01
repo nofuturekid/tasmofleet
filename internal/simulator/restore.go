@@ -66,18 +66,24 @@ func (d *simDevice) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		reply(false, "No file selected")
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(part, configDumpSize+1<<10))
+	body, err := io.ReadAll(io.LimitReader(part, 1<<16))
 	if err != nil {
 		drop(w)
 		return
 	}
 	d.record("POST /u2 " + part.FileName() + " " + strconv.Itoa(len(body)) + " (settings)")
+	// The size the device expects: the settings block, or what the "/.settings" header of an
+	// ESP32 dump with driver settings files names (HandleUploadLoop, v16 3613-3617).
+	want := configDumpSize
+	if len(body) >= 16 && body[2] == 's' && body[3] == 'e' {
+		want = int(body[14]) | int(body[15])<<8
+	}
 	switch {
-	case len(body) > configDumpSize:
+	case len(body) > want:
 		reply(false, "File too large")
 		return
-	case len(body) < configDumpSize:
-		reply(false, "File invalid")
+	case len(body) < want || want < configDumpSize:
+		reply(false, "File invalid") // SettingsConfigRestore: the CRC cannot match
 		return
 	}
 	d.mu.Lock()

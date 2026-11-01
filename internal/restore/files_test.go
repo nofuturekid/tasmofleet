@@ -384,7 +384,7 @@ func TestReplaceFilesFailureLeavesTheEntryAlone(t *testing.T) {
 	}
 }
 
-// Why: the identity is checked right before the first file, as it is before the token: if the
+// Why: the identity is checked right before the first file, as it is before the upload: if the
 // address changed hands after the start, no file of this device may land on the other host.
 func TestFilesAreNotWrittenToAnotherDeviceAtTheAddress(t *testing.T) {
 	e, a := filesFlow(t)

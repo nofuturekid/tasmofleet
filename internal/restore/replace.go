@@ -1,7 +1,7 @@
 package restore
 
 // Replace device: the hardware of an inventory entry died. The wizard puts the
-// entry's newest backup onto fresh hardware through the same one-time token
+// entry's newest backup onto fresh hardware through the same restore upload
 // the restore uses, then lets the entry stand for the new MACs. See
 // docs/security/restore.md (R13, R18-R21).
 
@@ -482,7 +482,7 @@ func (m *Manager) unclaim(mac string) {
 }
 
 // recordReplace audits a replace step. The detail is JSON built here; it
-// carries MACs, addresses and IDs, never credentials or the token.
+// carries MACs, addresses and IDs, never credentials.
 func (m *Manager) recordReplace(ctx context.Context, actor, action string, j Job, result string, detail map[string]any) {
 	if m.o.Audit == nil {
 		return
@@ -543,11 +543,12 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan, confirm
 		m.failReplace(ctx, &j, fo.afterFiles(failUnchanged+err.Error()))
 		return
 	}
-	before, err := m.uptime(ctx, target)
+	before, err := m.bootCount(ctx, target)
 	if err != nil {
 		m.failReplace(ctx, &j, fo.afterFiles("replacement "+failUnreachable+err.Error()))
 		return
 	}
+	began := m.o.Clock.Now()
 	if err := m.o.Client.(tasmota.ConfigRestorer).RestoreConfig(ctx, target, p.dmp); err != nil {
 		// As for a restore: the "Failed" page and an upload that never left are certain, anything
 		// else is an unknown outcome that is looked at, never sent again.
@@ -559,7 +560,7 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan, confirm
 	}
 
 	m.step(ctx, &j, store.RestoreWaiting, "waiting for the restart")
-	found, err := m.waitReplaced(ctx, p, before)
+	found, err := m.waitReplaced(ctx, p, before, began)
 	if err != nil {
 		m.failReplace(ctx, &j, err.Error())
 		return
@@ -597,10 +598,10 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan, confirm
 		"old_macs": oldMACs, "new_mac": p.cand.MAC, "address": addr, "verified": verified})
 }
 
-// seen reads MAC and uptime of the host at ep. The entry's credentials are
+// seen reads MAC, BootCount and uptime of the host at ep. The entry's credentials are
 // used only after a 401: the restored configuration brings the old web
 // password back.
-func (m *Manager) seen(ctx context.Context, ep model.Device) (string, int64, error) {
+func (m *Manager) seen(ctx context.Context, ep model.Device) (mac string, boots int, up int64, err error) {
 	bare := model.Device{Address: ep.Address, Port: ep.Port}
 	tries := []model.Device{bare}
 	if ep.HasCredentials() {
@@ -614,25 +615,32 @@ func (m *Manager) seen(ctx context.Context, ep model.Device) (string, int64, err
 			continue
 		}
 		if err != nil {
-			return "", 0, err
+			return "", 0, 0, err
 		}
 		var s struct {
 			StatusNET struct{ Mac string }
 		}
 		if err := json.Unmarshal(raw, &s); err != nil || s.StatusNET.Mac == "" {
-			return "", 0, tasmota.ErrBadResponse
+			return "", 0, 0, tasmota.ErrBadResponse
+		}
+		n, err := m.bootCount(ctx, tasmota.TargetFor(t))
+		if err != nil {
+			return "", 0, 0, err
 		}
 		up, err := m.uptime(ctx, tasmota.TargetFor(t))
-		return normMAC(s.StatusNET.Mac), up, err
+		return normMAC(s.StatusNET.Mac), n, up, err
 	}
-	return "", 0, lastErr
+	return "", 0, 0, lastErr
 }
 
-// waitReplaced returns the endpoint where the replacement hardware (its own
-// MAC) is back after the upload. At its old address it must also have
-// restarted (down in between, or a smaller uptime); at any other address it
-// can only be the restarted device.
-func (m *Manager) waitReplaced(ctx context.Context, p *replacePlan, before int64) (model.Device, error) {
+// waitReplaced returns the endpoint where the replacement hardware (its own MAC) is back after
+// the upload. At the candidate address the restart must be proven like a restore's (waitBoot): a
+// larger BootCount than before the upload and an uptime shorter than the time since it began. A
+// failed poll is no proof (#432 review): an upload whose outcome is unknown and that never
+// restarted the board would otherwise hand the entry a board with its factory configuration. At
+// the entry's old address the board's own MAC can only be the restarted device (it was not there
+// before and the old device is silent, R20).
+func (m *Manager) waitReplaced(ctx context.Context, p *replacePlan, before int, began time.Time) (model.Device, error) {
 	creds := func(addr string, port int) model.Device {
 		return model.Device{Address: addr, Port: port, HTTPUser: p.old.HTTPUser, HTTPPassword: p.old.HTTPPassword}
 	}
@@ -643,27 +651,23 @@ func (m *Manager) waitReplaced(ctx context.Context, p *replacePlan, before int64
 	}
 	want := normMAC(p.cand.MAC)
 	deadline := m.o.Clock.Now().Add(m.o.RebootTimeout)
-	sawDown := false
 	for {
 		select {
 		case <-ctx.Done():
 			return model.Device{}, ctx.Err()
 		case <-m.o.Clock.After(m.o.PollInterval):
 		}
-		mac, up, err := m.seen(ctx, here)
-		switch {
-		case err != nil:
-			sawDown = true
-		case mac == want && (sawDown || up < before):
+		mac, n, up, err := m.seen(ctx, here)
+		if err == nil && mac == want && n > before && time.Duration(up)*time.Second <= m.o.Clock.Now().Sub(began)+2*time.Second {
 			return here, nil
 		}
 		for _, o := range others {
-			if mac, _, err := m.seen(ctx, o); err == nil && mac == want {
+			if mac, _, _, err := m.seen(ctx, o); err == nil && mac == want {
 				return o, nil
 			}
 		}
 		if m.o.Clock.Now().After(deadline) {
-			return model.Device{}, errors.New("the replacement device took the configuration but was not found again in time (it did not restart, or it joined the network at another address; the inventory entry was not changed)")
+			return model.Device{}, errors.New("the replacement device was not seen restarting in time (its boot count did not change at its address and it did not appear at the entry's old address); the configuration may or may not have been applied, and the inventory entry was not changed")
 		}
 	}
 }

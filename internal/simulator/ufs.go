@@ -315,8 +315,7 @@ func (d *simDevice) serveUfsu(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.mu.Lock()
-	armed := d.uploadType == uploadUFS
-	d.uploadType = uploadNone
+	armed := d.uploadType == uploadUFS // HandleUploadUFSDone leaves the type set
 	failFault := len(d.faultsForLocked("ufsu", FaultUfsUploadError)) > 0
 	oldFW := !atLeastVersion(d.version, 16, 0)
 	d.mu.Unlock()

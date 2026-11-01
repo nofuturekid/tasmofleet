@@ -645,7 +645,7 @@ func TestStartRefusals(t *testing.T) {
 
 // Why: "one restore per device" must hold when requests arrive at the same moment, not only one
 // after the other.
-func TestConcurrentStartsAndDownloadsAdmitExactlyOne(t *testing.T) {
+func TestConcurrentStartsAdmitExactlyOne(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
 	e.cl.swallow = true
@@ -757,7 +757,7 @@ func TestAddressIsResolvedOnceAndAmbiguityRefused(t *testing.T) {
 // Why: L1. When only the reply to the restore upload is lost (timeout, unreadable) the device
 // has been restored anyway and the job must follow through and verify, not report a false
 // failure, and never send the dump again.
-func TestLostReplyAfterTheDownloadStillVerifies(t *testing.T) {
+func TestLostUploadReplyStillVerifies(t *testing.T) {
 	for _, cerr := range []error{tasmota.ErrTimeout, tasmota.ErrBadResponse} {
 		e := newFlow(t, "15.6.0")
 		a := e.dumpBackup(t, e.dumpA)

@@ -1,15 +1,15 @@
 import { test, expect } from "../support/fixtures";
-import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
+import { App, Devenv, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
 // Backups (delete, delete older than) and "Replace device" against two
 // simulated devices of the same chip family: plug-4m is the inventory entry
 // whose hardware "died", plug-4m-http is the fresh board that is not in the
-// inventory.
+// inventory. No firmware listener is configured: a replace pushes the backup with the device's own
+// restore upload and needs none (#430).
 let app: App;
 let env: Devenv;
 test.beforeAll(async () => {
   env = await startDevenv();
-  const fwPort = await freePort();
   app = await startApp({
     env: {
       TASMOFLEET_AUTH_MODE: "header",
@@ -18,8 +18,6 @@ test.beforeAll(async () => {
       TASMOFLEET_ADMIN_GROUPS: "adm",
       TASMOFLEET_POLL_INTERVAL: "5s",
       TASMOFLEET_FIRMWARE_UPSTREAM_OVERRIDE: env.vars.DEVENV_UPSTREAM_URL,
-      TASMOFLEET_FIRMWARE_LISTEN: `127.0.0.1:${fwPort}`,
-      TASMOFLEET_FIRMWARE_BASE_URL: `http://127.0.0.1:${fwPort}`,
     },
   });
   app.cli(["import", "tasmoadmin", writeTasmoAdminDir({ "plug-4m": env.devices["plug-4m"], "lamp-1m": env.devices["lamp-1m"] })]);

@@ -18,8 +18,10 @@ type ConfigRestorer interface {
 	// device slot so no other request of this client comes between them. A nil error means the
 	// device accepted the dump and restarts with it.
 	//
-	// Errors: ErrUploadRefused (the device answered its "Failed" page: nothing was applied, the
-	// device keeps running) and every error that matches ErrNotSent (the POST was never sent, for
+	// Errors: ErrUploadRefused (the device answered its "Failed" page: the settings were not
+	// applied and the device keeps running; on an ESP32 with a file system a dump whose settings
+	// fail their CRC can still have written the driver settings files it carries, v16
+	// settings.ino 572-600) and every error that matches ErrNotSent (the POST was never sent, for
 	// example a device without /rs, ErrUploadUnsupported, or a refused login) are certain. Any other
 	// error (timeout, lost connection, a reply that is neither page) leaves it open whether the
 	// device applied the dump: the caller must look at the device and never send it again.
