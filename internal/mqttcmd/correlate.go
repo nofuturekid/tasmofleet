@@ -14,7 +14,8 @@ import (
 
 // otherKeys lists the commands whose RESULT does not carry the command's name as a key. Checked
 // against Tasmota v16 (support_command.ino): Template answers {"NAME":..,"GPIO":..,"FLAG":..,
-// "BASE":..} (CmndTemplate -> TemplateJson); Gpios publishes its lines itself (ShowGpios) and
+// "BASE":..} (CmndTemplate -> TemplateJson), which a bare Template read matches by shape (templateShape,
+// E3 of #327); a Template with an argument answers {"Template":"Done"}; Gpios publishes its lines itself (ShowGpios) and
 // clears the response. Module, Modules and Gpio do carry their name (S_JSON_COMMAND_NVALUE_SVALUE,
 // "Modules", "GPIOn"/"GPIO"), so they are matched like any other command. Only DoLoose, the
 // console, takes the first RESULT for these; an automated read needs a key match.
@@ -195,6 +196,14 @@ func (r *request) match(m mqttbus.Message, loose bool) (v verdict, ok bool) {
 	if r.status != "" {
 		return verdict{}, false // a Status answers on STATUSn; any other RESULT is noise
 	}
+	if r.base == "template" && r.args == "" {
+		// The bare Template (a read) answers with no "Template" key (see otherKeys). It is recognised by
+		// its shape, and by nothing else: a "Template" key here would be the answer to a write.
+		if templateShape(values) {
+			return verdict{reply: m.Payload}, true
+		}
+		return verdict{}, false
+	}
 	for _, k := range keys {
 		if keyNames(k, r.name, r.base) {
 			return verdict{reply: m.Payload}, true
@@ -204,6 +213,18 @@ func (r *request) match(m mqttbus.Message, loose bool) (v verdict, ok bool) {
 		return verdict{reply: m.Payload}, true
 	}
 	return verdict{}, false
+}
+
+// templateShape reports the reply of a bare Template (TemplateJson, v16 support.ino): NAME as text and
+// GPIO as an array. FLAG and BASE are not required, so an older firmware that leaves one out still reads.
+func templateShape(values map[string]json.RawMessage) bool {
+	var name string
+	if raw, ok := values["NAME"]; !ok || json.Unmarshal(raw, &name) != nil {
+		return false
+	}
+	var pins []json.RawMessage
+	raw, ok := values["GPIO"]
+	return ok && json.Unmarshal(raw, &pins) == nil
 }
 
 // matchesAny reports whether m would have answered r in any mode: a late reply to an abandoned request.

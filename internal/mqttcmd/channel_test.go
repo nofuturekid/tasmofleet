@@ -296,24 +296,73 @@ func TestKeysMatchTheCommandNameCaseAndIndexInsensitive(t *testing.T) {
 	}
 }
 
-// Why: the commands whose reply has other keys (Template) work on the console (DoLoose), but an
-// automated read refuses to guess: it needs a key match.
-func TestTemplateTakesTheFirstResultOnlyOnTheConsole(t *testing.T) {
-	reply := `{"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`
+// Why: Gpios has no key of its own and stays console-only (DoLoose): an automated read refuses to guess.
+// Loose is not "anything goes": a command with a normal reply still needs its key.
+func TestGpiosTakesTheFirstResultOnlyOnTheConsole(t *testing.T) {
+	reply := `{"GPIO0":"None"}`
 	b := &fakeBus{}
 	b.onPub = func(b *fakeBus, p pub) { b.result(p.topic, reply) }
-	got, err := newChan(b).DoLoose(t.Context(), plug(), "Template")
+	got, err := newChan(b).DoLoose(t.Context(), plug(), "Gpios")
 	if err != nil || string(got) != reply {
 		t.Fatalf("loose: %s, %v", got, err)
 	}
-	if _, err := newChan(b).Do(t.Context(), plug(), "Template"); !errors.Is(err, tasmota.ErrTimeout) {
+	if _, err := newChan(b).Do(t.Context(), plug(), "Gpios"); !errors.Is(err, tasmota.ErrTimeout) {
 		t.Fatalf("strict: err = %v, want ErrTimeout", err)
 	}
-	// Loose is not "anything goes": a command with a normal reply still needs its key.
 	b2 := &fakeBus{}
 	b2.onPub = func(b *fakeBus, p pub) { b.result(p.topic, `{"POWER":"ON"}`) }
 	if _, err := newChan(b2).DoLoose(t.Context(), plug(), "TelePeriod"); !errors.Is(err, tasmota.ErrTimeout) {
 		t.Fatalf("loose TelePeriod: err = %v", err)
+	}
+}
+
+// Why (E3): the bare Template answers {"NAME","GPIO":[..],"FLAG","BASE"} with no "Template" key. An
+// MQTT-only device must still be readable (and a template change verifiable), so the automated read
+// accepts exactly that shape: NAME as a string and GPIO as an array.
+func TestStrictTemplateReadMatchesNameAndGPIOArray(t *testing.T) {
+	reply := `{"NAME":"Plug","GPIO":[0,1,2],"FLAG":0,"BASE":18}`
+	b := &fakeBus{}
+	b.onPub = func(b *fakeBus, p pub) { b.result(p.topic, reply) }
+	for _, cmd := range []string{"Template", "template"} {
+		if got, err := newChan(b).Do(t.Context(), plug(), cmd); err != nil || string(got) != reply {
+			t.Errorf("%q: %s, %v", cmd, got, err)
+		}
+	}
+}
+
+// Why: a strict match that accepts the wrong RESULT would make a template verify against someone
+// else's message (or a power report) and call a failed change a success.
+func TestStrictTemplateReadIgnoresEveryOtherResult(t *testing.T) {
+	for _, other := range []string{
+		`{"POWER":"ON"}`,
+		`{"NAME":"Plug"}`,                  // no GPIO
+		`{"GPIO":[0,1]}`,                   // no NAME
+		`{"NAME":"Plug","GPIO":"0,1"}`,     // GPIO is not an array
+		`{"NAME":7,"GPIO":[0,1]}`,          // NAME is not text
+		`{"Template":"Done"}`,              // the answer to a Template WRITE
+		`{"Module":{"0":"User Template"}}`, // another command's reply
+		`{"NAMES":"Plug","GPIOS":[0,1]}`,   // look-alike keys
+	} {
+		b := &fakeBus{}
+		b.onPub = func(b *fakeBus, p pub) { b.result(p.topic, other) }
+		if _, err := newChan(b).Do(t.Context(), plug(), "Template"); !errors.Is(err, tasmota.ErrTimeout) {
+			t.Errorf("%s answered a Template read: err = %v", other, err)
+		}
+	}
+}
+
+// Why: only the read is matched by shape. A Template WRITE is answered under its own key; a reply with
+// the shape of a read must not confirm a write (it would be another poller's read).
+func TestTemplateWriteIsNotAnsweredByTheReadShape(t *testing.T) {
+	b := &fakeBus{}
+	b.onPub = func(b *fakeBus, p pub) { b.result(p.topic, `{"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`) }
+	if _, err := newChan(b).Do(t.Context(), plug(), `Template {"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`); !errors.Is(err, tasmota.ErrTimeout) {
+		t.Fatalf("err = %v, want ErrTimeout", err)
+	}
+	b2 := &fakeBus{}
+	b2.onPub = func(b *fakeBus, p pub) { b.result(p.topic, `{"Template":"Done"}`) }
+	if _, err := newChan(b2).Do(t.Context(), plug(), `Template {"NAME":"Plug","GPIO":[0],"FLAG":0,"BASE":18}`); err != nil {
+		t.Fatalf("write answer: %v", err)
 	}
 }
 

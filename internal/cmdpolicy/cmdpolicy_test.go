@@ -854,3 +854,35 @@ func TestUnsafeTextIsWhatClassifyRefuses(t *testing.T) {
 		}
 	}
 }
+
+// Why (#327 WP-A note): a classic ESP32 template (36 GPIO values of up to 4 digits) is 250-300 bytes,
+// more than the 255 of every other command, so the one Template command that TasmoFleet builds for a
+// GPIO template got refused. Tasmota takes 1199 bytes (HTTP /cm: cmnd < MQTT_MAX_PACKET_SIZE; MQTT:
+// data_len < MQTT_MAX_PACKET_SIZE, where the packet also holds topic and header), so Template alone gets
+// 512; every other command, and a Backlog holding a Template, keeps 255.
+func TestTemplateHasItsOwnLength(t *testing.T) {
+	tpl := func(n int) string {
+		return `Template {"NAME":"` + strings.Repeat("a", n-len(`Template {"NAME":"`)-2) + `"}`
+	}
+	for _, c := range []struct {
+		cmd  string
+		want bool
+	}{
+		{tpl(300), true}, {tpl(512), true}, {tpl(513), false},
+		{strings.ToLower(tpl(400)), true},
+		{"Backlog " + tpl(300), false},
+		{"FriendlyName1 " + strings.Repeat("a", 300), false},
+		{"Templat " + strings.Repeat("a", 300), false},
+		{"Template2 " + strings.Repeat("a", 300), false},
+	} {
+		_, err := Classify(c.cmd)
+		if (err == nil) != c.want {
+			t.Errorf("%d bytes %.30q: err = %v, want ok = %v", len(c.cmd), c.cmd, err, c.want)
+		}
+		if c.want {
+			if canon, err := Canonical(c.cmd); err != nil || canon != c.cmd {
+				t.Errorf("Canonical changed or refused a %d byte Template: %v", len(c.cmd), err)
+			}
+		}
+	}
+}
