@@ -128,7 +128,10 @@ func TestDeviceListToolbarOffersCountedFilters(t *testing.T) {
 		`>All<span class="dv-n">`, `>Offline / unknown<span class="dv-n">`, `>Outdated<span class="dv-n">`, `>Not compliant<span class="dv-n">`,
 		`<option value="esp32">ESP32 · 1</option>`, `<option value="esp8266">ESP8266 · 1</option>`,
 		`<option value="kitchen" selected>kitchen · 1</option>`,
-		`placeholder="Filter by name, IP, chip or firmware"`,
+		// the search field is short (the toolbar must fit one row at 1280px, #428), so the placeholder is
+		// brief and the full hint stays in the title and the description
+		`placeholder="Filter devices"`, `title="Filter by name, IP, chip or firmware"`, `aria-describedby="dv-q-help"`,
+		`<span id="dv-q-help" class="sr-only">Filter by name, IP, chip or firmware</span>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("toolbar: missing %q", want)
