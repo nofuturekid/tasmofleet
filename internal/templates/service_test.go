@@ -237,13 +237,13 @@ func TestPreviewReadsTheDevicesAgain(t *testing.T) {
 	}
 }
 
-// Why: forged ids must not reach the engine: a device id that is not in the inventory is dropped, a
+// Why: forged ids must not reach the engine: a device id that is not in the inventory is listed as excluded, a
 // reference that is not on the group's template is refused, a built-in group has no template to apply.
 func TestPreviewDropsForgedIDsAndRefusesABadReference(t *testing.T) {
 	_, m, _ := fleet3(t)
 	pv, err := m.Preview(context.Background(), Request{Group: key, Reference: 1, Devices: []model.DeviceID{2, 4242}})
-	if err != nil || len(pv.Rows) != 1 || len(pv.Excluded) != 0 {
-		t.Fatalf("%v %+v", err, pv)
+	if err != nil || len(pv.Rows) != 1 || len(pv.Excluded) != 1 || pv.Excluded[0].Device.ID != 4242 || !strings.Contains(pv.Excluded[0].Why, "not found") {
+		t.Fatalf("an unknown id must be listed with a reason, not dropped: %v %+v", err, pv)
 	}
 	for _, r := range []Request{
 		{Group: key, Reference: 4242},
@@ -336,5 +336,17 @@ func TestDigestChangesWithTheReferenceTheDeviceAndTheSelection(t *testing.T) {
 	more, _ := m.Preview(context.Background(), Request{Group: key, Reference: 1, Devices: []model.DeviceID{2, 3}})
 	if more.Digest == pv.Digest {
 		t.Error("another selection must change the digest")
+	}
+}
+
+// Why: a device deleted between preview and apply must not silently shrink the transaction: the plan the
+// person confirmed had it, the rebuilt one lists it as not found, so the digest differs and nothing is sent.
+func TestApplyFailsTheDigestWhenADeviceVanishedSincePreview(t *testing.T) {
+	f, m, eng := fleet3(t)
+	req := Request{Group: key, Reference: 1, Devices: []model.DeviceID{2}}
+	pv, _ := m.Preview(context.Background(), req)
+	f.devs = []model.Device{f.devs[0], f.devs[2]} // device 2 deleted
+	if _, _, err := m.Apply(context.Background(), "alice", req, pv.Digest); !errors.Is(err, ErrStaleDigest) || eng.calls != 0 {
+		t.Fatalf("err %v, engine calls %d", err, eng.calls)
 	}
 }

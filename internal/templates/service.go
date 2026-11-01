@@ -312,8 +312,9 @@ func (m *Manager) Preview(ctx context.Context, req Request) (Preview, error) {
 	ids = slices.Compact(ids)
 	for _, id := range ids {
 		d, err := m.o.Devices.GetDevice(ctx, id)
-		if err != nil {
-			continue // not a device of ours: a forged id is dropped
+		if err != nil { // deleted, or never ours: shown, so the count the person sees stays explained
+			pv.Excluded = append(pv.Excluded, Excluded{Device: DeviceView{ID: id, Name: "#" + strconv.FormatInt(int64(id), 10)}, Why: "device not found (deleted?)", Refusal: policy.RefuseNotLive})
+			continue
 		}
 		var v DeviceView
 		if id == req.Reference {

@@ -101,6 +101,54 @@ func overviewDevices() []simulator.DeviceSpec {
 	}
 }
 
+// nousGPIO is the captured NOUS A1T template (14 slots); relay is the code on GPIO14 (slot 10): 224 is
+// Relay1, 320 is Led_i1.
+func nousGPIO(relay int) []int {
+	g := []int{32, 0, 0, 0, 2720, 2656, 0, 0, 2624, 320, 224, 0, 0, 0}
+	g[10] = relay
+	return g
+}
+
+// esp32GPIO is a 36-slot ESP32 template with Relay1 (224) or Led_i1 (320) on slot 2.
+func esp32GPIO(code int) []int {
+	g := make([]int, 36)
+	g[1], g[2] = 32, code
+	return g
+}
+
+// templateDevices are the devices of the GPIO templates tab (#327): three NOUS A1T plugs with the same pin
+// map and one that has Led_i1 instead of Relay1 on GPIO14, a minimal-firmware device and an offline-able one
+// with the same template name, a tie (2 + 2), a device on the built-in module "Sonoff Basic", and a group of two
+// ESP32 boards where one differs. Opt-in because other tests count the fleet.
+func templateDevices() []simulator.DeviceSpec {
+	nous := func(relay int) *simulator.UserTemplate {
+		return &simulator.UserTemplate{Name: "NOUS A1T", GPIO: nousGPIO(relay), Base: 49}
+	}
+	tie := func(relay int) *simulator.UserTemplate {
+		return &simulator.UserTemplate{Name: "Tie Plug", GPIO: nousGPIO(relay), Base: 18}
+	}
+	esp32 := func(code int) *simulator.UserTemplate {
+		return &simulator.UserTemplate{Name: "Dimmer Board", GPIO: esp32GPIO(code), Base: 1}
+	}
+	builtin := 1
+	return []simulator.DeviceSpec{
+		{Name: "tpl-nous-1", Profile: simulator.ProfileNOUSA1TPrusa, Template: nous(224)},
+		{Name: "tpl-nous-2", Profile: simulator.ProfileNOUSA1TBambu, Template: nous(224)},
+		{Name: "tpl-nous-3", Profile: simulator.ProfileNOUSA1TPrusa, Template: nous(224)},
+		{Name: "tpl-nous-dev", Profile: simulator.ProfileNOUSA1TBambu, Template: nous(320)},
+		{Name: "tpl-minimal", Profile: simulator.ProfileESP8266Min, Template: nous(320)},
+		{Name: "tpl-offline", Profile: simulator.ProfileNOUSA1TPrusa, Template: nous(320)},
+		{Name: "tpl-tie-1", Profile: simulator.ProfileESP8266_4M, Template: tie(224)},
+		{Name: "tpl-tie-2", Profile: simulator.ProfileESP8266_4M, Template: tie(224)},
+		{Name: "tpl-tie-3", Profile: simulator.ProfileESP8266_4M, Template: tie(320)},
+		{Name: "tpl-tie-4", Profile: simulator.ProfileESP8266_4M, Template: tie(320)},
+		{Name: "tpl-builtin", Profile: simulator.ProfileESP8266_4M, Module: &builtin},
+		{Name: "tpl-esp32-1", Profile: simulator.ProfileESP32, Template: esp32(224)},
+		{Name: "tpl-esp32-2", Profile: simulator.ProfileESP32, Template: esp32(224)},
+		{Name: "tpl-esp32-3", Profile: simulator.ProfileESP32, Template: esp32(320)},
+	}
+}
+
 // stabilityDevices are the devices of the Stability card (#325): one that stays stable, one the tests make
 // restart with a reason (POST /device/{name}/restart?reason=...), and one with a weak link from the start
 // (-84 dBm, 14 reconnects). Opt-in because other tests count the fleet.
@@ -171,6 +219,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	fleetSize := fs.Int("fleet-size", 0, "total number of simulated devices; 0 or less than the base fleet keeps the base fleet")
 	releases := fs.Int("releases", 1, "number of releases the fake GitHub releases feed (<upstream>/github) offers")
 	stability := fs.Bool("stability-shapes", false, "add the devices of the Stability card (#325): st-stable, st-bootloop (restarts on POST /device/{name}/restart?reason=...) and st-weakwifi")
+	templateShapes := fs.Bool("template-shapes", false, "add the devices of the GPIO templates tab (#327): tpl-nous-1..3 + tpl-nous-dev (one pin differs), tpl-minimal, tpl-offline, a tie group tpl-tie-1..4, tpl-builtin (built-in module) and an ESP32 group tpl-esp32-1..3")
 	mqttTransport := fs.Bool("mqtt-transport", false, "add the devices TasmoFleet reaches only over MQTT (http_unreachable, fw_unreachable, MqttPassword "+MQTTPassword+")")
 	onlyMQTT := fs.Bool("only-mqtt-transport", false, "only the devices of -mqtt-transport, no base fleet: for the specs that need nothing else and should not pay for it")
 	overview := fs.Bool("overview-shapes", false, "add the device shapes of the Overview mockups (docs/design/device-overview): meters, several relays, Ethernet, sensors only, HTTP only")
@@ -274,6 +323,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	}
 	if *stability {
 		specs = append(specs, stabilityDevices()...)
+	}
+	if *templateShapes {
+		specs = append(specs, templateDevices()...)
 	}
 	if *mqttTransport {
 		specs = append(specs, mqttTransportDevices()...)

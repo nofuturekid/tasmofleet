@@ -393,3 +393,75 @@ func TestDevenvHelpListsAllowDownloadHost(t *testing.T) {
 		t.Errorf("help does not list -allow-download-host:\n%s", buf.String())
 	}
 }
+
+// Why (#327): the GPIO templates tab needs a fleet that shows every state of it: a group with a majority
+// and one device that differs in a single pin, a tie, a built-in module, an ESP32 group, a device that can
+// be taken offline. The devices must answer Template and Module the way the specs say.
+func TestDevenvTemplateShapes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	go func() {
+		_ = run(ctx, []string{"-fixtures", "../../testdata/fixtures", "-time-scale", "0.02", "-template-shapes"}, pw, io.Discard)
+		_ = pw.Close()
+	}()
+	addr := map[string]string{}
+	re := regexp.MustCompile(`DEVENV_DEVICE name=(\S+) addr=(\S+)`)
+	sc := bufio.NewScanner(pr)
+	for sc.Scan() {
+		if m := re.FindStringSubmatch(sc.Text()); m != nil {
+			addr[m[1]] = m[2]
+		}
+		if sc.Text() == "DEVENV_READY=1" {
+			break
+		}
+	}
+	go io.Copy(io.Discard, pr) //nolint:errcheck // drain
+	ask := func(name, cmnd string) string {
+		t.Helper()
+		a, ok := addr[name]
+		if !ok {
+			t.Fatalf("no device %s in %v", name, addr)
+		}
+		resp, err := http.Get("http://" + a + "/cm?cmnd=" + url.QueryEscape(cmnd))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	gpio := func(name string) []int {
+		var v struct{ GPIO []int }
+		if err := json.Unmarshal([]byte(ask(name, "Template")), &v); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return v.GPIO
+	}
+	// the NOUS group: three alike, one with Led_i1 (320) instead of Relay1 (224) on GPIO14 (slot 10)
+	for _, n := range []string{"tpl-nous-1", "tpl-nous-2", "tpl-nous-3"} {
+		if g := gpio(n); len(g) != 14 || g[10] != 224 {
+			t.Errorf("%s: %v", n, g)
+		}
+	}
+	if g := gpio("tpl-nous-dev"); g[10] != 320 {
+		t.Errorf("tpl-nous-dev: %v", g)
+	}
+	// the tie: 2 + 2
+	a, b := gpio("tpl-tie-1"), gpio("tpl-tie-2")
+	c, d := gpio("tpl-tie-3"), gpio("tpl-tie-4")
+	if fmt.Sprint(a) != fmt.Sprint(b) || fmt.Sprint(c) != fmt.Sprint(d) || fmt.Sprint(a) == fmt.Sprint(c) {
+		t.Errorf("tie group: %v %v %v %v", a, b, c, d)
+	}
+	if got := ask("tpl-builtin", "Module"); !strings.Contains(got, `"1"`) {
+		t.Errorf("tpl-builtin Module: %s", got)
+	}
+	if g := gpio("tpl-esp32-1"); len(g) != 36 {
+		t.Errorf("esp32 template has %d slots", len(g))
+	}
+	for _, n := range []string{"tpl-offline", "tpl-minimal"} {
+		if _, ok := addr[n]; !ok {
+			t.Errorf("missing %s", n)
+		}
+	}
+}
