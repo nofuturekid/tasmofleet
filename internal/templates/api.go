@@ -155,6 +155,9 @@ type Service interface {
 	// Preview re-reads the devices of the request and plans the apply. It never changes a device.
 	Preview(ctx context.Context, req Request) (Preview, error)
 	// Apply rebuilds the preview, compares its digest, and starts one transaction (Parallel 1, backup first).
+	// The context must carry the sign-in method of the actor (ota.WithActorKind(ctx, principal.Method)):
+	// the engine resolves the actor's current role from it before the backup and the send, and a job
+	// without it fails with "not allowed".
 	// Devices the engine refuses (for example an active job) come back as refusals while the others start.
 	Apply(ctx context.Context, actor string, req Request, digest string) (model.BatchID, []Refusal, error)
 }
