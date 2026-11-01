@@ -144,21 +144,50 @@ func templateCardOf(j jobView, base string, names map[model.JobID]string) tmplCa
 	return c
 }
 
-// templateStartOf reads the reference of a template transaction from its start record in the audit
-// log ("policy.template.start"); 0 when it cannot be found.
-func (h *handler) templateRefOf(r *http.Request, batch model.BatchID) model.DeviceID {
+// templateStart is what the start of a template transaction recorded in the audit log
+// ("policy.template.start"): the group, the reference device and how it was chosen.
+type templateStart struct {
+	Group     string `json:"group"`
+	Reference int64  `json:"reference"`
+	How       string `json:"how"`
+}
+
+func (h *handler) templateStartOf(r *http.Request, batch model.BatchID) (templateStart, bool) {
 	if h.d.Audit == nil {
-		return 0
+		return templateStart{}, false
 	}
 	evs, err := h.d.Audit.ListAudit(r.Context(), store.AuditFilter{Target: "transaction:" + bid(batch), ActionPrefix: "policy.template.start", Limit: 1})
 	if err != nil || len(evs) == 0 {
-		return 0
+		return templateStart{}, false
 	}
-	var d struct {
-		Reference int64 `json:"reference"`
+	var d templateStart
+	if json.Unmarshal([]byte(evs[0].Detail), &d) != nil {
+		return templateStart{}, false
 	}
-	if json.Unmarshal([]byte(evs[0].Detail), &d) != nil || d.Reference <= 0 {
-		return 0
+	return d, true
+}
+
+// templateRefOf is the reference device of a template transaction; 0 when it cannot be found.
+func (h *handler) templateRefOf(r *http.Request, batch model.BatchID) model.DeviceID {
+	if d, ok := h.templateStartOf(r, batch); ok && d.Reference > 0 {
+		return model.DeviceID(d.Reference)
 	}
-	return model.DeviceID(d.Reference)
+	return 0
+}
+
+// templateFacts is the part of the header line that names the template and its reference
+// ("Gosund SP111 v1.1, reference tv-plug (chosen) · "); "" when the start record is gone.
+func (h *handler) templateFacts(r *http.Request, batch model.BatchID) string {
+	d, ok := h.templateStartOf(r, batch)
+	if !ok || d.Group == "" {
+		return ""
+	}
+	_, s, _ := strings.Cut(d.Group, " ") // the record holds "<chip family> <template name>"
+	if dev, err := h.d.Inventory.Get(r.Context(), model.DeviceID(d.Reference)); err == nil && d.Reference > 0 {
+		s += ", reference " + dev.Name
+		if d.How == "chosen" {
+			s += " (chosen)"
+		}
+	}
+	return s + " · "
 }

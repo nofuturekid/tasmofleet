@@ -78,6 +78,9 @@ templ gtGroupCard(p gtView, g gtGroup, rank string) {
 					@gtRow(p, g, d)
 				}
 			</ul>
+			if g.Fine != "" {
+				<p class="gt-fine">{ g.Fine }</p>
+			}
 		</div>
 	</section>
 }
