@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nofuturekid/tasmofleet/internal/backup"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/restore"
 	"github.com/nofuturekid/tasmofleet/internal/store"
@@ -64,6 +65,14 @@ type fakeRestore struct {
 	// assessment and error for the confirmation page
 	assess    restore.Assessment
 	assessErr error
+	progress  map[store.RestoreID]restore.FilesProgress
+}
+
+func (f *fakeRestore) FilesProgress(id store.RestoreID) (restore.FilesProgress, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.progress[id]
+	return p, ok
 }
 
 func (f *fakeRestore) Assess(context.Context, model.BackupID) (restore.Assessment, error) {
@@ -491,5 +500,119 @@ func TestRestoreConfirmNamesTheMQTTLockout(t *testing.T) {
 	e.do(t, "POST", "/backups/1/restore", "admin", url.Values{"confirm": {"1"}, "lockout_ok": {"1"}})
 	if len(rs.opts) != 1 || !rs.opts[0].AllowMQTTLockout {
 		t.Errorf("options %+v", rs.opts)
+	}
+}
+
+// filesAssess is an assessment whose backup holds three files and lists one it does not hold.
+func filesAssess() restore.Assessment {
+	return restore.Assessment{Files: restore.FilesPlan{
+		Files: []restore.PlannedFile{
+			{Path: "/autoexec.be", Size: 1200},
+			{Path: "/lib/heating.be", Size: 8600},
+			{Path: "/tlskey", Size: 1200, PrivateKey: true},
+		},
+		Bytes:     11000,
+		NotStored: []backup.ManifestSkip{{Path: "/floorplan.jpg", Size: 1700000, Reason: "larger than 1 MiB"}},
+	}}
+}
+
+// Why (#324): the person confirms with the file list in front of them: what is written first,
+// which one is the private key, what stays because the backup does not hold it, and that nothing
+// is deleted. The acknowledgement names the file count, because it is what they agree to.
+func TestRestoreConfirmShowsTheFilesThatAreWrittenFirst(t *testing.T) {
+	e, _, rs := newDiffEnv(t)
+	rs.assess = filesAssess()
+	_, body := e.do(t, "GET", "/backups/1/restore", "admin", nil)
+	for _, want := range []string{"Files written first (3 files, 10.7 KiB)", "autoexec.be", "lib/heating.be", "Private key", "floorplan.jpg",
+		"Not in the backup", "Nothing on the device is deleted", "its 3 files are written", "The 3 files are written to the device", "cstacks-2", "· 3 files"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(body, "/autoexec.be") {
+		t.Error("file names are shown as Tasmota's file manager shows them, without the leading slash")
+	}
+}
+
+// Why (#324): a restore that cannot write the files (MQTT, no file system) must say so on the
+// page before the confirmation and must not word the acknowledgement as if files were written.
+func TestRestoreConfirmSaysWhenTheFilesAreNotRestored(t *testing.T) {
+	e, _, rs := newDiffEnv(t)
+	a := filesAssess()
+	a.Files.Why = "files need HTTP, and this restore goes over MQTT, so only the settings are restored"
+	rs.assess = a
+	_, body := e.do(t, "GET", "/backups/1/restore", "admin", nil)
+	if !strings.Contains(body, "Files need HTTP, and this restore goes over MQTT") || !strings.Contains(body, "not restored") {
+		t.Errorf("the reason is missing:\n%s", body)
+	}
+	if strings.Contains(body, "are written (files of the same name") || strings.Contains(body, "Files written first") {
+		t.Error("the page promises files that will not be written")
+	}
+}
+
+// Why (#324): the progress page shows the five steps and, beside them, which file the restore is
+// at, so a long files step is not a frozen page.
+func TestRestoreJobPageListsTheFilesWhileTheyAreWritten(t *testing.T) {
+	e, _, rs := newDiffEnv(t)
+	rs.jobs = map[store.RestoreID]restore.Job{
+		1: {ID: 1, DeviceID: 1, BackupID: 1, Actor: "a", State: store.RestoreFiles, Detail: "writing lib/heating.be (2 of 3)", PreBackupID: 4, CreatedAt: time.Now()},
+	}
+	rs.progress = map[store.RestoreID]restore.FilesProgress{1: {Files: []restore.FileProgress{
+		{PlannedFile: restore.PlannedFile{Path: "/autoexec.be", Size: 1200}, State: restore.FileWritten},
+		{PlannedFile: restore.PlannedFile{Path: "/lib/heating.be", Size: 8600}, State: restore.FileWriting},
+		{PlannedFile: restore.PlannedFile{Path: "/tlskey", Size: 1200, PrivateKey: true}, State: restore.FileWaiting},
+	}, Writes: 1, NotStored: []backup.ManifestSkip{{Path: "/floorplan.jpg", Size: 1700000, Reason: "larger than 1 MiB"}}}}
+	_, body := e.do(t, "GET", "/restores/1/status", "admin", nil)
+	for _, want := range []string{"Write the files", "Verify settings and files", "Writing lib/heating.be (2 of 3)", "1 of 3 written", "Written", "Writing", "Waiting", "Private key", "floorplan.jpg", `hx-trigger="every 2s"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q\n%s", want, body)
+		}
+	}
+	if n := strings.Count(body, `class="rs-step `); n != 5 {
+		t.Errorf("%d steps, want 5", n)
+	}
+}
+
+// Why (#324): the finished job keeps what the files step did (and the flash write count) in its
+// Detail, so it is on the page after TasmoFleet restarted and the in-memory file list is gone.
+func TestFinishedRestoreShowsTheFilesSummaryWithoutProgress(t *testing.T) {
+	e, bk, rs := newDiffEnv(t)
+	// the backup taken before the restore holds the device's files too: they can be put back
+	bk.list = append(bk.list, model.Backup{ID: 7, DeviceID: 1, Kind: model.BackupFiles, TakenAt: bk.list[0].TakenAt, Version: "15.6.0"})
+	rs.jobs = map[store.RestoreID]restore.Job{
+		2: {ID: 2, DeviceID: 1, BackupID: 1, Actor: "a", State: store.RestoreDone, Verified: true, PreBackupID: 4, CreatedAt: time.Now(),
+			Detail: "3 files written (3 flash writes)\nrestored; the device's configuration dump is identical to the backup; the 3 files match the backup"},
+		3: {ID: 3, DeviceID: 1, BackupID: 1, Actor: "a", State: store.RestoreDone, Verified: true, PreBackupID: 4, CreatedAt: time.Now(), Detail: "restored; identical"},
+	}
+	_, body := e.do(t, "GET", "/restores/2/status", "admin", nil)
+	for _, want := range []string{"3 files written (3 flash writes)", "the 3 files match the backup", "settings and files from", "4.0 KiB and its files"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "rs-filelist") {
+		t.Error("no per-file list without progress")
+	}
+	_, plain := e.do(t, "GET", "/restores/3/status", "admin", nil)
+	if !strings.Contains(plain, "No files in this backup") || strings.Contains(plain, "settings and files from") {
+		t.Errorf("a restore without files:\n%s", plain)
+	}
+}
+
+// Why (#324): a files failure after the first write changed the device, so the page offers the
+// rollback; one before it changed nothing and says so.
+func TestFilesFailureOffersRollbackOnlyAfterAWrite(t *testing.T) {
+	e, _, rs := newDiffEnv(t)
+	rs.jobs = map[store.RestoreID]restore.Job{
+		1: {ID: 1, DeviceID: 1, BackupID: 1, Actor: "a", State: store.RestoreFailed, PreBackupID: 4, CreatedAt: time.Now(), Detail: "files partly written, settings unchanged: lib/a.be: link lost; lib/a.be was put back as it was"},
+		2: {ID: 2, DeviceID: 1, BackupID: 1, Actor: "a", State: store.RestoreFailed, PreBackupID: 4, CreatedAt: time.Now(), Detail: "the files could not be written, the device is unchanged: device busy"},
+	}
+	_, partly := e.do(t, "GET", "/restores/1/status", "admin", nil)
+	if !strings.Contains(partly, "/backups/4/restore") || !strings.Contains(partly, "roll back") {
+		t.Errorf("partly written must offer the rollback:\n%s", partly)
+	}
+	_, none := e.do(t, "GET", "/restores/2/status", "admin", nil)
+	if strings.Contains(none, "/backups/4/restore") || !strings.Contains(none, "Nothing was changed") {
+		t.Errorf("an unchanged device must not offer a rollback:\n%s", none)
 	}
 }

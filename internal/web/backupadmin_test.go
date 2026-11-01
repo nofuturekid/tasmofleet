@@ -286,3 +286,33 @@ func TestBackupRowNamesTheStoredFileAndDownloadHoverRepeatsIt(t *testing.T) {
 		t.Error("only the file name is shown, not the directory path")
 	}
 }
+
+// Why (#324): the replacement preview shows the files before the person confirms: which are written
+// first (the private key marked), which the backup does not hold, and the acknowledgement names
+// the file count. A backup without files must not mention files at all.
+func TestReplacePreviewListsTheFilesAndAcknowledgesThem(t *testing.T) {
+	e, ab, rr := newAdminEnv(t)
+	rr.preview.Files = restore.FilesPlan{
+		Files: []restore.PlannedFile{{Path: "/autoexec.be", Size: 1200}, {Path: "/tlskey", Size: 1200, PrivateKey: true}},
+		Bytes: 2400, NotStored: []backup.ManifestSkip{{Path: "/floorplan.jpg", Size: 1700000, Reason: "larger than 1 MiB"}},
+	}
+	rr.preview.DumpFiles = map[model.BackupID]string{ab.list[0].ID: "2 files"}
+	_, body := e.do(t, "GET", "/devices/1/replace/preview?address=10.0.0.9", "admin", nil)
+	flat := strings.ReplaceAll(body, "<wbr>", "")
+	for _, want := range []string{"Files (2, written first)", "autoexec.be", "Private key", "floorplan.jpg (1.6 MiB)", "Over 1 MiB: listed in the backup, not stored",
+		"Copy the files of its filesystem", "receives the 2 files and the configuration", "2 files · newest"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	rr.preview.Files = restore.FilesPlan{}
+	_, plain := e.do(t, "GET", "/devices/1/replace/preview?address=10.0.0.9", "admin", nil)
+	if strings.Contains(plain, "written first") || strings.Contains(plain, "filesystem") {
+		t.Errorf("a backup without files must not mention files:\n%s", plain)
+	}
+	rr.preview.Files = restore.FilesPlan{Files: []restore.PlannedFile{{Path: "/autoexec.be", Size: 10}}, Why: "the device has no flash file system, so only the settings are restored"}
+	_, off := e.do(t, "GET", "/devices/1/replace/preview?address=10.0.0.9", "admin", nil)
+	if strings.Contains(off, "written first") || !strings.Contains(off, "no flash file system") {
+		t.Errorf("files that cannot be written must say why:\n%s", off)
+	}
+}

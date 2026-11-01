@@ -42,7 +42,7 @@ templ replaceTab(v replaceView) {
 				}
 			</div>
 			<div class="rp-checks" title="The whole configuration dump is restored, so these always come along.">
-				for _, c := range []string{"Copy name, topic and MQTT settings", "Copy rules, timers and PowerOnState", "Copy Wi-Fi credentials (the passwords come along, not shown)", "Keep the entry: its name, tags, notes and history stand for the new device"} {
+				for _, c := range v.Checks {
 					<label class="ucheck"><input type="checkbox" checked disabled/><span>{ c }</span></label>
 				}
 				<span class="sr-only">The whole configuration dump is restored, so these always come along.</span>
@@ -63,8 +63,14 @@ templ replaceTab(v replaceView) {
 			<div class="rp-preview">
 				<section class="rp-box">
 					<div class="rp-box-h">Copied to the new device</div>
-					for _, x := range v.Copied {
+					for i, x := range v.Copied {
+						if v.Files != nil && i == v.Files.At {
+							@replaceFilesRow(v.Files)
+						}
 						<div class="rp-kv"><span>{ x.Key }</span><span class={ templ.KV("mono", x.Mono) }>@ui.Soft(x.Value)</span></div>
+					}
+					if v.Files != nil && v.Files.At >= len(v.Copied) {
+						@replaceFilesRow(v.Files)
 					}
 				</section>
 				<section class="rp-box">
@@ -128,5 +134,24 @@ templ replaceAddress(v replaceView, required bool) {
 			<span class="ufield-label">Port</span>
 			<input name="port" value={ v.Port } inputmode="numeric" placeholder="80"/>
 		</label>
+	</div>
+}
+
+// replaceFilesRow is the list of files the replacement writes first, as one row of the preview.
+templ replaceFilesRow(f *replaceFiles) {
+	<div class="rp-kv rp-files">
+		<span>{ f.Key }</span>
+		<span class="mono">
+			for j, n := range f.Names {
+				if j > 0 {
+					{ ", " }
+				}
+				@ui.Soft(n.Name)
+				if n.PrivateKey {
+					{ " " }
+					<span class="bdg t-warn" title={ privateKeyTip }>Private key</span>
+				}
+			}
+		</span>
 	</div>
 }

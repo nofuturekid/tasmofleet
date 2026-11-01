@@ -59,7 +59,7 @@ test("admin restores a backup; the job ends verified; the token is spent", { tag
   await expect(page.locator("#restore-status")).toContainText("Restore finished.", { timeout: 90_000 });
   await expect(page.locator("#restore-status")).toContainText("Verified");
   // every step is ticked off
-  await expect(page.locator("#restore-status .rs-step.is-done")).toHaveCount(4);
+  await expect(page.locator("#restore-status .rs-step.is-done")).toHaveCount(5);
 
   // the firmware listener knows no other restore URL
   const probe = await request.get(`http://127.0.0.1:${fwPort}/restore/${"0".repeat(32)}`);

@@ -22,6 +22,8 @@ type RestoreService interface {
 	Assess(ctx context.Context, backup model.BackupID) (restore.Assessment, error)
 	Get(ctx context.Context, id store.RestoreID) (restore.Job, error)
 	List(ctx context.Context, device model.DeviceID, limit int) ([]restore.Job, error)
+	// FilesProgress is the per-file progress of a job the service ran in this process (#324).
+	FilesProgress(id store.RestoreID) (restore.FilesProgress, bool)
 }
 
 func (h *handler) registerRestore(route func(string, func(http.Handler) http.Handler, http.HandlerFunc), adm func(http.Handler) http.Handler) {
@@ -50,6 +52,7 @@ type confirmPage struct {
 	Detail      string // why the risks above apply
 	ViaMQTT     bool   // the restore goes over MQTT (FileUpload)
 	PathNote    string // how it reaches the device, as the transport choice words it
+	Files       restore.FilesPlan
 }
 
 // confirmData fills the page shared by the GET and the refusals. The live
@@ -72,6 +75,7 @@ func (h *handler) confirmData(r *http.Request, b model.Backup, d model.Device) c
 	p.NeedMajor, p.NeedFamily, p.NeedLockout, p.MACUnknown, p.Detail = a.Major, a.Family, a.Lockout, a.MACUnknown, a.Detail
 	p.LiveMAC, p.LiveAddr, p.LiveChip = a.LiveMAC, a.Address, a.Chip
 	p.ViaMQTT, p.PathNote = a.ViaMQTT, a.PathNote
+	p.Files = a.Files
 	return p
 }
 
@@ -268,8 +272,8 @@ func (h *handler) restoreJob(w http.ResponseWriter, r *http.Request) {
 	case !ok:
 		h.notFound(w, r)
 	default:
-		target, pre := h.jobBackups(r, p.Job)
-		jv := restoreJobOf(p.Base, p, target, pre)
+		target, pre, preFiles := h.jobBackups(r, p.Job)
+		jv := restoreJobOf(p.Base, p, target, pre, preFiles, h.filesProgress(p.Job.ID))
 		v := h.view(r, jv.Title, "devices", nil)
 		v.Crumbs = []ui.Crumb{{Label: "Devices", Path: "/devices"}, {Label: p.Device.Name, Path: fmt.Sprintf("/devices/%d", p.Device.ID)}, {Label: lastCrumb(p.Job)}}
 		h.show(w, r, http.StatusOK, "restore_job", v, restoreJobPage(jv))
@@ -292,7 +296,15 @@ func (h *handler) restoreStatus(w http.ResponseWriter, r *http.Request) {
 	case !ok:
 		h.notFound(w, r)
 	default:
-		target, pre := h.jobBackups(r, p.Job)
-		_ = writeComponent(w, r, http.StatusOK, restoreStatusBody(restoreJobOf(p.Base, p, target, pre))) // a failed write means the client went away
+		target, pre, preFiles := h.jobBackups(r, p.Job)
+		_ = writeComponent(w, r, http.StatusOK, restoreStatusBody(restoreJobOf(p.Base, p, target, pre, preFiles, h.filesProgress(p.Job.ID)))) // a failed write means the client went away
 	}
+}
+
+// filesProgress is the per-file progress of a job, nil when this process did not run it.
+func (h *handler) filesProgress(id store.RestoreID) *restore.FilesProgress {
+	if p, ok := h.d.Restore.FilesProgress(id); ok {
+		return &p
+	}
+	return nil
 }

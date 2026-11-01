@@ -13033,9 +13033,9 @@ main.bare {
   color: var(--color-text-2);
 }
 
-/* restore: the confirmation and the progress, one 820 px column */
+/* restore: the confirmation and the progress, the full content width in two card stacks (#324, #419) */
 .rs-page {
-  max-width: 820px;
+  max-width: none;
   display: flex;
   flex-direction: column;
   gap: var(--sp-14);
@@ -13097,7 +13097,8 @@ main.bare {
   gap: 3px;
 }
 .rs-path,
-.rs-cred {
+.rs-cred,
+.rs-fnote {
   margin: 0;
   font-size: 12.5px;
   color: var(--color-text-2);
@@ -13187,6 +13188,68 @@ main.bare {
   margin-top: 1px;
   font-size: 12.5px;
   color: var(--color-text-2);
+}
+
+.rp-files .bdg {
+  margin-left: 4px;
+}
+
+/* restore (#324): the files list (confirmation card, progress card) */
+.rs-fl {
+  display: flex;
+  flex-direction: column;
+}
+.rs-fl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 2px var(--sp-12);
+  padding: 6px 0;
+  border-top: var(--hair-w) solid var(--color-border);
+  font-size: 12.5px;
+}
+.rs-fl-row:first-child {
+  border-top: 0;
+}
+.rs-fl-path {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.rs-fl-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.rs-fl-size {
+  font-family: var(--font-mono);
+  color: var(--color-text-2);
+  text-align: right;
+  min-width: 64px;
+}
+.rs-fl-why {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--color-text-2);
+}
+.rs-fl-row.is-stays .rs-fl-path {
+  color: var(--color-text-2);
+}
+.rs-files > .rs-fl {
+  padding: 0 var(--sp-16);
+}
+.rs-files-foot {
+  border-top: var(--hair-w) solid var(--color-border);
+}
+.rs-filelist .rs-fl {
+  padding: 0 var(--sp-14) var(--sp-6);
+}
+.ulist-meta {
+  font-size: 12.5px;
+  color: var(--color-text-2);
+}
+.rs-what .rs-steps-text {
+  margin-bottom: 2px;
 }
 
 /* Replace device: one 820 px card */

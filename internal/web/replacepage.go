@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/a-h/templ"
 
@@ -34,10 +35,19 @@ type replaceView struct {
 	Copied     []ui.KVRow
 	NotCopied  []ui.KVRow // Key: what, Value: why
 	Warnings   []string
-	Hidden     []ui.KVRow // the confirmed form's fields
+	Files      *replaceFiles // the files row among the copied items; nil without files to write
+	Checks     []string      // the always-on copy options
+	Hidden     []ui.KVRow    // the confirmed form's fields
 	Ack        string
 	StartHref  string
 	CancelHref string
+}
+
+// replaceFiles is the "Files (6, written first)" row of the preview, shown after the Wi-Fi row.
+type replaceFiles struct {
+	Key   string
+	At    int // index in Copied before which the row is shown
+	Names []fileRowView
 }
 
 // targetValue is a candidate as the select sends it.
@@ -58,6 +68,8 @@ func (h *handler) renderReplace(w http.ResponseWriter, r *http.Request, status i
 		rv.Error, rv.Missing = "", true
 	}
 	rv.Head = deviceHeader(h.tabsOf(r, v, d, "replace"))
+	rv.Checks = []string{"Copy name, topic and MQTT settings", "Copy rules, timers and PowerOnState", "Copy Wi-Fi credentials (the passwords come along, not shown)",
+		"Keep the entry: its name, tags, notes and history stand for the new device"}
 	rv.OldLine = d.Address
 	if d.Identity.Family != "" {
 		rv.OldLine += " · " + string(d.Identity.Family)
@@ -95,6 +107,9 @@ func (h *handler) renderReplace(w http.ResponseWriter, r *http.Request, status i
 		if b.Version != "" {
 			label += " · Tasmota " + b.Version
 		}
+		if p.Preview != nil && p.Preview.DumpFiles[b.ID] != "" {
+			label += " · " + p.Preview.DumpFiles[b.ID]
+		}
 		if i == 0 {
 			label += " · newest"
 		}
@@ -116,11 +131,30 @@ func (h *handler) renderReplace(w http.ResponseWriter, r *http.Request, status i
 		} else {
 			rv.Copied = append(rv.Copied, ui.KVRow{Key: "Settings", Value: "the whole configuration (this backup has no decoded copy, so the details cannot be shown)"})
 		}
-		rv.NotCopied = []ui.KVRow{
-			{Key: "MAC address", Value: "Belongs to the hardware: the entry records " + pv.New.MAC},
-			{Key: "Firmware", Value: "The new device keeps Tasmota " + pv.New.Identity.Version},
-			{Key: "Its factory configuration", Value: "Backed up first, so it can be put back"},
+		rv.NotCopied = []ui.KVRow{{Key: "MAC address", Value: "Belongs to the hardware: the entry records " + pv.New.MAC}}
+		nFiles := len(pv.Files.Files)
+		if pv.Files.Restores() {
+			rv.Files = &replaceFiles{Key: fmt.Sprintf("Files (%d, written first)", nFiles), At: len(rv.Copied) - 1}
+			if !c.Known {
+				rv.Files.At = len(rv.Copied)
+			}
+			for _, f := range pv.Files.Files {
+				rv.Files.Names = append(rv.Files.Names, fileRowView{Name: f.Name(), PrivateKey: f.PrivateKey})
+			}
+			rv.Checks = append(rv.Checks[:3:3], "Copy the files of its filesystem (autoexec.be, Berry scripts, display.ini, Zigbee data, TLS key)", rv.Checks[3])
+		} else if nFiles > 0 {
+			rv.NotCopied = append(rv.NotCopied, ui.KVRow{Key: fmt.Sprintf("Files (%d)", nFiles), Value: sentence(pv.Files.Why)})
 		}
+		for _, n := range pv.Files.NotStored {
+			why := "Listed in the backup, not stored (" + strings.ToLower(n.Reason) + "). Copy it in the device's file manager if you need it."
+			if strings.Contains(n.Reason, "1 MiB") {
+				why = "Over 1 MiB: listed in the backup, not stored. Copy it in the device's file manager if you need it."
+			}
+			rv.NotCopied = append(rv.NotCopied, ui.KVRow{Key: strings.TrimPrefix(n.Path, "/") + " (" + humanBytes(n.Size) + ")", Value: why})
+		}
+		rv.NotCopied = append(rv.NotCopied,
+			ui.KVRow{Key: "Firmware", Value: "The new device keeps Tasmota " + pv.New.Identity.Version},
+			ui.KVRow{Key: "Its factory configuration", Value: "Backed up first, so it can be put back"})
 		rv.Warnings = append(rv.Warnings, "The old device must stay switched off from now on: the new one carries the same hostname, MQTT topic and (if static) IP address. The old credentials come back on the new device. The download is plain HTTP on your device network.")
 		if pv.Detail != "" {
 			rv.Warnings = append(rv.Warnings, sentence(pv.Detail))
@@ -136,7 +170,11 @@ func (h *handler) renderReplace(w http.ResponseWriter, r *http.Request, status i
 		if pv.Old.MAC != "" {
 			old = pv.Old.MAC
 		}
-		ack := "I understand that the new device (" + pv.New.MAC + ") is backed up first, then receives the configuration of the backup of " + shortDate(pv.Backup.TakenAt) + " and restarts, that " + d.Name + " then stands for it instead of " + old + ", and that the old credentials come back"
+		receives := "the configuration"
+		if pv.Files.Restores() {
+			receives = "the " + filesPlural(nFiles) + " and the configuration"
+		}
+		ack := "I understand that the new device (" + pv.New.MAC + ") is backed up first, then receives " + receives + " of the backup of " + shortDate(pv.Backup.TakenAt) + " and restarts, that " + d.Name + " then stands for it instead of " + old + ", and that the old credentials come back"
 		if pv.Major {
 			ack += "; that the backup is from another firmware major version"
 		}

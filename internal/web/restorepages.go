@@ -7,6 +7,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/nofuturekid/tasmofleet/internal/backup"
 	"github.com/nofuturekid/tasmofleet/internal/model"
 	"github.com/nofuturekid/tasmofleet/internal/restore"
 	"github.com/nofuturekid/tasmofleet/internal/store"
@@ -33,10 +34,64 @@ type restoreConfirmView struct {
 	Path       string     // how the restore reaches the device
 	Cred       string     // the sentence about old credentials and the transfer
 	CancelHref string
+	// Files (#324)
+	Files     *filesCard // the backup's files; nil when it has none to show
+	FilesNote string     // the backup holds no files, and why
+	FilesWarn string     // files exist in the backup but this restore does not write them
+	StepsText []string   // the "What happens" list
 }
 
+// filesCard is the list of files on the confirmation page.
+type filesCard struct {
+	Title string
+	Rows  []fileRowView
+	Foot  string
+}
+
+// fileRowView is one line of a file list (confirmation page, progress page).
+type fileRowView struct {
+	Name       string
+	Size       string
+	PrivateKey bool
+	State      string // badge label; empty on the confirmation page
+	Tone       ui.Tone
+	Why        string // second line
+	Stays      bool   // a file that stays as it is on the device
+}
+
+const privateKeyTip = "TLS private key: the content is never shown, the archive is admin only"
+
+// fileRowsOf lists what a plan writes, then the files the backup does not hold.
+func fileRowsOf(plan restore.FilesPlan) []fileRowView {
+	var rows []fileRowView
+	for _, f := range plan.Files {
+		rows = append(rows, fileRowView{Name: f.Name(), Size: humanBytes(f.Size), PrivateKey: f.PrivateKey, Why: fileWhy(f.Name())})
+	}
+	for _, n := range plan.NotStored {
+		rows = append(rows, notStoredRow(n))
+	}
+	return rows
+}
+
+func notStoredRow(n backup.ManifestSkip) fileRowView {
+	return fileRowView{Name: strings.TrimPrefix(n.Path, "/"), Size: humanBytes(n.Size), PrivateKey: n.PrivateKey, State: "Not in the backup", Tone: ui.ToneNeutral, Stays: true,
+		Why: "Not in the backup (" + lowerFirst(strings.Replace(n.Reason, "larger than", "over", 1)) + "): the file on the device stays as it is"}
+}
+
+// fileWhy explains the files whose name alone does not say what they are.
+func fileWhy(name string) string {
+	switch name {
+	case "zbdata", "zb", "zbv4":
+		return "Zigbee device data"
+	}
+	return ""
+}
+
+// filesPlural words "6 files".
+func filesPlural(n int) string { return plural(n, "file") }
+
 // backupSub is the line under the restore title: device, backup date, trigger, firmware, size.
-func backupSub(name string, b model.Backup) string {
+func backupSub(name string, b model.Backup, files int) string {
 	parts := []string{name, "backup from " + shortDate(b.TakenAt)}
 	if t := triggerShort(b.Trigger); t != "" {
 		parts = append(parts, t)
@@ -44,12 +99,16 @@ func backupSub(name string, b model.Backup) string {
 	if b.Version != "" {
 		parts = append(parts, "Tasmota "+b.Version)
 	}
-	return strings.Join(append(parts, humanBytes(b.Size)), " · ")
+	parts = append(parts, humanBytes(b.Size))
+	if files > 0 {
+		parts = append(parts, filesPlural(files))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // restoreConfirmOf turns the checked restore (confirmPage) into the page's view.
 func restoreConfirmOf(v view, p confirmPage) restoreConfirmView {
-	c := restoreConfirmView{Sub: backupSub(p.Device.Name, p.Backup), Refused: p.Refused, HasPreview: p.HasPreview,
+	c := restoreConfirmView{Sub: backupSub(p.Device.Name, p.Backup, len(p.Files.Files)), Refused: p.Refused, HasPreview: p.HasPreview,
 		Action: fmt.Sprintf("%s/backups/%d/restore", v.Base, p.Backup.ID), CSRF: v.CSRF,
 		CancelHref: fmt.Sprintf("%s/devices/%d/backups", v.Base, p.Device.ID)}
 	if p.Error == needConfirm {
@@ -102,7 +161,34 @@ func restoreConfirmOf(v view, p confirmPage) restoreConfirmView {
 	if p.NeedLockout {
 		c.Hidden = append(c.Hidden, ui.KVRow{Key: "lockout_ok", Value: "1"})
 	}
+	c.StepsText = []string{
+		"TasmoFleet backs up the current state first, so you can undo this.",
+		"The backup is uploaded and the device restarts (relays switch off for a few seconds).",
+		"Settings are read back and compared with the backup.",
+	}
 	ack := "I understand that " + p.Device.Name + " restarts, its configuration is replaced by this backup and the old credentials (Wi-Fi, MQTT, web password) come back"
+	if n := len(p.Files.Files); n > 0 {
+		stored := fmt.Sprintf("%s, %s", filesPlural(n), humanBytes(p.Files.Bytes))
+		card := &filesCard{Rows: fileRowsOf(p.Files)}
+		if p.Files.Restores() {
+			card.Title = "Files written first (" + stored + ")"
+			card.Foot = "Files first, then the settings, one restart. Files of the same name are replaced. Nothing on the device is deleted: files that are not in the backup stay as they are."
+			c.StepsText = []string{
+				"TasmoFleet backs up the current state first, with its files, so you can undo this.",
+				fmt.Sprintf("The %s are written to the device's filesystem.", filesPlural(n)),
+				"The backup is uploaded and the device restarts (relays switch off for a few seconds).",
+				"Settings and files are read back and compared with the backup.",
+			}
+			ack = "I understand that " + p.Device.Name + " restarts, its configuration is replaced by this backup, its " + filesPlural(n) + " are written (files of the same name are replaced) and the old credentials (Wi-Fi, MQTT, web password) come back"
+		} else {
+			card.Title = "Files in this backup (" + stored + "): not restored"
+			card.Foot = "Nothing on the device is deleted or changed."
+			c.FilesWarn = sentence(p.Files.Why)
+		}
+		c.Files = card
+	} else if p.Files.Note != "" {
+		c.FilesNote = "This backup holds no files (" + p.Files.Note + ")."
+	}
 	if p.MACUnknown {
 		ack += "; that MAC " + p.LiveMAC + " is recorded as its identity"
 	}
@@ -159,25 +245,32 @@ type restoreJobView struct {
 	RetryHref    string
 	BackHref     string
 	DeviceHref   string // a finished replace: open the device
+	// The files list beside the steps (#324); empty when this process did not run the job or it had no files.
+	FilesMeta string // "2 of 6 written"
+	FileRows  []fileRowView
 }
 
 // restoreJobOf builds the progress view of a job.
-func restoreJobOf(base string, p jobPage, target, pre model.Backup) restoreJobView {
+func restoreJobOf(base string, p jobPage, target, pre model.Backup, preFiles bool, prog *restore.FilesProgress) restoreJobView {
 	j := p.Job
 	replace := j.Kind == store.KindReplace
 	v := restoreJobView{Title: "Restore backup", StatusURL: fmt.Sprintf("%s/restores/%d/status", base, j.ID),
 		Running: !p.Terminal, Done: j.State == store.RestoreDone, Failed: j.State == store.RestoreFailed,
 		BackHref: fmt.Sprintf("%s/devices/%d/backups", base, j.DeviceID)}
+	nFiles := 0
+	if prog != nil {
+		nFiles = len(prog.Files)
+	}
 	if target.ID != 0 {
-		v.Sub = backupSub(p.Device.Name, target)
+		v.Sub = backupSub(p.Device.Name, target, nFiles)
 	} else {
 		v.Sub = fmt.Sprintf("%s · backup #%d", p.Device.Name, j.BackupID)
 	}
-	labels := [4]string{"Back up the current state", "Upload the backup to the device", "Restart and wait for the device", "Verify settings"}
+	labels := [5]string{"Back up the current state", "Write the files", "Upload the backup to the device", "Restart and wait for the device", "Verify settings and files"}
 	if replace {
 		v.Title = "Replace device"
 		v.Sub = fmt.Sprintf("%s · onto the new device %s", p.Device.Name, j.NewMAC)
-		labels = [4]string{"Back up the new device", "Upload the backup to the new device", "Restart and wait for the new device", "Verify settings and take over the entry"}
+		labels = [5]string{"Back up the new device", "Write the files", "Upload the backup to the new device", "Restart and wait for the new device", "Verify settings and files and take over the entry"}
 	}
 	step := restore.Step(j)
 	for i, l := range labels {
@@ -188,6 +281,8 @@ func restoreJobOf(base string, p jobPage, target, pre model.Backup) restoreJobVi
 			s.State = "done"
 		case n == step && v.Failed:
 			s.State, s.Detail = "failed", sentence(j.Detail)
+		case n == step && n == restore.StepFiles:
+			s.State, s.Detail = "active", upperFirst(j.Detail) // "Writing lib/x.be (3 of 6)"
 		case n == step:
 			s.State, s.Detail = "active", sentence(j.Detail)
 		}
@@ -196,10 +291,15 @@ func restoreJobOf(base string, p jobPage, target, pre model.Backup) restoreJobVi
 			case restore.StepBackup:
 				if pre.ID != 0 {
 					s.Detail = "Saved " + shortDate(pre.TakenAt) + " · " + humanBytes(pre.Size)
+					if preFiles {
+						s.Detail += " and its files"
+					}
 					if t := backupTriggerText(pre.Trigger, pre.TriggerRef); t != "" {
 						s.Detail += " · labelled “" + t + "”"
 					}
 				}
+			case restore.StepFiles:
+				s.Detail = filesStepDetail(j.Detail, prog)
 			case restore.StepUpload:
 				if target.ID != 0 {
 					s.Detail = humanBytes(target.Size) + " uploaded over " + map[bool]string{true: "MQTT", false: "HTTP"}[j.Transport == model.TransportMQTT]
@@ -207,7 +307,8 @@ func restoreJobOf(base string, p jobPage, target, pre model.Backup) restoreJobVi
 			case restore.StepRestart:
 				s.Detail = "Back online"
 			case restore.StepVerify:
-				s.Detail = sentence(j.Detail)
+				_, rest := restore.SplitDetail(j.Detail)
+				s.Detail = sentence(rest)
 			}
 		}
 		v.Steps = append(v.Steps, s)
@@ -220,25 +321,51 @@ func restoreJobOf(base string, p jobPage, target, pre model.Backup) restoreJobVi
 	case v.Done && replace:
 		v.Lead = what + " finished."
 		v.Banner = p.Device.Name + " now stands for the new device (" + j.NewMAC + ")."
+		if restore.FilesWritten(j.Detail) {
+			v.Banner += " Its files and settings are those from " + shortDate(target.TakenAt) + "."
+		}
 		v.DeviceHref = fmt.Sprintf("%s/devices/%d", base, j.DeviceID)
 	case v.Done:
 		v.Lead = what + " finished."
-		v.Banner = "The device is back online with the settings from " + shortDate(target.TakenAt) + "."
-		if j.Verified {
-			v.Banner += " Verified: the device holds the restored configuration."
+		withFiles := restore.FilesWritten(j.Detail)
+		what := "settings"
+		if withFiles {
+			what = "settings and files"
 		}
-	case v.Failed && pre.ID != 0 && step > restore.StepUpload:
-		// Only a failure after the upload may have changed the device; before it, the
-		// failure text says nothing was changed and there is nothing to roll back.
+		v.Banner = "The device is back online with the " + what + " from " + shortDate(target.TakenAt) + "."
+		if j.Verified {
+			v.Banner += " Verified: the device holds the restored configuration"
+			if withFiles && prog != nil {
+				v.Banner += " and all " + filesPlural(prog.Count(restore.FileWritten)+prog.Count(restore.FileSame))
+			}
+			v.Banner += "."
+		}
+	case v.Failed && pre.ID != 0 && (step > restore.StepUpload || restore.FilesChanged(j.Detail)):
+		// Only a failure after the upload (or after files were written) may have changed the device;
+		// before, the failure text says nothing was changed and there is nothing to roll back.
 		v.Lead = what + " failed."
-		v.Banner = "The state before was backed up at " + ui.StampText(pre.TakenAt, ui.StampClock) + " before anything changed, so you can roll back."
+		v.Banner = "The state before was backed up at " + shortDate(pre.TakenAt) + " before anything changed, so you can roll back."
 		if !replace {
 			v.RollbackHref = fmt.Sprintf("%s/backups/%d/restore", base, pre.ID)
-			v.RollbackText = "Restore the " + ui.StampText(pre.TakenAt, ui.StampClock) + " backup"
+			v.RollbackText = "Restore the " + shortDate(pre.TakenAt) + " backup"
 		}
 	case v.Failed:
 		v.Lead = what + " failed."
 		v.Banner = "Nothing was changed on the device."
+	}
+	if prog != nil && len(prog.Files) > 0 {
+		v.FilesMeta = fmt.Sprintf("%d of %d written", prog.Count(restore.FileWritten)+prog.Count(restore.FileSame), len(prog.Files))
+		for _, f := range prog.Files {
+			v.FileRows = append(v.FileRows, progressRow(f))
+		}
+		for _, n := range prog.NotStored {
+			r := notStoredRow(n)
+			r.Why = "Over 1 MiB: not stored, so the restore leaves the file on the device as it is"
+			if !strings.Contains(n.Reason, "1 MiB") {
+				r.Why = "Not stored (" + n.Reason + "), so the restore leaves the file on the device as it is"
+			}
+			v.FileRows = append(v.FileRows, r)
+		}
 	}
 	if v.Failed && !replace {
 		v.RetryHref = fmt.Sprintf("%s/backups/%d/restore", base, j.BackupID)
@@ -248,11 +375,11 @@ func restoreJobOf(base string, p jobPage, target, pre model.Backup) restoreJobVi
 
 // jobBackups looks up the restored backup and the one taken before the restore (zero when
 // gone or not taken yet). A failed read only costs the details.
-func (h *handler) jobBackups(r *http.Request, j restore.Job) (target, pre model.Backup) {
+func (h *handler) jobBackups(r *http.Request, j restore.Job) (target, pre model.Backup, preFiles bool) {
 	list, err := h.d.Backups.List(r.Context(), j.DeviceID)
 	if err != nil {
 		h.log.WarnContext(r.Context(), "restore page: backups", "err", err)
-		return target, pre
+		return target, pre, false
 	}
 	for _, b := range list {
 		switch b.ID {
@@ -262,7 +389,12 @@ func (h *handler) jobBackups(r *http.Request, j restore.Job) (target, pre model.
 			pre = b
 		}
 	}
-	return target, pre
+	for _, b := range list { // the backup taken before also holds the device's files (they can be put back)
+		if b.Kind == model.BackupFiles && pre.ID != 0 && b.TakenAt.Equal(pre.TakenAt) {
+			preFiles = true
+		}
+	}
+	return target, pre, preFiles
 }
 
 // writeComponent answers with one component (an htmx fragment).
@@ -271,4 +403,50 @@ func writeComponent(w http.ResponseWriter, r *http.Request, status int, c templ.
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	return c.Render(r.Context(), w)
+}
+
+// filesStepDetail is the line under the finished files step: what the step did, kept in the job's
+// Detail, plus the files the backup does not hold.
+func filesStepDetail(detail string, prog *restore.FilesProgress) string {
+	files, _ := restore.SplitDetail(detail)
+	if files == "" {
+		return "No files in this backup"
+	}
+	files = upperFirst(files)
+	if prog != nil && len(prog.NotStored) > 0 {
+		if len(prog.NotStored) == 1 {
+			files += " · " + strings.TrimPrefix(prog.NotStored[0].Path, "/") + " is not in the backup and stays as it is"
+		} else {
+			files += " · " + filesPlural(len(prog.NotStored)) + " are not in the backup and stay as they are"
+		}
+	}
+	return files
+}
+
+// progressRow is a file of the files step with its state.
+func progressRow(f restore.FileProgress) fileRowView {
+	r := fileRowView{Name: f.Name(), Size: humanBytes(f.Size), PrivateKey: f.PrivateKey, Why: fileWhy(f.Name())}
+	switch f.State {
+	case restore.FileWriting:
+		r.State, r.Tone = "Writing", ui.ToneAccent
+	case restore.FileWritten:
+		r.State, r.Tone = "Written", ui.ToneOK
+	case restore.FileSame:
+		r.State, r.Tone = "Already the same", ui.ToneNeutral
+	case restore.FileSkipped:
+		r.State, r.Tone, r.Why = "Skipped", ui.ToneWarn, upperFirst(f.Why)
+	case restore.FileFailed:
+		r.State, r.Tone = "Failed", ui.ToneDanger
+	case restore.FileWaiting:
+		r.State, r.Tone = "Waiting", ui.ToneNeutral
+	}
+	return r
+}
+
+// lowerFirst makes the first letter lower case, nothing else ("Over 1 MiB" -> "over 1 MiB").
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }

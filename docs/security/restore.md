@@ -92,6 +92,20 @@ found again; the job fails after the timeout and the entry is not changed. Add
 the board's real address to the entry by hand (or repeat the replace with the
 board at the entry's address).
 
+## Files of the backup (0.26.0, #324)
+
+Restore and replace write the files of a backup's files archive (spec 12.1) to the device's flash file
+system before the settings. Code: `internal/restore/files.go`. The archive is secret like the `.dmp`.
+
+| ID  | Invariant |
+| --- | --------- |
+| R29 | Files are written over HTTP only (`GET /ufsd` + `POST /ufsu` under one per-device lock hold, Basic auth as for `/dl`); never over MQTT, never to the SD card. A restore over MQTT, a device without a flash file system or with firmware older than 14.6.0 restores settings only, and the confirmation page says so before the confirmation. |
+| R30 | The identity (Status 5) is checked right before the first file, after the safety backup: files of one device never go to another one. The archive is verified before use (`backup.ParseFilesArchive`: manifest first, every path through `tasmota.CheckFSPath`, size and SHA-256 per file); a damaged archive writes nothing and is said on the page. |
+| R31 | Nothing on the device is deleted. Only files in the archive are written; a file is replaced only after its current content was read (at most 1 MiB) and kept, and a file whose content already equals the archive's is not written. A file that cannot be read first is not overwritten. |
+| R32 | Every upload is a flash write: files go one after the other, an upload is never retried in a loop, and the finished job states the number of flash writes (put-backs included). A failed upload is followed by exactly one put-back of the old file; when that fails the job says "FILE LOST" with the name. |
+| R33 | A failure of the files step sends no settings: the job ends "files partly written, settings unchanged" with the step marked. A folder missing on the device skips its files with a stated reason and does not fail the job. |
+| R34 | File contents are never in a log line, an error, a job detail, an audit record or a page; only names, sizes, counts and badges (`tlskey` is marked "private key"). |
+
 ## Diff and drift views
 
 | ID  | Invariant                                                                                                                                                                                                                                                                           |

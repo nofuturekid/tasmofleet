@@ -1453,6 +1453,47 @@ shows the decoded secrets. The diff/drift view redacts keys matching
   `RebootTimeout` (3 minutes). A lost "Done" is an unknown outcome and is checked on the device, never
   uploaded again. Error 1 marks the device's MQTT password bad. The job records its transport and the
   confirmation page names the path.
+- Restore and replace put the files back (0.26.0, #324). When the backup run holds a files archive
+  (§12.1), a restore or replace writes its files to the device's flash file system **before** the settings,
+  so the one restart of the settings restore already loads `autoexec.be` and the Berry scripts. A new step
+  ("Write the files", job state `files`, step 2 of 5) sits between the safety backup and the upload; a
+  backup without files, or a restore that cannot write them, passes it at once. Rules:
+  - HTTP only: Tasmota has no file transfer over MQTT. A restore routed over MQTT, a device without a flash
+    file system and firmware older than 14.6.0 put back the settings only; the confirmation page says so
+    before the person confirms (`restore.Assessment.Files.Why`), and so does the finished job.
+    A damaged or missing archive is the same: settings only, said on the page. The device is asked
+    (`UfsType`, `Ufs`, `Status 2`) only for a backup that has files.
+  - Nothing on the device is deleted. Only files in the archive are written; files the device has and the
+    archive lacks, and files over the size limits (listed in the manifest, not stored), stay as they are.
+  - The identity (Status 5) is checked right before the first file, as before the token: files of this
+    device never go to another one.
+  - Per file, one after the other: read the device's current file first (`GET /ufsd?download=`, at most
+    1 MiB; a file that cannot be read is not overwritten and ends the step); a file whose content already
+    equals the archive's is not written (no flash write); otherwise `UploadFile` (GET `/ufsd` and POST
+    `/ufsu` under one lock hold), then the file's size is checked with `UfsList` (the device says
+    "Successful" after a short write). Every upload is a flash write on the device (`SettingsSave`): the
+    uploads are never repeated in a loop, and the job counts them (put-backs included) in its summary.
+  - A folder that does not exist on the device (a fresh replacement has no `/lib`) is provable only by the
+    upload's GET (`ErrFolderNotFound`; a listing answers "Done" for it): the file is skipped with
+    "folder missing on the device; create it in the device's file manager", the restore goes on. No
+    binary-safe folder creation exists (`/ufse` rewrites CR/LF).
+  - A failed upload (or a wrong size afterwards) can have cost the file, because the device deletes the old
+    one first. The old file read before is uploaded again, once; if that fails too the job says
+    "FILE LOST: <name>" and names the automatic backup taken before. A file that did not exist before may be
+    left partly written (reported, not deleted). Any failure ends the restore as "files partly written,
+    settings unchanged" (`failFilesPartly`; "the files could not be written, the device is unchanged" before
+    the first write): files already written keep the backup's content, the settings are not sent, the page
+    offers the rollback to the backup taken first only after a write.
+  - Verification adds the files: the fresh backup's manifest must hold the written (or already identical)
+    files with the archive's SHA-256. A file the device rewrote itself (Zigbee data) is named as differing
+    and makes the job "not verified"; contents are never shown.
+  - The finished job keeps what the files step did as the first line of its Detail, separated from the
+    verification sentence by a newline (`restore.SplitDetail`); the per-file progress is held in memory for
+    the latest jobs only (`Manager.FilesProgress`) and is gone after a restart of TasmoFleet. A job that is
+    interrupted in the `files` state is an unfinished job like the others: it blocks a second restore of the
+    device and the start-up recovery fails it.
+  - Audit: `restore.finish` carries counts and file names of differences, never file contents. Contents are
+    secret like the `.dmp` (§12.3): not in logs, job details, audit records or pages.
 
 ---
 

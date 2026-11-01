@@ -124,13 +124,14 @@ func TestRestoreProgressStepsAndRollback(t *testing.T) {
 	}
 	_, running := e.do(t, "GET", "/restores/1", "admin", nil)
 	if !strings.Contains(running, `rs-step is-done`) || !strings.Contains(running, `rs-step is-active`) || strings.Count(running, `rs-step is-todo`) != 2 {
-		t.Errorf("running at step 2:\n%s", running)
+		t.Errorf("running at step 3 (upload) of 5:\n%s", running)
 	}
 	_, failed := e.do(t, "GET", "/restores/2", "admin", nil)
-	if strings.Count(failed, `rs-step is-done`) != 2 || !strings.Contains(failed, `rs-step is-failed`) || !strings.Contains(failed, "Restore failed.") {
-		t.Errorf("failed at step 3:\n%s", failed)
+	if strings.Count(failed, `rs-step is-done`) != 3 || !strings.Contains(failed, `rs-step is-failed`) || !strings.Contains(failed, "Restore failed.") {
+		t.Errorf("failed at step 4 (restart) of 5:\n%s", failed)
 	}
-	if !strings.Contains(failed, `href="/tf/backups/4/restore">Restore the 11:00 backup`) || !strings.Contains(failed, `href="/tf/backups/1/restore">Retry restore`) {
+	// a failed job can be opened days later: the backup to roll back to is named with its date, not only a clock time
+	if !strings.Contains(failed, `href="/tf/backups/4/restore">Restore the 18 Oct 2026, 11:00 backup`) || !strings.Contains(failed, `href="/tf/backups/1/restore">Retry restore`) {
 		t.Errorf("rollback and retry missing:\n%s", failed)
 	}
 	_, early := e.do(t, "GET", "/restores/3", "admin", nil)

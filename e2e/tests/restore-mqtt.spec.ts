@@ -61,7 +61,7 @@ test.describe("restore over MQTT", () => {
     await expect(page).toHaveURL(/\/restores\/\d+$/);
     await expect(page.locator("#restore-status")).toContainText("Restore finished.", { timeout: 120_000 });
     await expect(page.locator("#restore-status")).toContainText("uploaded over MQTT");
-    await expect(page.locator("#restore-status .rs-step.is-done")).toHaveCount(4);
+    await expect(page.locator("#restore-status .rs-step.is-done")).toHaveCount(5);
 
     // the device password never reaches the audit log
     const audit = await page.request.get(mqApp.url + "/audit", { headers: admin });

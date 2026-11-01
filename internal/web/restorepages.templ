@@ -11,53 +11,75 @@ templ restoreConfirm(c restoreConfirmView) {
 			@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: c.Error, Alert: true})
 		}
 		if !c.Refused {
-			if c.HasPreview {
-				<section class="rs-changes">
-					<h2>What will change ({ plural(len(c.Changes), "setting") })</h2>
-					if len(c.Changes) > 0 {
-						<div class="rs-grid rs-headrow"><span>Setting</span><span>Now on the device</span><span>After restore</span></div>
-						for _, r := range c.Changes {
-							<div class="rs-grid rs-row"><span class="rs-key">{ r.Key }</span><span class="rs-now">{ r.Old }</span><span>{ r.New }</span></div>
-						}
+			@ui.CardStacks(2) {
+				@ui.CardStack(1) {
+					if c.HasPreview {
+						<section class="rs-changes">
+							<h2>What will change ({ plural(len(c.Changes), "setting") })</h2>
+							if len(c.Changes) > 0 {
+								<div class="rs-grid rs-headrow"><span>Setting</span><span>Now on the device</span><span>After restore</span></div>
+								for _, r := range c.Changes {
+									<div class="rs-grid rs-row"><span class="rs-key">{ r.Key }</span><span class="rs-now">{ r.Old }</span><span>{ r.New }</span></div>
+								}
+							} else {
+								<p class="rs-none">No setting changes: the backup matches the newest other backup of this device.</p>
+							}
+						</section>
 					} else {
-						<p class="rs-none">No setting changes: the backup matches the newest other backup of this device.</p>
+						<section class="rs-changes"><h2>What will change</h2><p class="rs-none">No decoded backups are available to preview the change.</p></section>
 					}
-				</section>
-			} else {
-				<section class="rs-changes"><h2>What will change</h2><p class="rs-none">No decoded backups are available to preview the change.</p></section>
-			}
-			<ol class="rs-steps-text">
-				<li>TasmoFleet backs up the current state first, so you can undo this.</li>
-				<li>The backup is uploaded and the device restarts (relays switch off for a few seconds).</li>
-				<li>Settings are read back and compared with the backup.</li>
-			</ol>
-			if c.Path != "" {
-				<p class="rs-path">{ c.Path }</p>
-			}
-			<p class="rs-cred">{ c.Cred }</p>
-			for _, w := range c.Risks {
-				@ui.Banner(ui.BannerData{Tone: ui.ToneWarn, Text: w})
-			}
-			for _, w := range c.Warnings {
-				@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: w, Alert: true})
-			}
-			<form method="post" action={ templ.SafeURL(c.Action) } class="rs-form">
-				<input type="hidden" name="csrf" value={ c.CSRF }/>
-				for _, f := range c.Hidden {
-					<input type="hidden" name={ f.Key } value={ f.Value }/>
+					if c.Files != nil {
+						<section class="rs-changes rs-files">
+							<h2>{ c.Files.Title }</h2>
+							@restoreFileList(c.Files.Rows)
+							<p class="rs-none rs-files-foot">{ c.Files.Foot }</p>
+						</section>
+					}
 				}
-				<label class={ "ucheck", "rs-ack", templ.KV("is-invalid", c.Missing) }>
-					<input type="checkbox" name="confirm" value="1" if c.Missing { aria-invalid="true" aria-describedby="rs-ack-err" }/>
-					<span>{ c.Ack }</span>
-				</label>
-				if c.Missing {
-					<p class="ufield-err" id="rs-ack-err" role="alert">{ needConfirm }</p>
+				@ui.CardStack(1) {
+					<section class="ucard rs-what">
+						<h2>What happens</h2>
+						<ol class="rs-steps-text">
+							for _, t := range c.StepsText {
+								<li>{ t }</li>
+							}
+						</ol>
+						if c.Path != "" {
+							<p class="rs-path">{ c.Path }</p>
+						}
+						<p class="rs-cred">{ c.Cred }</p>
+						if c.FilesNote != "" {
+							<p class="rs-fnote">{ c.FilesNote }</p>
+						}
+						if c.FilesWarn != "" {
+							@ui.Banner(ui.BannerData{Tone: ui.ToneWarn, Text: c.FilesWarn})
+						}
+						for _, w := range c.Risks {
+							@ui.Banner(ui.BannerData{Tone: ui.ToneWarn, Text: w})
+						}
+						for _, w := range c.Warnings {
+							@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: w, Alert: true})
+						}
+						<form method="post" action={ templ.SafeURL(c.Action) } class="rs-form">
+							<input type="hidden" name="csrf" value={ c.CSRF }/>
+							for _, f := range c.Hidden {
+								<input type="hidden" name={ f.Key } value={ f.Value }/>
+							}
+							<label class={ "ucheck", "rs-ack", templ.KV("is-invalid", c.Missing) }>
+								<input type="checkbox" name="confirm" value="1" if c.Missing { aria-invalid="true" aria-describedby="rs-ack-err" }/>
+								<span>{ c.Ack }</span>
+							</label>
+							if c.Missing {
+								<p class="ufield-err" id="rs-ack-err" role="alert">{ needConfirm }</p>
+							}
+							<div class="rs-acts">
+								<a class="btn" href={ templ.SafeURL(c.CancelHref) }>Cancel</a>
+								<button type="submit" class="btn btn-primary">Restore and restart</button>
+							</div>
+						</form>
+					</section>
 				}
-				<div class="rs-acts">
-					<a class="btn" href={ templ.SafeURL(c.CancelHref) }>Cancel</a>
-					<button type="submit" class="btn btn-primary">Restore and restart</button>
-				</div>
-			</form>
+			}
 		} else {
 			<div class="rs-acts"><a class="btn" href={ templ.SafeURL(c.CancelHref) }>Back to backups</a></div>
 		}
@@ -91,19 +113,31 @@ templ restoreStatusBody(v restoreJobView) {
 		if v.Failed {
 			@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Title: v.Lead, Text: " " + v.Banner, Alert: true})
 		}
-		<section class="rs-progress" aria-label="Steps">
-			for _, s := range v.Steps {
-				<div class={ "rs-step", "is-" + s.State }>
-					<span class="rs-mark" aria-hidden="true">{ s.Mark() }</span>
-					<span class="rs-step-text">
-						<span class="rs-step-label">{ s.Label }<span class="sr-only">{ ": " + s.State }</span></span>
-						if s.Detail != "" {
-							<span class="rs-step-detail">{ s.Detail }</span>
-						}
-					</span>
-				</div>
+		@ui.CardStacks(2) {
+			@ui.CardStack(1) {
+				<section class="rs-progress" aria-label="Steps">
+					for _, s := range v.Steps {
+						<div class={ "rs-step", "is-" + s.State }>
+							<span class="rs-mark" aria-hidden="true">{ s.Mark() }</span>
+							<span class="rs-step-text">
+								<span class="rs-step-label">{ s.Label }<span class="sr-only">{ ": " + s.State }</span></span>
+								if s.Detail != "" {
+									<span class="rs-step-detail">{ s.Detail }</span>
+								}
+							</span>
+						</div>
+					}
+				</section>
 			}
-		</section>
+			if len(v.FileRows) > 0 {
+				@ui.CardStack(1) {
+					<section class="ulist rs-filelist">
+						<div class="ulist-head"><h2>Files</h2><span class="ulist-meta">{ v.FilesMeta }</span></div>
+						@restoreFileList(v.FileRows)
+					</section>
+				}
+			}
+		}
 		<div class="rs-acts">
 			if v.Running {
 				<span class="rs-leave">You can leave this page; the job continues and is listed on the device's Backups tab.</span>
@@ -121,5 +155,29 @@ templ restoreStatusBody(v restoreJobView) {
 				<a class="btn btn-primary" href={ templ.SafeURL(v.BackHref) }>Back to backups</a>
 			}
 		</div>
+	</div>
+}
+
+// restoreFileList is a list of files with size, state and a second line (the same pattern as the
+// device's Backups tab: names left, size right, badges next to the name).
+templ restoreFileList(rows []fileRowView) {
+	<div class="rs-fl">
+		for _, r := range rows {
+			<div class={ "rs-fl-row", templ.KV("is-stays", r.Stays) }>
+				<span class="rs-fl-path">{ r.Name }</span>
+				<span class="rs-fl-tags">
+					if r.PrivateKey {
+						<span class="bdg t-warn" title={ privateKeyTip }>Private key</span>
+					}
+					if r.State != "" {
+						@ui.Badge(r.Tone, r.State)
+					}
+				</span>
+				<span class="rs-fl-size">{ r.Size }</span>
+				if r.Why != "" {
+					<span class="rs-fl-why">{ r.Why }</span>
+				}
+			</div>
+		}
 	</div>
 }
