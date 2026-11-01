@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/nofuturekid/tasmofleet/internal/devlock"
 	"github.com/nofuturekid/tasmofleet/internal/model"
@@ -11,10 +10,10 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/transport"
 )
 
-// setupRestore builds the restore service. A restore over HTTP needs the firmware listener
-// (devices fetch the dump from it) and so FIRMWARE_BASE_URL; one over MQTT (FileUpload) does not.
-// Which one a device gets is decided per restore from the transport facts. Restores that were
-// running when the process stopped are failed: their one-time tokens died with it.
+// setupRestore builds the restore service. A restore over HTTP is the device's own restore upload
+// and one over MQTT is FileUpload; neither needs the firmware listener (#430). Which one a device
+// gets is decided per restore from the transport facts. Restores that were running when the
+// process stopped are failed: nobody watches their device any more.
 func (a *runtime) setupRestore() error {
 	if a.backups == nil {
 		return nil
@@ -28,14 +27,9 @@ func (a *runtime) setupRestore() error {
 	}
 	m, err := restore.New(restore.Options{
 		Devices: a.svc.Store, Backups: a.backups, Files: a.backups, Store: a.svc.Store, Client: a.svc.Client,
-		BaseURL: a.cfg.FWBaseURL, Uploader: a.svc.Router, PathFor: a.restorePath, BrokerPassword: func() string { return a.svc.Sys.Snapshot().MQTTPassword }, Audit: a.svc.Audit, Log: a.log, Context: a.bgContext,
+		Uploader: a.svc.Router, PathFor: a.restorePath, BrokerPassword: func() string { return a.svc.Sys.Snapshot().MQTTPassword }, Audit: a.svc.Audit, Log: a.log, Context: a.bgContext,
 		Locks: a.deviceLocks(), Jobs: a.svc.Store,
 		Hardware: a.svc.Store, Describe: a.svc.Prober.Describe,
-		OnServed: func(id model.DeviceID) {
-			a.learnFWReach(func(ctx context.Context, l *FWReachLearner) error {
-				return l.NoteYes(ctx, id, FWReachSourceRestoreToken)
-			})
-		},
 	})
 	if err != nil {
 		return err
@@ -45,7 +39,7 @@ func (a *runtime) setupRestore() error {
 	return nil
 }
 
-// restorePath is transport.Choose's verdict for a restore of d: HTTP (WebGetConfig), MQTT (FileUpload)
+// restorePath is transport.Choose's verdict for a restore of d: HTTP (restore upload), MQTT (FileUpload)
 // or None, with the sentence why. Without facts (nothing to judge) the established path, HTTP.
 func (a *runtime) restorePath(ctx context.Context, d model.Device) (transport.Path, string) {
 	if a.facts == nil {
@@ -57,15 +51,6 @@ func (a *runtime) restorePath(ctx context.Context, d model.Device) (transport.Pa
 	}
 	p := transport.Choose(f)
 	return p.Restore, p.Reason(transport.ActRestore)
-}
-
-// restoreHandler is mounted at /restore/ on the firmware listener (nil when
-// restore is off).
-func (a *runtime) restoreHandler() http.Handler {
-	if a.restore == nil {
-		return nil
-	}
-	return a.restore.Handler()
 }
 
 // deviceLocks is the per-device operation lock set. Restore uses it now; OTA,

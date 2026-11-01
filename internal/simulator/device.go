@@ -97,7 +97,9 @@ type simDevice struct {
 	attempts      int     // download attempts of the latest OTA
 	nextImage     *flashed
 	restartQueued bool // a settings change already scheduled the restart
-	uploadArmed   bool // a GET /up set the firmware upload type; the next POST /u2 flashes
+	// uploadType is Web.upload_file_type: GET /up, /rs and /ufsd set it, a finished /u2 upload
+	// clears it. A POST the Referer check drops leaves it as it was.
+	uploadType uploadKind
 	// appImage and appVersion: the app that was running when /u4?u4=fct switched to safeboot, which
 	// /u4?u4=ota boots again. safebootVersion is what the factory partition reports.
 	appImage, appVersion string

@@ -1,30 +1,21 @@
 // Package restore puts a stored config dump (.dmp) back onto a device.
 //
-// Two ways reach the device (spec §12.4). Over HTTP the device pulls the dump itself: tasmofleet sends "WebGetConfig
-// http://<firmware listener>/restore/<token>" and the firmware listener
-// serves the dump once, to that device only. This avoids Tasmota's
-// authenticated upload route and never exposes the dump on a URL that works
-// twice or for anybody else (docs/security/restore.md).
+// Two ways reach the device (spec §12.4). Over HTTP tasmofleet does what the web UI's "Restore
+// configuration" does: GET /rs, then the multipart POST of the dump to /u2 (#430; official builds
+// have no WebGetConfig, so the device cannot fetch the dump itself). Over MQTT (a device HTTP
+// cannot reach) it pushes the dump with FileUpload Type 2. Neither needs the firmware listener.
 //
-// Over MQTT (a device HTTP cannot reach, or one that cannot reach the firmware listener) tasmofleet
-// pushes the dump with FileUpload Type 2 and needs no firmware listener at all.
-//
-// A restore is: automatic backup of the current config, identity check, token and command (or the
-// upload), wait for the reboot, fresh backup, diff against the restored backup.
+// A restore is: automatic backup of the current config, identity check, the upload, wait for the
+// restart, fresh backup, diff against the restored backup.
 package restore
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"net/netip"
-	"strings"
 	"sync"
 	"time"
 
@@ -43,7 +34,7 @@ var (
 	ErrNotDump        = errors.New("restore: only a config dump (.dmp) can be restored")
 	ErrNewerBackup    = errors.New("restore: the backup comes from a newer firmware than the device runs")
 	ErrNoAddress      = errors.New("restore: the device address does not resolve to exactly one IP")
-	ErrNotConfigured  = errors.New("restore: neither the firmware base URL nor a restore over MQTT is available")
+	ErrNotConfigured  = errors.New("restore: neither the HTTP restore upload nor a restore over MQTT is available")
 	ErrNoPath         = errors.New("restore: no way to reach the device")
 	ErrIdentity       = errors.New("restore: the device at this address is not the inventory device")
 	ErrVersionUnknown = errors.New("restore: the firmware version of the device or of the backup is unknown")
@@ -123,8 +114,6 @@ type Service interface {
 	// refusal it would give. The confirmation page shows them up front, so
 	// one confirmation covers everything.
 	Assess(ctx context.Context, backup model.BackupID) (Assessment, error)
-	// Handler serves GET /restore/<token> on the firmware listener.
-	Handler() http.Handler
 	Get(ctx context.Context, id store.RestoreID) (Job, error)
 	List(ctx context.Context, device model.DeviceID, limit int) ([]Job, error)
 }
@@ -150,14 +139,13 @@ type Options struct {
 	Backups Backups
 	Store   store.RestoreStore
 	Client  tasmota.Client
-	// BaseURL is what devices use to reach the firmware listener
-	// (FIRMWARE_BASE_URL), e.g. http://192.168.1.10:8081. Empty: no restore over HTTP
-	// (WebGetConfig); a restore over MQTT still works when Uploader is set.
-	BaseURL string
+	// Client also carries the HTTP restore upload (tasmota.ConfigRestorer, the Router in
+	// production); a client without it has no restore over HTTP.
+	//
 	// Uploader sends the dump with FileUpload (the Router); nil: no restore over MQTT.
 	Uploader transport.ConfigUploader
 	// PathFor says how a restore reaches the device (transport.Choose on the live facts): HTTP
-	// (WebGetConfig), MQTT (FileUpload) or None with the sentence why. The second result is the
+	// (restore upload), MQTT (FileUpload) or None with the sentence why. The second result is the
 	// path's reason, shown on the confirmation page. nil: always HTTP.
 	PathFor func(ctx context.Context, d model.Device) (transport.Path, string)
 	// Files reads the files archive of a backup (backup.Manager). Optional: nil restores settings only.
@@ -167,11 +155,9 @@ type Options struct {
 	Log   *slog.Logger
 	// Context bounds the background runs; default context.Background.
 	Context context.Context
-	// TokenTTL is how long the download token lives (default 5 minutes).
-	TokenTTL time.Duration
 	// PollInterval is how often the device is polled for the reboot (default 2 s).
 	PollInterval time.Duration
-	// RebootTimeout bounds the wait for download and reboot (default 3 minutes).
+	// RebootTimeout bounds the wait for the restart (default 3 minutes).
 	RebootTimeout time.Duration
 	// Resolve turns a device address into IPs (default: IP literal or DNS).
 	Resolve func(ctx context.Context, host string) ([]netip.Addr, error)
@@ -180,9 +166,6 @@ type Options struct {
 	Locks *devlock.Locks
 	// Jobs lists active OTA jobs (store.JobStore); optional.
 	Jobs ActiveJobs
-	// OnServed is called, after the dump went out, with the device the one-time token was for:
-	// it proves the device reaches the firmware listener. Optional; it must not block.
-	OnServed func(model.DeviceID)
 	// BrokerPassword is TasmoFleet's live broker password, which a device in broker mode uses as its
 	// MqttPassword; the restore compares it with the backup's. Optional.
 	BrokerPassword func() string
@@ -209,24 +192,13 @@ type ActiveJobs interface {
 	ActiveJobs(ctx context.Context) ([]model.Job, error)
 }
 
-type tokenEntry struct {
-	ips     []netip.Addr
-	dump    []byte
-	expires time.Time
-	used    bool
-	job     store.RestoreID
-	device  model.DeviceID
-}
-
 // Manager implements Service.
 type Manager struct {
 	o  Options
 	wg sync.WaitGroup
 
 	mu        sync.Mutex
-	tokens    map[[32]byte]*tokenEntry // key: SHA-256 of the token
-	noted     map[string]time.Time     // rate limit of refusal reports
-	replacing map[string]bool          // MACs of replacement hardware a replace is working on
+	replacing map[string]bool // MACs of replacement hardware a replace is working on
 
 	progress      map[store.RestoreID]*progress // per-file progress of the latest jobs (files.go)
 	progressOrder []store.RestoreID
@@ -239,10 +211,9 @@ func New(o Options) (*Manager, error) {
 	if o.Devices == nil || o.Backups == nil || o.Store == nil || o.Client == nil {
 		return nil, errors.New("restore: Devices, Backups, Store and Client are required")
 	}
-	if o.BaseURL == "" && o.Uploader == nil {
+	if _, ok := o.Client.(tasmota.ConfigRestorer); !ok && o.Uploader == nil {
 		return nil, ErrNotConfigured
 	}
-	o.BaseURL = strings.TrimRight(o.BaseURL, "/")
 	if o.Clock == nil {
 		o.Clock = clock.Real{}
 	}
@@ -251,9 +222,6 @@ func New(o Options) (*Manager, error) {
 	}
 	if o.Context == nil {
 		o.Context = context.Background()
-	}
-	if o.TokenTTL <= 0 {
-		o.TokenTTL = 5 * time.Minute
 	}
 	if o.PollInterval <= 0 {
 		o.PollInterval = 2 * time.Second
@@ -267,7 +235,7 @@ func New(o Options) (*Manager, error) {
 	if o.Locks == nil {
 		o.Locks = devlock.New()
 	}
-	return &Manager{o: o, tokens: map[[32]byte]*tokenEntry{}, noted: map[string]time.Time{}, replacing: map[string]bool{}}, nil
+	return &Manager{o: o, replacing: map[string]bool{}}, nil
 }
 
 // Wait blocks until all background restores have finished (shutdown, tests).
@@ -302,8 +270,8 @@ func (m *Manager) Start(ctx context.Context, actor string, bid model.BackupID) (
 
 // StartWith implements Service. Everything that can be checked before the
 // device is touched is checked here, synchronously, so the admin gets the
-// refusal in the response. The address is resolved once; the command target,
-// the identity checks and the token binding all use that one IP.
+// refusal in the response. The address is resolved once; the identity checks and the upload all
+// use that one IP.
 func (m *Manager) StartWith(ctx context.Context, actor string, bid model.BackupID, opt StartOptions) (Job, error) {
 	dmp, b, err := m.o.Backups.Open(ctx, bid)
 	if err != nil {
@@ -320,15 +288,13 @@ func (m *Manager) StartWith(ctx context.Context, actor string, bid model.BackupI
 	if err != nil {
 		return Job{}, err
 	}
-	var ips []netip.Addr
 	ctx = transport.WithPath(ctx, path) // identity and version checks go over the same path
 	if path != transport.MQTT {
-		ips, err = m.o.Resolve(ctx, dev.Address)
+		ips, err := m.o.Resolve(ctx, dev.Address)
 		if err != nil || len(distinct(ips)) != 1 {
 			return Job{}, ErrNoAddress
 		}
-		ips = distinct(ips)
-		dev.Address = ips[0].String() // from here on the name is never used again
+		dev.Address = distinct(ips)[0].String() // from here on the name is never used again
 	}
 
 	release, holder, ok := m.o.Locks.TryAcquire(dev.ID, "restore")
@@ -369,7 +335,7 @@ func (m *Manager) StartWith(ctx context.Context, actor string, bid model.BackupI
 	go func() {
 		defer m.wg.Done()
 		defer release()
-		m.run(m.o.Context, job, dev, dmp, ips, opt.ConfirmedFiles)
+		m.run(m.o.Context, job, dev, dmp, opt.ConfirmedFiles)
 	}()
 	return job, nil
 }
@@ -377,7 +343,7 @@ func (m *Manager) StartWith(ctx context.Context, actor string, bid model.BackupI
 // route decides how this restore reaches the device and checks that the service can do it. The
 // second result is the path's reason for the confirmation page.
 func (m *Manager) route(ctx context.Context, dev model.Device) (transport.Path, string, error) {
-	p, why := transport.HTTP, "the device fetches the configuration from TasmoFleet (WebGetConfig)"
+	p, why := transport.HTTP, "over the device's HTTP API (restore upload)"
 	if m.o.PathFor != nil {
 		p, why = m.o.PathFor(ctx, dev)
 	}
@@ -388,7 +354,7 @@ func (m *Manager) route(ctx context.Context, dev model.Device) (transport.Path, 
 		return transport.MQTT, why, nil
 	}
 	if p == transport.HTTP {
-		if m.o.BaseURL == "" {
+		if _, ok := m.o.Client.(tasmota.ConfigRestorer); !ok {
 			return p, why, ErrNotConfigured
 		}
 		return transport.HTTP, why, nil
@@ -433,152 +399,4 @@ func (m *Manager) Get(ctx context.Context, id store.RestoreID) (Job, error) {
 // List implements Service.
 func (m *Manager) List(ctx context.Context, device model.DeviceID, limit int) ([]Job, error) {
 	return m.o.Store.ListRestores(ctx, device, limit)
-}
-
-// issue creates the one-time token. Only its hash is kept in memory.
-func (m *Manager) issue(job Job, dump []byte, ips []netip.Addr) (string, error) {
-	var raw [16]byte // 128 bit
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", err
-	}
-	tok := hex.EncodeToString(raw[:])
-	now := m.o.Clock.Now()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for k, e := range m.tokens { // drop dead tokens (and their dump copies)
-		if e.used || now.After(e.expires) {
-			delete(m.tokens, k)
-		}
-	}
-	m.tokens[sha256.Sum256([]byte(tok))] = &tokenEntry{ips: ips, dump: dump, expires: now.Add(m.o.TokenTTL), job: job.ID, device: job.DeviceID}
-	return tok, nil
-}
-
-func (m *Manager) revoke(tok string) {
-	m.mu.Lock()
-	delete(m.tokens, sha256.Sum256([]byte(tok)))
-	m.mu.Unlock()
-}
-
-// consumed reports whether the token has been served.
-func (m *Manager) consumed(tok string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	e, ok := m.tokens[sha256.Sum256([]byte(tok))]
-	return !ok || e.used
-}
-
-// Handler implements Service. Every refusal is the same bare 404 so that
-// nobody can tell a wrong IP from an expired, used or unknown token. Refusals
-// are reported to the audit log and the log (never with the path or token).
-func (m *Manager) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dump, e, why := m.take(r)
-		if dump == nil {
-			m.reportRefusal(r, why, e)
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Content-Length", fmt.Sprint(len(dump)))
-		w.Header().Set("Content-Disposition", `attachment; filename="Config.dmp"`)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		_, _ = w.Write(dump) //nolint:gosec // G705: octet-stream attachment, the device's own config
-		m.record(m.o.Context, "device", "restore.download", e.job, e.device, "ok", "served once")
-		// Even if writing the dump failed half way: the device connected and was answered 200, which
-		// is what "reaches the firmware listener" means.
-		if m.o.OnServed != nil {
-			m.o.OnServed(e.device)
-		}
-	})
-}
-
-// Refusal reasons.
-const (
-	refusedMalformed = "malformed request"
-	refusedUnknown   = "unknown, used or expired token"
-	refusedWrongIP   = "valid token from the wrong address"
-)
-
-const refusalInterval = 10 * time.Second
-
-// reportRefusal logs a refused /restore/ request, at most once per source IP
-// and reason every refusalInterval. A valid token from the wrong address (the
-// sign of somebody sniffing the IoT VLAN) is also audited, with the job.
-func (m *Manager) reportRefusal(r *http.Request, why string, e tokenEntry) {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = "?"
-	}
-	now := m.o.Clock.Now()
-	key := host + "|" + why
-	m.mu.Lock()
-	if last, ok := m.noted[key]; ok && now.Sub(last) < refusalInterval {
-		m.mu.Unlock()
-		return
-	}
-	if len(m.noted) > 256 {
-		for k, t := range m.noted {
-			if now.Sub(t) >= refusalInterval {
-				delete(m.noted, k)
-			}
-		}
-		if len(m.noted) > 256 { // flooded from many sources: keep memory bounded
-			m.noted = map[string]time.Time{}
-		}
-	}
-	m.noted[key] = now
-	m.mu.Unlock()
-	m.o.Log.Warn("restore download refused", "component", "restore", "remote", host, "reason", why)
-	if why == refusedWrongIP && m.o.Audit != nil {
-		m.o.Audit.Record(m.o.Context, model.AuditEvent{Actor: "unknown", Action: "restore.download", Target: fmt.Sprintf("device:%d", e.device),
-			Result: "refused: " + why, RemoteAddr: host, Detail: fmt.Sprintf(`{"restore":%d,"from":%q}`, e.job, host)})
-	}
-}
-
-// take validates the request and, on success, consumes the token and returns
-// the dump. A request that does not match leaves the token untouched, so a
-// stranger cannot burn the legitimate download.
-func (m *Manager) take(r *http.Request) ([]byte, tokenEntry, string) {
-	const prefix = "/restore/"
-	if r.Method != http.MethodGet || r.URL.RawPath != "" || !strings.HasPrefix(r.URL.Path, prefix) {
-		return nil, tokenEntry{}, refusedMalformed
-	}
-	tok := strings.TrimPrefix(r.URL.Path, prefix)
-	if len(tok) != 32 {
-		return nil, tokenEntry{}, refusedMalformed
-	}
-	if _, err := hex.DecodeString(tok); err != nil {
-		return nil, tokenEntry{}, refusedMalformed
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return nil, tokenEntry{}, refusedMalformed
-	}
-	ip, err := netip.ParseAddr(host)
-	if err != nil {
-		return nil, tokenEntry{}, refusedMalformed
-	}
-	ip = ip.Unmap()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	e, ok := m.tokens[sha256.Sum256([]byte(tok))]
-	if !ok || e.used || m.o.Clock.Now().After(e.expires) {
-		return nil, tokenEntry{}, refusedUnknown
-	}
-	match := false
-	for _, a := range e.ips {
-		if a == ip {
-			match = true
-		}
-	}
-	if !match {
-		return nil, *e, refusedWrongIP
-	}
-	e.used = true
-	dump := e.dump
-	e.dump = nil
-	return dump, *e, ""
 }

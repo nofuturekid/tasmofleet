@@ -59,8 +59,6 @@ type simFS struct {
 	// ufsPath is ufs_path: the folder a following POST /ufsu writes to. Every
 	// GET /ufsd resets it to "/" and a download of a folder sets it.
 	ufsPath string
-	// uploadArmed: a GET /ufsd set the upload type (needed before v16).
-	uploadArmed bool
 }
 
 // defaultFSFiles is what an ESP32 profile starts with when the spec names no
@@ -245,7 +243,7 @@ func (d *simDevice) serveUfsd(w http.ResponseWriter, r *http.Request) {
 	d.record(rec)
 	d.mu.Lock()
 	fs.ufsPath = "/"
-	fs.uploadArmed = true // the GET leaves Web.upload_file_type = UPL_UFSFILE
+	d.uploadType = uploadUFS // the GET leaves Web.upload_file_type = UPL_UFSFILE
 	var file *simFile
 	if hasDl {
 		p := dl[0]
@@ -317,8 +315,8 @@ func (d *simDevice) serveUfsu(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.mu.Lock()
-	armed := fs.uploadArmed
-	fs.uploadArmed = false
+	armed := d.uploadType == uploadUFS
+	d.uploadType = uploadNone
 	failFault := len(d.faultsForLocked("ufsu", FaultUfsUploadError)) > 0
 	oldFW := !atLeastVersion(d.version, 16, 0)
 	d.mu.Unlock()

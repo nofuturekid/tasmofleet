@@ -16,7 +16,7 @@ import (
 )
 
 // RestoreService is the part of restore.Service the UI uses. Optional: the
-// restore pages exist only when it is set (they need the firmware listener).
+// restore pages exist only when it is set.
 type RestoreService interface {
 	StartWith(ctx context.Context, actor string, backup model.BackupID, o restore.StartOptions) (restore.Job, error)
 	Assess(ctx context.Context, backup model.BackupID) (restore.Assessment, error)
@@ -234,7 +234,7 @@ func refusalText(err error) string {
 	case errors.Is(err, restore.ErrNoPath):
 		return "TasmoFleet has no way to restore this device right now: " + strings.TrimPrefix(err.Error(), restore.ErrNoPath.Error()+": ")
 	case errors.Is(err, restore.ErrNotConfigured):
-		return "A restore needs the firmware base URL (FIRMWARE_BASE_URL) or a device on the MQTT broker with its MQTT password set."
+		return "This installation cannot restore: its device client has no restore upload and MQTT restores are not set up."
 	default:
 		return "The device address does not resolve to exactly one IP address."
 	}

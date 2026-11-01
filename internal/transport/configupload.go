@@ -16,8 +16,8 @@ import (
 )
 
 // ConfigUploader sends a settings dump to a device with FileUpload Type 2. It is MQTT only: the
-// HTTP restore is the device pulling the dump (WebGetConfig), which the restore service drives
-// itself. Router implements it.
+// HTTP restore is the web UI's restore upload (tasmota.ConfigRestorer, Router.RestoreConfig).
+// Router implements it.
 type ConfigUploader interface {
 	UploadConfig(ctx context.Context, t tasmota.Target, dump []byte, bind UploadBinding) error
 }

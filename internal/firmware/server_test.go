@@ -287,36 +287,9 @@ func FuzzParsePath(f *testing.F) {
 	})
 }
 
-// Why: the restore download rides on the firmware listener (one device-facing
-// port), but only below /restore/, and it must keep the per-IP rate limit so
-// token guessing is throttled like everything else on this port.
-func TestServerMountsExtraHandlerOnlyUnderRestore(t *testing.T) {
-	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("extra:" + r.Method + ":" + r.URL.Path)) //nolint:errcheck // test handler
-	})
-	f := newServerFixture(t, func(o *ServerOptions) { o.Extra = extra; o.RateLimitPerMinute = 3 })
-	do := func(method, path string) (int, string) {
-		r := httptest.NewRequestWithContext(context.Background(), method, "http://fw"+path, nil)
-		r.RemoteAddr = "172.31.13.40:1000"
-		w := httptest.NewRecorder()
-		f.h.ServeHTTP(w, r)
-		return w.Code, w.Body.String()
-	}
-	if c, b := do(http.MethodGet, "/restore/abc"); c != 200 || b != "extra:GET:/restore/abc" {
-		t.Errorf("restore path: %d %q", c, b)
-	}
-	if c, _ := do(http.MethodGet, "/other/abc"); c != 404 {
-		t.Errorf("other path: %d, want 404", c)
-	}
-	if c, _ := do(http.MethodPost, "/restore/abc"); c != 200 {
-		t.Errorf("method decisions belong to the extra handler: %d", c)
-	}
-	if c, _ := do(http.MethodGet, "/restore/abc"); c != http.StatusTooManyRequests {
-		t.Errorf("restore path must share the rate limit: %d", c)
-	}
-}
-
-func TestServerWithoutExtraKnowsNoRestorePath(t *testing.T) {
+// Why (#430): the firmware listener serves firmware only; a restore is pushed to the device, so
+// nothing below /restore/ exists here.
+func TestServerKnowsNoRestorePath(t *testing.T) {
 	f := newServerFixture(t, nil)
 	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://fw/restore/abc", nil)
 	r.RemoteAddr = "172.31.13.40:1000"

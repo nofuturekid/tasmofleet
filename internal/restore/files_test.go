@@ -128,8 +128,8 @@ func TestRestoreWritesTheFilesBeforeTheSettings(t *testing.T) {
 	e.cl.mu.Lock()
 	order := append([]string(nil), e.cl.order...)
 	e.cl.mu.Unlock()
-	if len(order) < 3 || strings.Join(order[len(order)-3:], " ") != "upload:/autoexec.be upload:/lib/a.be WebGetConfig" {
-		t.Errorf("files must reach the device before WebGetConfig: %v", order)
+	if len(order) < 3 || strings.Join(order[len(order)-3:], " ") != "upload:/autoexec.be upload:/lib/a.be RestoreConfig" {
+		t.Errorf("files must reach the device before the settings: %v", order)
 	}
 	pr := progressOf(t, e, job.ID)
 	if pr.Writes != 2 || stateOf(pr, "autoexec.be") != FileWritten || stateOf(pr, "tlskey") != FileSame {
@@ -177,7 +177,7 @@ func TestFailedUploadPutsTheOldFileBack(t *testing.T) {
 	if got := e.devFile(t, "/tlskey"); got != "drifted /tlskey" {
 		t.Errorf("a file after the failure must not be touched: %q", got)
 	}
-	if got := e.cl.sent("WebGetConfig"); len(got) != 0 {
+	if got := e.cl.sent("RestoreConfig"); len(got) != 0 {
 		t.Errorf("settings sent although the files failed: %v", got)
 	}
 	if !bytes.Equal(e.deviceDump(t), e.dumpB) {
@@ -379,7 +379,7 @@ func TestReplaceFilesFailureLeavesTheEntryAlone(t *testing.T) {
 	if err != nil || d.MAC != e.device.MAC {
 		t.Errorf("the entry must still stand for the old hardware: %+v %v", d, err)
 	}
-	if got := e.cl.sent("WebGetConfig"); len(got) != 0 {
+	if got := e.cl.sent("RestoreConfig"); len(got) != 0 {
 		t.Errorf("settings sent: %v", got)
 	}
 }
@@ -468,7 +468,7 @@ func TestFailureAfterTheFilesWereWrittenDoesNotClaimNothingChanged(t *testing.T)
 	if strings.Contains(done.Detail, "nothing was changed") || !strings.HasPrefix(done.Detail, failFilesWritten) {
 		t.Errorf("a device with written files is not unchanged: %q", done.Detail)
 	}
-	if got := e.cl.sent("WebGetConfig"); len(got) != 0 {
+	if got := e.cl.sent("RestoreConfig"); len(got) != 0 {
 		t.Errorf("settings sent: %v", got)
 	}
 }
@@ -696,15 +696,15 @@ func TestSettingsOnlyRestoreDoesNotTouchTheFileSystem(t *testing.T) {
 }
 
 // Why (N4, H1): every failure between the files and the settings must say that files were written,
-// not only the identity check: the device is not "unchanged" at the uptime read or when
-// WebGetConfig is refused.
+// not only the identity check: the device is not "unchanged" at the boot count read or when the
+// restore upload is refused.
 func TestLaterFailuresAfterWrittenFilesAreNeverUnchanged(t *testing.T) {
-	for name, cmd := range map[string]string{"uptime read": "Status 11", "WebGetConfig refused": "WebGetConfig"} {
+	for name, cmd := range map[string]string{"boot count read": "Status 1", "restore upload refused": "RestoreConfig"} {
 		t.Run(name, func(t *testing.T) {
 			e, a := filesFlow(t)
 			e.cl.failCmd = func(c string) error {
-				if strings.HasPrefix(c, cmd) && len(e.cl.uploads()) > 0 {
-					return errors.New("unknown command")
+				if c == cmd && len(e.cl.uploads()) > 0 {
+					return fmt.Errorf("%w: File invalid", tasmota.ErrUploadRefused)
 				}
 				return nil
 			}

@@ -64,12 +64,13 @@ func TestChooseOrder(t *testing.T) {
 		{"http failing, password refused", badPW(httpDown(base())), MQTT, None, None, DownloadMQTT},
 		// Why: no MQTT, no HTTP: nothing to do, and the reason must say so.
 		{"http failing, bus down", mqttOff(httpDown(base())), None, None, None, None},
-		// Why: a device that cannot fetch from the firmware server cannot WebGetConfig or download;
-		// restore moves to the upload over MQTT, backup and commands are unaffected.
-		{"http ok, device does not reach firmware server", fwNo(base()), HTTP, HTTP, MQTT, None},
-		// Why: without FIRMWARE_BASE_URL no device can fetch anything (D12).
-		{"http ok, no FIRMWARE_BASE_URL", noBase(base()), HTTP, HTTP, MQTT, None},
-		{"http ok, no base URL, no password", noPW(noBase(base())), HTTP, HTTP, None, None},
+		// Why: a device that cannot fetch from the firmware server cannot download an update. A
+		// restore over HTTP is pushed to the device (#430), so it stays on HTTP, like the backup.
+		{"http ok, device does not reach firmware server", fwNo(base()), HTTP, HTTP, HTTP, None},
+		// Why: without FIRMWARE_BASE_URL no device can fetch anything (D12); a restore needs nothing
+		// from the firmware server (#430).
+		{"http ok, no FIRMWARE_BASE_URL", noBase(base()), HTTP, HTTP, HTTP, None},
+		{"http ok, no base URL, no password", noPW(noBase(base())), HTTP, HTTP, HTTP, None},
 		// Why: with HTTP failing and no firmware server there is no download; update is None.
 		{"http failing, fw no", fwNo(httpDown(base())), MQTT, MQTT, MQTT, None},
 	}

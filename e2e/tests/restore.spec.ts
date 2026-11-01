@@ -1,16 +1,14 @@
 import { test, expect } from "../support/fixtures";
-import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
+import { App, Devenv, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
-// Config restore through the one-time token on the firmware listener, against
+// Config restore through the device's own restore upload (GET /rs, POST /u2; #430), against
 // a simulated device: backup, restore with confirmation, wait for the reboot,
 // automatic verification. The decoder is off here, so verification compares
-// the dumps byte for byte.
+// the dumps byte for byte. No firmware listener is configured: a restore needs none.
 let app: App;
 let env: Devenv;
-let fwPort: number;
 test.beforeAll(async () => {
   env = await startDevenv();
-  fwPort = await freePort();
   app = await startApp({
     env: {
       TASMOFLEET_AUTH_MODE: "header",
@@ -19,8 +17,6 @@ test.beforeAll(async () => {
       TASMOFLEET_ADMIN_GROUPS: "adm",
       TASMOFLEET_POLL_INTERVAL: "5s",
       TASMOFLEET_FIRMWARE_UPSTREAM_OVERRIDE: env.vars.DEVENV_UPSTREAM_URL,
-      TASMOFLEET_FIRMWARE_LISTEN: `127.0.0.1:${fwPort}`,
-      TASMOFLEET_FIRMWARE_BASE_URL: `http://127.0.0.1:${fwPort}`,
     },
   });
   app.cli(["import", "tasmoadmin", writeTasmoAdminDir(env.devices)]);
@@ -33,7 +29,7 @@ test.afterAll(async () => {
 const operator = { "X-authentik-username": "olivia", "X-authentik-groups": "ops" };
 const admin = { "X-authentik-username": "adam", "X-authentik-groups": "adm" };
 
-test("admin restores a backup; the job ends verified; the token is spent", { tag: "@core" }, async ({ page, request }) => {
+test("admin restores a backup; the job ends verified", { tag: "@core" }, async ({ page }) => {
   test.setTimeout(120_000);
   await page.setExtraHTTPHeaders(admin);
   await page.goto(app.url + "/devices");
@@ -60,10 +56,6 @@ test("admin restores a backup; the job ends verified; the token is spent", { tag
   await expect(page.locator("#restore-status")).toContainText("Verified");
   // every step is ticked off
   await expect(page.locator("#restore-status .rs-step.is-done")).toHaveCount(5);
-
-  // the firmware listener knows no other restore URL
-  const probe = await request.get(`http://127.0.0.1:${fwPort}/restore/${"0".repeat(32)}`);
-  expect(probe.status()).toBe(404);
 });
 
 test("operators cannot restore or delete backups", { tag: "@core" }, async ({ page, request }) => {

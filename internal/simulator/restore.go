@@ -1,10 +1,10 @@
 package simulator
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
-	neturl "net/url"
-	"strings"
+	"strconv"
 )
 
 // configDumpSize is the size of a Tasmota settings dump on ESP8266/ESP32
@@ -12,64 +12,106 @@ import (
 // real firmware rejects a bad file.
 const configDumpSize = 4096
 
-// webGetConfigLocked implements "WebGetConfig <url>": the device downloads a
-// settings dump from the URL, replaces its settings with it and restarts.
-// The download runs in the background, like the real command, so the reply
-// is only "accepted"; success shows as a reboot and a changed /dl. The
-// device sends no credentials and follows no redirects. It is a stand-in for
-// the one-time restore download (M2-5) and models what the real command is
-// known for: it GETs the URL from the device's own address.
-func (d *simDevice) webGetConfigLocked(data string) []byte {
-	u, err := neturl.Parse(strings.TrimSpace(data))
-	if data == "" || err != nil || u.Scheme != "http" || u.Host == "" {
-		return errorReply("WEBGETCONFIG " + data)
-	}
-	raw := u.String()
-	if fs := d.faultsForLocked("webgetconfig", FaultFWUnreachable); len(fs) > 0 {
-		// The web command downloads synchronously (xdrv_01_9_webserver.ino, WebGetConfig,
-		// v16 lines 4510-4588): the connect attempt takes its time, then it answers the
-		// failure. The lock is released meanwhile, as for any slow command.
-		wait := fs[0].Duration
-		if wait <= 0 {
-			wait = d.dur(secFWConnectFail)
-		}
-		d.mu.Unlock()
-		d.sleepFor(wait)
-		d.mu.Lock()
-		return []byte(`{"WebGetConfig":"Connect failed"}`)
-	}
-	d.spawn(func() {
-		d.fetchConfig(raw)
-	})
-	return []byte(`{"WebGetConfig":"Done"}`)
+// uploadKind is Tasmota's Web.upload_file_type as far as the simulator models it.
+type uploadKind int
+
+const (
+	uploadNone     uploadKind = iota // UPL_NONE: a POST /u2 applies nothing, yet says Successful
+	uploadFirmware                   // UPL_TASMOTA, set by GET /up
+	uploadSettings                   // UPL_SETTINGS, set by GET /rs
+	uploadUFS                        // UPL_UFSFILE, set by GET /ufsd
+)
+
+// rsPage is the "Restore configuration" page as HandleRestoreConfiguration writes it (v16
+// xdrv_01_9_webserver.ino 3035-3053 with HTTP_FORM_RST_UPG): the same upload form as /up.
+func rsPage(name string) []byte {
+	return []byte("<!DOCTYPE html><html lang=\"en\" class=\"\"><head><meta charset='utf-8'><title>" + name + " Restore</title></head><body>" +
+		"<fieldset><legend><b>&nbsp;Restore Configuration&nbsp;</b></legend>" +
+		"<form method='post' action='u2?fsz=' enctype='multipart/form-data'><br><input type='file' name='u2'><br>" +
+		"<br><button type='submit'>Start Restore</button></form></fieldset></body></html>")
 }
 
-func (d *simDevice) fetchConfig(rawURL string) {
-	req, err := http.NewRequestWithContext(d.ctx, http.MethodGet, rawURL, nil) //nolint:gosec // G704: simulator device; its client dials loopback and AllowDownloadHosts only
+// serveRs models HandleRestoreConfiguration: the page sets the settings upload type. The minimal
+// firmware registers no /rs.
+func (d *simDevice) serveRs(w http.ResponseWriter, r *http.Request) {
+	d.mu.Lock()
+	minimal := d.minimalLocked()
+	name := d.deviceName(d.viewLocked())
+	if !minimal {
+		d.uploadType = uploadSettings
+	}
+	d.mu.Unlock()
+	if minimal {
+		d.notFound(w, r)
+		return
+	}
+	d.setHeaders(w, "", "text/html")
+	d.writeBody(w, http.StatusOK, rsPage(name))
+}
+
+// restoreUpload is the settings branch of HandleUploadLoop and HandleUploadDone: the dump is
+// checked (SettingsConfigRestore), applied and the device restarts. A dump of the wrong size is
+// refused with the device's messages and changes nothing.
+func (d *simDevice) restoreUpload(w http.ResponseWriter, r *http.Request) {
+	reply := func(ok bool, msg string) {
+		d.setHeaders(w, "", "text/html")
+		d.writeBody(w, http.StatusOK, uploadPage(ok, msg))
+	}
+	mr, err := r.MultipartReader()
 	if err != nil {
+		reply(false, "No file selected")
 		return
 	}
-	resp, err := d.f.client.Do(req) //nolint:gosec // G704: see above, loopback-only client
+	part, err := mr.NextPart()
+	if err != nil || part.FormName() != "u2" || part.FileName() == "" {
+		reply(false, "No file selected")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(part, configDumpSize+1<<10))
 	if err != nil {
+		drop(w)
 		return
 	}
-	defer func() { _ = resp.Body.Close() }() // read-only response
-	if resp.StatusCode != http.StatusOK {
+	d.record("POST /u2 " + part.FileName() + " " + strconv.Itoa(len(body)) + " (settings)")
+	switch {
+	case len(body) > configDumpSize:
+		reply(false, "File too large")
 		return
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, configDumpSize+1))
-	if err != nil || len(body) != configDumpSize {
+	case len(body) < configDumpSize:
+		reply(false, "File invalid")
 		return
 	}
 	d.mu.Lock()
 	d.applyConfigLocked(body)
+	lost := len(d.faultsForLocked("u2", FaultUploadLostReply)) > 0
 	d.mu.Unlock()
-	if !d.sleep(secRestartCmd) {
+	d.spawn(func() {
+		if d.sleep(secRestartCmd) {
+			d.reboot(false)
+		}
+	})
+	if lost {
+		drop(w) // applied and restarting, the reply never arrives
 		return
 	}
-	d.reboot(false)
+	reply(true, "")
 }
 
-// applyConfigLocked replaces the settings with a dump (SettingsConfigRestore);
-// the caller restarts. Shared by WebGetConfig and MQTT FileUpload Type 2.
-func (d *simDevice) applyConfigLocked(dump []byte) { d.configDump = dump }
+// applyConfigLocked replaces the settings with a dump (SettingsConfigRestore); the caller
+// restarts. Shared by the web restore upload and MQTT FileUpload Type 2. Like the firmware, which
+// copies the whole settings block, a simulator dump that carries a boot counter brings it back.
+func (d *simDevice) applyConfigLocked(dump []byte) {
+	d.configDump = dump
+	if len(dump) < len(dumpMagic) || string(dump[:len(dumpMagic)]) != dumpMagic {
+		return
+	}
+	body := dump[len(dumpMagic):]
+	end := len(body)
+	for end > 0 && body[end-1] == 0 {
+		end--
+	}
+	var doc struct{ Bootcount *int }
+	if json.Unmarshal(body[:end], &doc) == nil && doc.Bootcount != nil {
+		d.persisted.bootCount = *doc.Bootcount
+	}
+}

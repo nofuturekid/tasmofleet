@@ -40,10 +40,6 @@ type ServerOptions struct {
 	// client must not starve the OTA). 0 = 120, negative = unlimited.
 	RateLimitPerMinute int
 	Logger             *slog.Logger
-	// Extra is mounted at /restore/ (the one-time config restore download).
-	// It sits behind the same per-IP rate limit; everything else on this
-	// listener stays read-only firmware.
-	Extra http.Handler
 }
 
 // NewServer returns the device-facing handler: GET/HEAD /fw/<release>/<file>
@@ -160,10 +156,6 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.allow(ip) {
 		w.Header().Set("Retry-After", "60")
 		reply(http.StatusTooManyRequests, "too many requests")
-		return
-	}
-	if s.opts.Extra != nil && strings.HasPrefix(r.URL.Path, "/restore/") {
-		s.opts.Extra.ServeHTTP(w, r)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

@@ -23,7 +23,8 @@ const (
 // uploadPage is a Tasmota result page of the upload (HandleUploadDone).
 func uploadPage(ok bool, msg string) []byte {
 	if ok {
-		return []byte("<html><body><div style='text-align:center;'><b>Upload <font color='#008000'>Successful</font></b><br>" +
+		return []byte("<html><head><script>setTimeout(function(){location.href='.';},10000);</script></head><body>" +
+			"<div style='text-align:center;'><b>Upload <font color='#008000'>Successful</font></b><br>" +
 			"<div style='text-align:center;'><b>Device will restart in a few seconds</b></div></div></body></html>")
 	}
 	return []byte("<html><body><div style='text-align:center;'><b>Upload <font color='#ff5661'>Failed</font></b><br><br>" +
@@ -41,8 +42,8 @@ func (d *simDevice) serveU2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.mu.Lock()
-	armed := d.uploadArmed
-	d.uploadArmed = false
+	kind := d.uploadType
+	d.uploadType = uploadNone // HandleUploadDone clears it
 	cut := len(d.faultsForLocked("u2", FaultUploadCut)) > 0
 	lost := len(d.faultsForLocked("u2", FaultUploadLostReply)) > 0
 	slow := d.faultsForLocked("u2", FaultSlowWrite)
@@ -54,7 +55,12 @@ func (d *simDevice) serveU2(w http.ResponseWriter, r *http.Request) {
 		d.setHeaders(w, "", "text/html")
 		d.writeBody(w, http.StatusOK, uploadPage(ok, msg))
 	}
-	if !armed {
+	switch kind {
+	case uploadSettings:
+		d.restoreUpload(w, r)
+		return
+	case uploadFirmware:
+	case uploadNone, uploadUFS: // or the file type a GET /ufsd left: nothing is flashed or applied
 		_, _ = io.Copy(io.Discard, r.Body)
 		d.record("POST /u2 (no upload type set)")
 		d.spawn(d.restartSoon)

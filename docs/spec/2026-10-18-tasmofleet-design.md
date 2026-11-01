@@ -487,7 +487,7 @@ reach manageable, #45). HTTP "not failing" means ok or unknown.
 | Commands (reads) | HTTP; MQTT when HTTP is failing and MQTT is usable; else None |
 | Writes | HTTP; MQTT when HTTP is failing and MQTT is usable with a known own GroupTopic; else None |
 | Backup | HTTP `/dl`; MQTT FileDownload when HTTP is failing and MQTT is usable with a password that is set and not refused; else None |
-| Restore | HTTP WebGetConfig when HTTP is not failing, FIRMWARE_BASE_URL is set and FWReach is not "no"; else MQTT FileUpload Type 2 (usable, password usable); else None |
+| Restore | HTTP restore upload (`GET /rs` + `POST /u2`) when HTTP is not failing; else MQTT FileUpload Type 2 (usable, password usable); else None (#430: the firmware server plays no part) |
 | Update, pull | DownloadHTTP (HTTP not failing, base URL set, FWReach not "no"); else DownloadMQTT (usable, FWReach not "no"); else None |
 | Update, push where possible | HTTP not failing: the engine's decision (PushHTTP, PushSafeboot, or its fallback to DownloadHTTP, kept with its note). HTTP failing and MQTT usable: PushMQTT when the per-transaction "experimental" checkbox is set, the image fits and the password is usable; else DownloadMQTT; else None |
 
@@ -857,7 +857,7 @@ listing, no other routes, and no authentication (devices cannot authenticate). E
 request is logged with the device IP and published as an event. The engine uses "device X
 started downloading" as a progress hint. All files of one release share a directory, so
 Tasmota's own fallback (it rewrites the OtaUrl file name to `tasmota-minimal.bin.gz` in the
-same directory, SRC) also resolves. It also serves `/restore/<token>` (§12.4) and, for uploaded firmware, `/c/<key>/fw/<release>/<filename>` (§8.6). Requests are rate limited per client IP (120 per minute).
+same directory, SRC) also resolves. It also serves, for uploaded firmware, `/c/<key>/fw/<release>/<filename>` (§8.6). Requests are rate limited per client IP (120 per minute).
 
 `FIRMWARE_BASE_URL` is the URL devices use (`http://<container-ip>`). It must be plain
 `http://` (validated). There is no auto-detection: in ipvlan/bridge setups the right
@@ -917,7 +917,7 @@ HTTP. Rules:
 - Every HTTP outcome goes into `Memory` (the failure kind and its start; a failure lasts 10 minutes and is
   cleared by the next answer, a health poll included), which is how `Facts.HTTP` becomes "failing".
 - `transport.WithPath(ctx, HTTP|MQTT)` pins a job's transport: no failover, no rerouting. A command that starts
-  an upgrade or a restore (`Upgrade <x>`, `WebGetConfig <x>`) is sent over MQTT only when the path is pinned
+  an upgrade or a restore (`Upgrade <x>`, or `WebGetConfig <x>` typed in the console on a custom build) is sent over MQTT only when the path is pinned
   to MQTT; the generic router never starts one on its own.
 - The device is read once, the facts and the choice come from that snapshot, and the device is read again
   right before an MQTT send; a changed topic, group topic, FullTopic or MQTT capability sends nothing.
@@ -1438,20 +1438,29 @@ shows the decoded secrets. The diff/drift view redacts keys matching
   failed stores nothing; the attempt is listed as a "Failed" row with Retry (`backup_attempts`).
 - M2 diff view: decoded JSON of two backups, redacted, rendered side by side ("what changed
   since the last backup"). Operators see which keys changed with the values hidden; admins see the redacted values.
-- M2 restore: admin picks a backup. tasmofleet creates a one-time token (random 128 bit,
-  valid 5 min, bound to the device IP) and sends `WebGetConfig http://<fw>/restore/<token>`.
-  The firmware listener serves the `.dmp` once to that IP only. Audited. This avoids
-  TasmoAdmin's authenticated-route problem (lesson B8).
+- M2 restore: admin picks a backup. Over HTTP tasmofleet does what the web UI's "Restore configuration"
+  does (#430, 0.26.0): `GET /rs` sets the device's upload type to settings, then the multipart
+  `POST /u2?fsz=<size>` carries the `.dmp` (field `u2`), both in one device slot of the HTTP client
+  (`tasmota.ConfigRestorer`, `Router.RestoreConfig`, HTTP only). Nothing is posted without the `/rs`
+  form (a `POST /u2` without the type says "Successful" and restarts with nothing applied; minimal has
+  no `/rs`). The success page (reload script, any language) means the device applies it and restarts;
+  "Upload Failed" is certain (nothing applied); anything else is an unknown outcome checked on the
+  device, never sent again. Every TasmoFleet upload sends its own type-setting GET first (`/up`, `/rs`,
+  `/ufsd`), so a type left armed on the device never turns one upload into another. Audited. Until
+  0.26.0 the HTTP restore sent `WebGetConfig` with a one-time token on the firmware listener; no
+  official build has `WebGetConfig`, so that never worked and is gone (no token, no `/restore/` route,
+  no `FIRMWARE_BASE_URL` needed).
 - Restore over MQTT (0.20.0, D8/D12): `transport.Choose` decides per restore (`Paths.Restore`): HTTP
-  (WebGetConfig) while HTTP works and the device reaches the firmware server, else MQTT (FileUpload Type 2)
-  for a device on our broker with a usable MQTT password; otherwise the restore is refused with the reason.
-  `restore.New` no longer needs `FIRMWARE_BASE_URL` (`ErrNotConfigured` only when neither path exists;
-  Replace device still needs it). The order is unchanged: safety backup (through the same path), identity
-  (Status 5), then the upload. The device applies the dump only after the MD5 matched, so an upload that
-  fails or is aborted leaves the settings unchanged. Restart detection: the boot count from a fresh
-  `Status 1` must rise (the channel refuses while the LWT says Offline, so a stale INFO3 never counts), within
-  `RebootTimeout` (3 minutes). A lost "Done" is an unknown outcome and is checked on the device, never
-  uploaded again. Error 1 marks the device's MQTT password bad. The job records its transport and the
+  (restore upload) while HTTP is not failing, else MQTT (FileUpload Type 2) for a device on our broker
+  with a usable MQTT password; otherwise the restore is refused with the reason. `restore.New` needs one
+  of the two (`ErrNotConfigured` when neither exists); Replace device needs the HTTP restore upload. The
+  order is the same on both paths: safety backup (through the same path), identity (Status 5), `Status 1`
+  (the device answers), then the upload. Over MQTT the device applies the dump only after the MD5 matched,
+  so an upload that fails or is aborted leaves the settings unchanged. Restart detection (both paths, #430):
+  a fresh `Status 11` whose uptime is shorter than the time since the upload began (+2 s), within
+  `RebootTimeout` (3 minutes). Not the boot count: the restored settings bring the backup's counter back,
+  so it is lower after an older backup. A lost "Done" is an unknown outcome and is checked on the device,
+  never uploaded again. Error 1 marks the device's MQTT password bad. The job records its transport and the
   confirmation page names the path.
 - Restore and replace put the files back (0.26.0, #324). When the backup run holds a files archive
   (§12.1), a restore or replace writes its files to the device's flash file system **before** the settings,
@@ -1465,7 +1474,7 @@ shows the decoded secrets. The diff/drift view redacts keys matching
     (`UfsType`, `Ufs`, `Status 2`) only for a backup that has files.
   - Nothing on the device is deleted. Only files in the archive are written; files the device has and the
     archive lacks, and files over the size limits (listed in the manifest, not stored), stay as they are.
-  - The identity (Status 5) is checked right before the first file, as before the token: files of this
+  - The identity (Status 5) is checked right before the first file, as before the upload: files of this
     device never go to another one.
   - Per file, one after the other: a name the device would cut (`tasmota.CheckUploadPath`: folder, slash
     and name within 49 bytes, so a root name has at most 47) is skipped before anything is read; read the
@@ -1496,7 +1505,7 @@ shows the decoded secrets. The diff/drift view redacts keys matching
     settings unchanged" (`failFilesPartly`; "the files could not be written, the device is unchanged" before
     the first write): files already written keep the backup's content, the settings are not sent, the page
     offers the rollback to the backup taken first only after a write. A failure of a later step before the
-    settings go over (identity, unreachable, token, WebGetConfig) after files were written says "files
+    settings go over (identity, unreachable, restore upload refused) after files were written says "files
     written, settings unchanged" (`fo.afterFiles`), never "nothing was changed", and offers the rollback too.
   - Verification adds the files: the fresh backup's manifest must hold the written (or already identical)
     files with the archive's SHA-256. A file the device rewrote itself (Zigbee data) is named as differing,
@@ -1862,7 +1871,7 @@ in backups, the OIDC client secret, firmware integrity, the audit trail.
 | Device password leakage to the browser or logs (B2)                   | never rendered; Basic auth header; redaction; sealed at rest with key in `secret.key`                                                                                                                                                                               |
 | Backup secret leakage (§12.3)                                         | 0600, admin-only download, redacted views, audited                                                                                                                                                                                                                  |
 | Mass assignment / Backlog injection in settings (B3)                  | typed fields, per-field commands, `;` rejected                                                                                                                                                                                                                      |
-| Restore blob behind auth (B8)                                         | one-time token on the firmware listener, bound to device IP                                                                                                                                                                                                         |
+| Restore blob behind auth (B8)                                         | pushed with the device's own restore upload (`/rs` + `/u2`, Basic auth and Referer as for `/dl`), to the one IP checked by MAC; never served by TasmoFleet (#430)                                                                                                     |
 | Malicious upstream release                                            | cannot be ruled out; dual-source compare, cache by SHA-256, releases only on explicit refresh, never auto-update devices                                                                                                                                            |
 | IoT VLAN client abusing the firmware port                             | read-only, only indexed files, no secrets, rate-limited per IP                                                                                                                                                                                                      |
 | Loss of the database                                                  | WAL, pre-migration copies, everything in `/data` for host backups                                                                                                                                                                                                   |
@@ -2025,7 +2034,7 @@ Every other path answers with the app's own not-found page. (`GET /jobs` and `/u
 no longer exist; the transactions pages replaced them.)
 
 Firmware listener: `GET|HEAD /fw/<release>/<filename>`, `GET|HEAD /c/<key>/fw/<release>/<filename>` (uploaded
-firmware) and `GET /restore/<token>`. Everything else is 404.
+firmware). Everything else is 404.
 
 A JSON API for automation (with API tokens) is out of scope until there is a consumer.
 Home Assistant already gets device data from Tasmota.

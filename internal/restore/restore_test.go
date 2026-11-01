@@ -9,8 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
 	"strconv"
@@ -28,128 +26,6 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/store"
 	"github.com/nofuturekid/tasmofleet/internal/tasmota"
 )
-
-// --- token download (handler) -------------------------------------------
-
-type fakeClock struct {
-	mu sync.Mutex
-	t  time.Time
-}
-
-func (c *fakeClock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
-func (c *fakeClock) After(d time.Duration) <-chan time.Time {
-	ch := make(chan time.Time, 1)
-	ch <- c.Now().Add(d) // time does not pass by itself in the handler tests
-	return ch
-}
-func (c *fakeClock) Advance(d time.Duration) { c.mu.Lock(); c.t = c.t.Add(d); c.mu.Unlock() }
-
-func handlerManager(t *testing.T, clk *fakeClock) *Manager {
-	t.Helper()
-	m, err := New(Options{
-		Devices: nopDevices{}, Backups: nopBackups{}, Store: nopStore{}, Client: nopClient{},
-		BaseURL: "http://fw.invalid:8081", Clock: clk, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return m
-}
-
-func get(h http.Handler, path, remote string) *httptest.ResponseRecorder {
-	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://fw"+path, nil)
-	r.RemoteAddr = remote
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	return w
-}
-
-// Why: the token is the only authentication of the download. It must work
-// exactly once, only from the device's own IP, and every refusal must look
-// the same so the endpoint cannot be used to probe tokens or devices.
-func TestTokenServesDumpOnceToDeviceOnly(t *testing.T) {
-	clk := &fakeClock{t: time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)}
-	m := handlerManager(t, clk)
-	dump := bytes.Repeat([]byte{7}, 4096)
-	tok, err := m.issue(Job{ID: 1, DeviceID: 5}, dump, []netip.Addr{netip.MustParseAddr("172.31.13.40")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tok) != 32 {
-		t.Fatalf("token has %d hex chars, want 32 (128 bit)", len(tok))
-	}
-	h := m.Handler()
-
-	wrong := get(h, "/restore/"+tok, "172.31.13.99:5000")
-	if wrong.Code != 404 {
-		t.Fatalf("wrong IP: %d", wrong.Code)
-	}
-	ok := get(h, "/restore/"+tok, "172.31.13.40:5000")
-	if ok.Code != 200 || !bytes.Equal(ok.Body.Bytes(), dump) {
-		t.Fatalf("device request after a wrong-IP probe: %d (a stranger must not burn the token)", ok.Code)
-	}
-	if cc := ok.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
-		t.Errorf("Cache-Control %q", cc)
-	}
-	if ct := ok.Header().Get("Content-Type"); ct != "application/octet-stream" {
-		t.Errorf("Content-Type %q", ct)
-	}
-	again := get(h, "/restore/"+tok, "172.31.13.40:5000")
-	if again.Code != 404 {
-		t.Errorf("second use: %d", again.Code)
-	}
-	unknown := get(h, "/restore/"+strings.Repeat("0", 32), "172.31.13.40:5000")
-	if unknown.Body.String() != again.Body.String() || unknown.Body.String() != wrong.Body.String() || unknown.Code != 404 {
-		t.Errorf("refusals differ: %q %q %q", unknown.Body.String(), again.Body.String(), wrong.Body.String())
-	}
-}
-
-// Why: a token that was not used must not stay valid; five minutes is the
-// documented window (spec 12.4).
-func TestTokenExpiresAfterFiveMinutes(t *testing.T) {
-	clk := &fakeClock{t: time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)}
-	m := handlerManager(t, clk)
-	tok, _ := m.issue(Job{ID: 1, DeviceID: 5}, []byte("x"), []netip.Addr{netip.MustParseAddr("172.31.13.40")})
-	clk.Advance(5*time.Minute + time.Second)
-	if w := get(m.Handler(), "/restore/"+tok, "172.31.13.40:1"); w.Code != 404 {
-		t.Errorf("expired token served: %d", w.Code)
-	}
-}
-
-// Why: only exact, canonical paths and GET are accepted; anything else could
-// smuggle a token past the lookup (encoded characters, case, extra segments).
-func TestHandlerRejectsMalformedRequests(t *testing.T) {
-	clk := &fakeClock{t: time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)}
-	m := handlerManager(t, clk)
-	tok, _ := m.issue(Job{ID: 1, DeviceID: 5}, []byte("x"), []netip.Addr{netip.MustParseAddr("172.31.13.40")})
-	h := m.Handler()
-	for _, p := range []string{"/restore/" + tok + "/", "/restore/" + tok + "/x", "/restore/" + strings.ToUpper(tok) + "0", "/restore/", "/restore", "/restore/%2e%2e", "/restore/" + tok[:31]} {
-		if w := get(h, p, "172.31.13.40:1"); w.Code != 404 {
-			t.Errorf("%s: %d", p, w.Code)
-		}
-	}
-	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://fw/restore/"+tok, nil)
-	r.RemoteAddr = "172.31.13.40:1"
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	if w.Code != 404 {
-		t.Errorf("POST: %d", w.Code)
-	}
-	// None of the above consumed the token.
-	if w := get(h, "/restore/"+tok, "172.31.13.40:1"); w.Code != 200 {
-		t.Errorf("token was consumed by a malformed request: %d", w.Code)
-	}
-}
-
-// Why: IPv4-mapped IPv6 peers (dual-stack listeners) are the same device.
-func TestTokenMatchesMappedIPv4(t *testing.T) {
-	clk := &fakeClock{t: time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)}
-	m := handlerManager(t, clk)
-	tok, _ := m.issue(Job{ID: 1, DeviceID: 5}, []byte("x"), []netip.Addr{netip.MustParseAddr("172.31.13.40")})
-	if w := get(m.Handler(), "/restore/"+tok, "[::ffff:172.31.13.40]:1"); w.Code != 200 {
-		t.Errorf("mapped address: %d", w.Code)
-	}
-}
 
 type nopDevices struct{}
 
@@ -200,16 +76,16 @@ type hookClient struct {
 	cmds       []string
 	status2    string // when set, the device claims this firmware version
 	status5    string // when set, the device claims this MAC
-	swallow    bool   // accept WebGetConfig without doing anything
-	afterErr   error  // returned after WebGetConfig was really executed
-	swallowErr error  // returned instead of executing WebGetConfig
+	swallow    bool   // accept the restore upload without doing anything
+	afterErr   error  // returned after the restore upload was really executed
+	swallowErr error  // returned instead of executing the restore upload
 	failDL     atomic.Bool
 
 	// fs is the file system part of the real client. The wrapper exposes it (so the backup and the
 	// restore see a client with file access, as in production) and lets a test break one upload.
 	fs tasmota.FileSystem
 	// order records the writes in the sequence they reached the device: "upload:/path" and the
-	// commands that change settings (WebGetConfig).
+	// the restore upload of the settings ("RestoreConfig").
 	order []string
 	// uploadHook runs before every UploadFile with the 1-based number of the attempt for this path;
 	// a non-nil error is returned instead of the real upload (the hook may have written something
@@ -282,7 +158,6 @@ func (c *hookClient) Command(ctx context.Context, t tasmota.Target, cmnd string)
 	}
 	c.mu.Lock()
 	c.cmds = append(c.cmds, cmnd)
-	swallow := c.swallow
 	c.mu.Unlock()
 	c.mu.Lock()
 	s2, s5 := c.status2, c.status5
@@ -293,22 +168,33 @@ func (c *hookClient) Command(ctx context.Context, t tasmota.Target, cmnd string)
 	if cmnd == "Status 5" && s5 != "" {
 		return json.RawMessage(`{"StatusNET":{"Mac":"` + s5 + `"}}`), nil
 	}
-	if strings.HasPrefix(cmnd, "WebGetConfig") {
-		c.mu.Lock()
-		c.order = append(c.order, "WebGetConfig")
-		c.mu.Unlock()
+	return c.Client.Command(ctx, t, cmnd)
+}
+
+// RestoreConfig is the HTTP restore upload of the real client, recorded as the pseudo command
+// "RestoreConfig" (in cmds and order) and steerable with swallow, swallowErr and afterErr.
+func (c *hookClient) RestoreConfig(ctx context.Context, t tasmota.Target, dump []byte) error {
+	if c.failCmd != nil {
+		if err := c.failCmd("RestoreConfig"); err != nil {
+			return err
+		}
 	}
-	if strings.HasPrefix(cmnd, "WebGetConfig") && c.swallowErr != nil {
-		return nil, c.swallowErr
+	c.mu.Lock()
+	c.cmds = append(c.cmds, "RestoreConfig")
+	c.order = append(c.order, "RestoreConfig")
+	swallow, swallowErr, afterErr := c.swallow, c.swallowErr, c.afterErr
+	c.mu.Unlock()
+	if swallowErr != nil {
+		return swallowErr
 	}
-	if strings.HasPrefix(cmnd, "WebGetConfig") && swallow {
-		return json.RawMessage(`{"WebGetConfig":"Done"}`), nil
+	if swallow {
+		return nil
 	}
-	raw, err := c.Client.Command(ctx, t, cmnd)
-	if err == nil && strings.HasPrefix(cmnd, "WebGetConfig") && c.afterErr != nil {
-		return nil, c.afterErr
+	err := c.Client.(tasmota.ConfigRestorer).RestoreConfig(ctx, t, dump)
+	if err == nil && afterErr != nil {
+		return afterErr
 	}
-	return raw, err
+	return err
 }
 
 func (c *hookClient) DownloadConfig(ctx context.Context, t tasmota.Target) ([]byte, error) {
@@ -426,10 +312,8 @@ type flowEnv struct {
 	audit  *auditSink
 	dumpA  []byte
 	dumpB  []byte
-	srv    *httptest.Server
 	device model.Device
 	fleet  simulator.Fleet
-	served chan model.DeviceID // the devices OnServed reported
 }
 
 func dumpWith(b0, b1 byte) []byte {
@@ -505,20 +389,14 @@ func newFlowSpec(t *testing.T, version string, dec backup.Decoder, spec simulato
 	hb := &hookBackups{Backups: bk}
 	e := &flowEnv{st: st, bk: bk, hb: hb, cl: cl, sim: ctl, dev: id, audit: au, dumpA: dumpWith(1, 10), dumpB: dumpWith(2, 20), device: dev, fleet: fleet}
 
-	mux := http.NewServeMux()
-	e.srv = httptest.NewServer(mux)
-	t.Cleanup(e.srv.Close)
-	e.served = make(chan model.DeviceID, 8)
 	m, err := New(Options{
-		Devices: st, Backups: hb, Store: st, Client: cl, Files: bk, BaseURL: e.srv.URL, Audit: au, Log: quiet,
+		Devices: st, Backups: hb, Store: st, Client: cl, Files: bk, Audit: au, Log: quiet,
 		Hardware: st, Describe: e.describe,
-		OnServed:     func(id model.DeviceID) { e.served <- id },
-		PollInterval: 20 * time.Millisecond, RebootTimeout: 15 * time.Second, TokenTTL: 30 * time.Second, Context: t.Context(),
+		PollInterval: 20 * time.Millisecond, RebootTimeout: 15 * time.Second, Context: t.Context(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	mux.Handle("/restore/", m.Handler())
 	e.m = m
 	return e
 }
@@ -596,34 +474,82 @@ func TestRestoreRoundTripAgainstSimulator(t *testing.T) {
 	if _, b, err := e.bk.Open(t.Context(), done.PreBackupID); err != nil || b.Trigger != model.TriggerRestore {
 		t.Errorf("pre-restore backup trigger: %+v %v", b, err)
 	}
-	// Why: the device fetched the dump from the firmware listener, so it reaches it (D11).
-	select {
-	case id := <-e.served:
-		if id != e.dev {
-			t.Errorf("OnServed reported device %d, want %d", id, e.dev)
-		}
-	default:
-		t.Error("serving the dump did not report the device")
+	// #430: the dump goes over the device's own restore upload, exactly once; the device is never
+	// asked to fetch anything (official builds have no WebGetConfig).
+	if got := e.cl.sent("RestoreConfig"); len(got) != 1 {
+		t.Errorf("restore uploads: %v", got)
 	}
-	cmds := e.cl.sent("WebGetConfig")
-	if len(cmds) != 1 || !strings.HasPrefix(cmds[0], "WebGetConfig "+e.srv.URL+"/restore/") {
-		t.Errorf("commands: %v", cmds)
+	if got := e.cl.sent("WebGetConfig"); len(got) != 0 {
+		t.Errorf("WebGetConfig sent: %v", got)
+	}
+	if got := strings.Join(e.sim.Commands(), "\n"); !strings.Contains(got, "POST /u2 Config.dmp 4096 (settings)") {
+		t.Errorf("the simulator saw no restore upload:\n%s", got)
 	}
 	joined := strings.Join(e.audit.actions(), " ")
-	for _, want := range []string{"restore.start:ok", "restore.download:ok", "restore.finish:ok", "backup.create:ok"} {
+	for _, want := range []string{"restore.start:ok", "restore.finish:ok", "backup.create:ok"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("audit lacks %s: %s", want, joined)
 		}
 	}
-	// The token is spent: replaying the URL gives 404.
-	tok := strings.TrimPrefix(cmds[0], "WebGetConfig "+e.srv.URL+"/restore/")
-	if w := get(e.m.Handler(), "/restore/"+tok, "127.0.0.1:9"); w.Code != 404 {
-		t.Errorf("replay: %d", w.Code)
+}
+
+// simDumpWithBootCount is a settings dump in the simulator's own format ("TFSIMDMP1\n" + JSON, padded
+// to 4096 bytes) that carries a boot counter, which the simulated device takes over when it applies
+// the dump, like SettingsConfigRestore does.
+func simDumpWithBootCount(n int) []byte {
+	b := []byte("TFSIMDMP1\n" + `{"bootcount":` + strconv.Itoa(n) + `}`)
+	return append(b, make([]byte, 4096-len(b))...)
+}
+
+// Why (#430 review): the restored settings bring the backup's BootCount back, so after restoring an
+// older backup the count is LOWER than before the restore. The restart must be proven by the
+// uptime, or every restore of an older backup would end in "did not restart in time" although
+// the device restarted with it.
+func TestRestoreOfAnOlderBackupWithALowerBootCountCompletes(t *testing.T) {
+	e := newFlow(t, "15.6.0")
+	old := simDumpWithBootCount(2)
+	a := e.dumpBackup(t, old)
+	e.sim.SetConfigDump(e.dumpB)
+	before := e.sim.BootCount()
+	if before <= 3 {
+		t.Fatalf("fixture BootCount %d, the test needs one above 3", before)
 	}
-	for _, ev := range e.audit.events() {
-		if strings.Contains(ev.Detail, tok) || strings.Contains(ev.Target, tok) {
-			t.Errorf("token in audit record: %+v", ev)
+	job, err := e.m.Start(t.Context(), "alice", a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := e.finish(t, job.ID)
+	if done.State != store.RestoreDone || !done.Verified {
+		t.Fatalf("job: %+v", done)
+	}
+	if got := e.sim.BootCount(); got >= before {
+		t.Errorf("BootCount %d, want below %d: the test no longer covers an older backup", got, before)
+	}
+}
+
+// Why: the trap seen live: a restore upload whose type the device lost answers "Successful" and
+// restarts with nothing applied. The restart alone proves nothing; the verification afterwards
+// must say that the device does not hold the backup.
+func TestRestartWithoutTheSettingsIsNotVerified(t *testing.T) {
+	e := newFlow(t, "15.6.0")
+	a := e.dumpBackup(t, e.dumpA)
+	e.sim.SetConfigDump(e.dumpB)
+	e.cl.failCmd = func(c string) error {
+		if c != "RestoreConfig" {
+			return nil
 		}
+		// What the device does with a POST /u2 and no upload type: restart, apply nothing.
+		_, err := e.cl.Client.Command(t.Context(), tasmota.TargetFor(e.device), "Restart 1")
+		return err
+	}
+	e.cl.swallow = true // and answer "Successful"
+	job, err := e.m.Start(t.Context(), "alice", a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := e.finish(t, job.ID)
+	if done.Verified || !strings.Contains(done.Detail, "differ") {
+		t.Fatalf("a restart without the settings passed as verified: %+v", done)
 	}
 }
 
@@ -682,15 +608,14 @@ func TestFailedPreBackupStopsBeforeAnyChange(t *testing.T) {
 	if got := Step(done); got != StepBackup {
 		t.Errorf("failed step = %d, want %d (%s)", got, StepBackup, done.Detail)
 	}
-	if n := len(e.cl.sent("WebGetConfig")); n != 0 {
-		t.Errorf("WebGetConfig sent %d times", n)
+	if n := len(e.cl.sent("RestoreConfig")); n != 0 {
+		t.Errorf("restore upload sent %d times", n)
 	}
 }
 
-// Why: if the device accepts the command but never fetches the dump (feature
-// missing, listener unreachable for it), the job must fail loudly and the token
-// must be gone, not linger for later use.
-func TestDeviceThatNeverDownloadsFailsAndRevokesToken(t *testing.T) {
+// Why: if the device answers the upload but never restarts, nothing proves the settings were
+// applied: the job must fail loudly at the restart step, and the upload is never sent again.
+func TestDeviceThatNeverRestartsFails(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
 	e.cl.swallow = true
@@ -700,17 +625,15 @@ func TestDeviceThatNeverDownloadsFailsAndRevokesToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := e.finish(t, job.ID)
-	if done.State != store.RestoreFailed || !strings.Contains(done.Detail, "never downloaded") {
+	if done.State != store.RestoreFailed || !strings.Contains(done.Detail, "did not restart") {
 		t.Fatalf("job: %+v", done)
 	}
 	// the progress page marks the step that failed (FailedStep reads it from this text)
 	if got := Step(done); got != StepRestart {
 		t.Errorf("failed step = %d, want %d (%s)", got, StepRestart, done.Detail)
 	}
-	cmd := e.cl.sent("WebGetConfig")[0]
-	tok := cmd[strings.LastIndex(cmd, "/")+1:]
-	if w := get(e.m.Handler(), "/restore/"+tok, "127.0.0.1:9"); w.Code != 404 {
-		t.Errorf("token still valid after failure: %d", w.Code)
+	if n := len(e.cl.sent("RestoreConfig")); n != 1 {
+		t.Errorf("restore upload sent %d times, want exactly 1", n)
 	}
 	if done.PreBackupID == 0 {
 		t.Error("the pre-restore backup must be recorded")
@@ -754,8 +677,8 @@ func TestStartRefusals(t *testing.T) {
 	}
 }
 
-// Why: "one restore per device" and "one download per token" must hold when
-// requests arrive at the same moment, not only one after the other.
+// Why: "one restore per device" must hold when requests arrive at the same moment, not only one
+// after the other.
 func TestConcurrentStartsAndDownloadsAdmitExactlyOne(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
@@ -782,24 +705,6 @@ func TestConcurrentStartsAndDownloadsAdmitExactlyOne(t *testing.T) {
 		t.Errorf("accepted %d, busy %d; want 1 and 7", ok.Load(), busy.Load())
 	}
 	e.m.Wait()
-
-	clk := &fakeClock{t: time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)}
-	m := handlerManager(t, clk)
-	tok, _ := m.issue(Job{ID: 1, DeviceID: 5}, []byte("x"), []netip.Addr{netip.MustParseAddr("172.31.13.40")})
-	var served atomic.Int32
-	for i := 0; i < 16; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if get(m.Handler(), "/restore/"+tok, "172.31.13.40:1").Code == 200 {
-				served.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-	if served.Load() != 1 {
-		t.Errorf("token served %d times, want 1", served.Load())
-	}
 }
 
 func (e *flowEnv) setStatus(mac, ver string) {
@@ -810,7 +715,7 @@ func (e *flowEnv) setStatus(mac, ver string) {
 
 // Why: M3. The dump holds every secret of one device. If the host at the
 // address is not that device (DHCP reassignment, a name taken over), nothing
-// must be sent: no command, no token, no pre-backup.
+// must be sent: no command, no upload, no pre-backup.
 func TestWrongDeviceAtTheAddressIsRefusedBeforeAnything(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
@@ -818,14 +723,14 @@ func TestWrongDeviceAtTheAddressIsRefusedBeforeAnything(t *testing.T) {
 	if _, err := e.m.Start(t.Context(), "alice", a.ID); !errors.Is(err, ErrIdentity) {
 		t.Fatalf("got %v", err)
 	}
-	if n := len(e.cl.sent("WebGetConfig")); n != 0 {
-		t.Errorf("WebGetConfig sent %d times", n)
+	if n := len(e.cl.sent("RestoreConfig")); n != 0 {
+		t.Errorf("restore upload sent %d times", n)
 	}
 }
 
-// Why: M3. The address may change hands between Start and the command; the
-// check is repeated right before the token is issued.
-func TestIdentityIsCheckedAgainBeforeTheTokenIsIssued(t *testing.T) {
+// Why: M3. The address may change hands between Start and the upload; the
+// check is repeated right before the dump is sent.
+func TestIdentityIsCheckedAgainBeforeTheUpload(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
 	e.hb.hook = func(call int) {
@@ -845,8 +750,8 @@ func TestIdentityIsCheckedAgainBeforeTheTokenIsIssued(t *testing.T) {
 	if got := Step(done); got != StepUpload {
 		t.Errorf("failed step = %d, want %d (%s)", got, StepUpload, done.Detail)
 	}
-	if n := len(e.cl.sent("WebGetConfig")); n != 0 {
-		t.Errorf("WebGetConfig sent %d times", n)
+	if n := len(e.cl.sent("RestoreConfig")); n != 0 {
+		t.Errorf("restore upload sent %d times", n)
 	}
 }
 
@@ -883,9 +788,9 @@ func TestAddressIsResolvedOnceAndAmbiguityRefused(t *testing.T) {
 	}
 }
 
-// Why: L1. WebGetConfig runs synchronously on the device; when only the
-// reply is lost (timeout, unreadable) the device has been restored anyway and
-// the job must follow through and verify, not report a false failure.
+// Why: L1. When only the reply to the restore upload is lost (timeout, unreadable) the device
+// has been restored anyway and the job must follow through and verify, not report a false
+// failure, and never send the dump again.
 func TestLostReplyAfterTheDownloadStillVerifies(t *testing.T) {
 	for _, cerr := range []error{tasmota.ErrTimeout, tasmota.ErrBadResponse} {
 		e := newFlow(t, "15.6.0")
@@ -900,64 +805,34 @@ func TestLostReplyAfterTheDownloadStillVerifies(t *testing.T) {
 		if done.State != store.RestoreDone || !done.Verified {
 			t.Errorf("%v: job %+v", cerr, done)
 		}
+		if n := len(e.cl.sent("RestoreConfig")); n != 1 {
+			t.Errorf("%v: restore upload sent %d times", cerr, n)
+		}
 	}
 }
 
-// Why: L1. An error that is not "outcome unknown" and no download is a real
-// failure, and an unknown outcome without a download must still end in one.
-func TestRealCommandFailureStaysFailure(t *testing.T) {
-	e := newFlow(t, "15.6.0")
-	a := e.dumpBackup(t, e.dumpA)
-	e.cl.swallowErr = tasmota.ErrAuth
-	job, err := e.m.Start(t.Context(), "alice", a.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := e.finish(t, job.ID)
-	if done.State != store.RestoreFailed || !strings.Contains(done.Detail, "not accepted") {
-		t.Fatalf("job: %+v", done)
-	}
-	// the progress page marks the step that failed (FailedStep reads it from this text)
-	if got := Step(done); got != StepUpload {
-		t.Errorf("failed step = %d, want %d (%s)", got, StepUpload, done.Detail)
-	}
-}
-
-// Why: L2. A valid token used from another address is the sign of somebody
-// sniffing the IoT VLAN. It must leave an audit record naming the job and the
-// source (never the token), but only once per source in a while.
-func TestRefusedDownloadFromWrongAddressIsAuditedAndRateLimited(t *testing.T) {
-	clk := &fakeClock{t: time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)}
-	au := &auditSink{}
-	m, err := New(Options{Devices: nopDevices{}, Backups: nopBackups{}, Store: nopStore{}, Client: nopClient{}, BaseURL: "http://fw.invalid", Clock: clk, Audit: au,
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tok, _ := m.issue(Job{ID: 7, DeviceID: 5}, []byte("x"), []netip.Addr{netip.MustParseAddr("172.31.13.40")})
-	h := m.Handler()
-	for i := 0; i < 5; i++ {
-		get(h, "/restore/"+tok, "172.31.13.99:5000")
-	}
-	evs := au.actions()
-	if len(evs) != 1 || !strings.HasPrefix(evs[0], "restore.download:refused") {
-		t.Fatalf("audit after 5 probes: %v", evs)
-	}
-	au.mu.Lock()
-	ev := au.ev[0]
-	au.mu.Unlock()
-	if ev.RemoteAddr != "172.31.13.99" || strings.Contains(ev.Detail+ev.Target+ev.Result, tok) || !strings.Contains(ev.Detail, `"restore":7`) {
-		t.Errorf("event: %+v", ev)
-	}
-	clk.Advance(11 * time.Second)
-	get(h, "/restore/"+tok, "172.31.13.99:5000")
-	if len(au.actions()) != 2 {
-		t.Errorf("a later probe must be reported again: %v", au.actions())
-	}
-	// unknown tokens are logged only, not audited
-	get(h, "/restore/"+strings.Repeat("a", 32), "172.31.13.98:1")
-	if len(au.actions()) != 2 {
-		t.Errorf("unknown tokens must not flood the audit log: %v", au.actions())
+// Why: L1. A certain refusal (the device's "Failed" page, or an upload that never left
+// TasmoFleet) is a real failure at the upload step, at once, without waiting for a restart.
+func TestRealUploadFailureStaysFailure(t *testing.T) {
+	for _, cerr := range []error{
+		fmt.Errorf("%w: File invalid", tasmota.ErrUploadRefused),
+		fmt.Errorf("%w: %w", tasmota.ErrNotSent, tasmota.ErrAuth),
+	} {
+		e := newFlow(t, "15.6.0")
+		a := e.dumpBackup(t, e.dumpA)
+		e.cl.swallowErr = cerr
+		job, err := e.m.Start(t.Context(), "alice", a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := e.finish(t, job.ID)
+		if done.State != store.RestoreFailed || !strings.Contains(done.Detail, "not accepted") {
+			t.Fatalf("%v: job %+v", cerr, done)
+		}
+		// the progress page marks the step that failed (FailedStep reads it from this text)
+		if got := Step(done); got != StepUpload {
+			t.Errorf("%v: failed step = %d, want %d (%s)", cerr, got, StepUpload, done.Detail)
+		}
 	}
 }
 

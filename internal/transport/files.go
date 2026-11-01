@@ -143,3 +143,36 @@ func (o *observer) UploadFile(ctx context.Context, t tasmota.Target, path string
 	o.see(t, err)
 	return err
 }
+
+// ---- the restore upload (#430): HTTP only, like the files
+
+var (
+	_ tasmota.ConfigRestorer = (*Router)(nil)
+	_ tasmota.ConfigRestorer = (*observer)(nil)
+)
+
+// RestoreConfig implements tasmota.ConfigRestorer over HTTP. A restore over MQTT is UploadConfig
+// (FileUpload); a call pinned to MQTT is refused before anything is sent, and nothing fails over.
+func (r *Router) RestoreConfig(ctx context.Context, t tasmota.Target, dump []byte) error {
+	if p, ok := PathFrom(ctx); ok && p == MQTT {
+		noteTrace(ctx, None)
+		return fmt.Errorf("%w: the restore upload is pinned to MQTT", tasmota.ErrNotImplemented)
+	}
+	cr, ok := r.http.(tasmota.ConfigRestorer)
+	if !ok {
+		return fmt.Errorf("%w: the HTTP client cannot restore a configuration", tasmota.ErrNotImplemented)
+	}
+	err := cr.RestoreConfig(ctx, t, dump)
+	traceHTTP(ctx, err)
+	return err
+}
+
+func (o *observer) RestoreConfig(ctx context.Context, t tasmota.Target, dump []byte) error {
+	cr, ok := o.c.(tasmota.ConfigRestorer)
+	if !ok {
+		return fmt.Errorf("%w: the HTTP client cannot restore a configuration", tasmota.ErrNotImplemented)
+	}
+	err := cr.RestoreConfig(ctx, t, dump)
+	o.see(t, err)
+	return err
+}

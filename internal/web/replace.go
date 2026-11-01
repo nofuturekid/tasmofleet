@@ -14,7 +14,7 @@ import (
 )
 
 // registerReplace adds the "Replace device" wizard. It needs the restore
-// service to implement restore.Replacer (it needs the firmware listener).
+// service to implement restore.Replacer.
 func (h *handler) registerReplace(route func(string, func(http.Handler) http.Handler, http.HandlerFunc), adm func(http.Handler) http.Handler) {
 	if _, ok := h.d.Restore.(restore.Replacer); !ok {
 		return

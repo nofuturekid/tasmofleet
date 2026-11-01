@@ -326,7 +326,7 @@ func (d *simDevice) reboot(commit bool) {
 			clear(d.relays)
 		}
 	}
-	d.nextImage, d.armed, d.restartQueued, d.uploadArmed = nil, nil, false, false
+	d.nextImage, d.armed, d.restartQueued, d.uploadType = nil, nil, false, uploadNone
 	d.runtime = d.persisted.clone() // RAM-only changes (OtaUrl set in minimal) are lost here
 	d.boots++
 	if !d.minimalLocked() {

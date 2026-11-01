@@ -29,7 +29,10 @@ func TestStepOfRunningDoneAndFailedJobs(t *testing.T) {
 		{store.RestoreFailed, failFilesNone + "device busy", StepFiles},
 		{store.RestoreFailed, failFilesPartly + "lib/x.be: upload refused", StepFiles},
 		{store.RestoreFailed, "replacement " + failUnreachable + "x", StepUpload},
-		{store.RestoreFailed, failToken + "x", StepUpload},
+		{store.RestoreFailed, failRestoreUpload + "x", StepUpload},
+		// jobs stored before #430 keep their step on the progress page
+		{store.RestoreFailed, failTokenBefore430 + "x", StepUpload},
+		{store.RestoreFailed, failWebGetConfigBefore430 + "x", StepUpload},
 		{store.RestoreFailed, "the device downloaded the configuration but did not come back in time", StepRestart},
 		{store.RestoreFailed, failAfterRestore + "verification failed: x", StepVerify},
 		{store.RestoreFailed, failTakeOver + "the inventory entry could not take it over", StepVerify},

@@ -179,11 +179,13 @@ func (d *simDevice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		d.servePage(w, "root.html")
 	case "/up":
 		d.mu.Lock()
-		d.uploadArmed = true // HandleUpgradeFirmware sets the upload type
+		d.uploadType = uploadFirmware // HandleUpgradeFirmware sets the upload type
 		d.mu.Unlock()
 		d.servePage(w, "up.html")
 	case "/u2":
 		d.serveU2(w, r)
+	case "/rs":
+		d.serveRs(w, r)
 	case "/u4":
 		d.serveU4(w, r)
 	case "/u1":
@@ -206,7 +208,7 @@ func (d *simDevice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // gets the 404 page.
 func refererGuarded(path string) bool {
 	switch path {
-	case "/cm", "/dl", "/up", "/u1", "/u2", "/u4", "/ufsd", "/ufsu":
+	case "/cm", "/dl", "/up", "/u1", "/u2", "/u4", "/rs", "/ufsd", "/ufsu":
 		return true
 	}
 	return false

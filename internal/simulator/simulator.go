@@ -189,7 +189,7 @@ const (
 	// FaultFWUnreachable: the device cannot reach the firmware server. Upgrade 1 is accepted;
 	// after Duration (default the 66 s the connect attempt takes, scaled) it publishes
 	// stat/<t>/UPGRADE {"Upgrade":"Failed HTTP error: connection failed"}. No reboot, the
-	// device stays responsive (observed live, 2026-10-30). WebGetConfig answers "Connect failed" after the same time.
+	// device stays responsive (observed live, 2026-10-30).
 	FaultFWUnreachable = "fw_unreachable"
 )
 

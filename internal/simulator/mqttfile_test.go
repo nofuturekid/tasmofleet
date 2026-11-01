@@ -451,25 +451,6 @@ func TestFaultHTTPUnreachableRefusesConnectionsAndKeepsMQTT(t *testing.T) {
 	refused("after a reboot")
 }
 
-// Why: with a firmware server the device cannot reach, the restore download is
-// a synchronous connect attempt that ends in "Connect failed" (WebGetConfig,
-// v16 xdrv_01_9_webserver.ino 4510-4588); an immediate "Done" would send the
-// restore flow looking for a reboot that never comes.
-func TestFaultFWUnreachableMakesWebGetConfigFailAfterTheConnectTimeout(t *testing.T) {
-	f := newTestFleet(t, "", Extra{})
-	d := add(t, f, DeviceSpec{Name: "nofwrestore", Profile: ProfileESP8266_4M, Faults: []Fault{{Kind: FaultFWUnreachable, Duration: 150 * time.Millisecond}}})
-	start := time.Now()
-	got := cm(t, d, "WebGetConfig http://127.0.0.1:1/restore/tok")
-	if got != `{"WebGetConfig":"Connect failed"}` {
-		t.Errorf("reply: %s", got)
-	}
-	if time.Since(start) < 150*time.Millisecond {
-		t.Error("the failure came before the connect timeout")
-	}
-	time.Sleep(100 * time.Millisecond)
-	eq(t, "boots", d.Boots(), 0)
-}
-
 // Why: the failure the maintainer's VLAN produces: Upgrade 1 is accepted, the
 // device cannot connect, reports it after the connect timeout and neither
 // reboots nor goes silent (live, 2026-10-30).

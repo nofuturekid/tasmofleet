@@ -18,7 +18,6 @@ import (
 // FW reach sources, as audited in device.fwreach.
 const (
 	FWReachSourceFirmwareServer = "firmware_server" // a GET 200 /fw/... from the device's IP
-	FWReachSourceRestoreToken   = "restore_token"   // the restore dump was served to the device
 	FWReachSourceOTADownload    = "ota_download"    // a download update succeeded
 	FWReachSourceOTAFailure     = "ota_failure"     // the device could not download (WP-D2)
 	FWReachSourceAdminForget    = "admin_forget"    // an administrator reset it to unknown

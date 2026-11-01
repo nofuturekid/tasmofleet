@@ -137,8 +137,6 @@ func (d *simDevice) execLocked(cmd string) ([]byte, []outMsg) {
 		return d.fileDownloadLocked(data)
 	case "fileupload":
 		return d.fileUploadLocked(data)
-	case "webgetconfig":
-		return result(d.webGetConfigLocked(data))
 	case "seriallog":
 		if n, err := strconv.Atoi(data); err == nil && n >= 0 && n <= 4 {
 			d.runtime.serialLog = n

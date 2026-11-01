@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/netip"
 	"regexp"
 	"slices"
 	"strconv"
@@ -38,7 +37,7 @@ func (m *Manager) fail(ctx context.Context, j *Job, why string) {
 // run is the whole restore of one job. Order matters: the safety backup comes
 // first and a failure there stops everything, because without it a bad
 // restore cannot be undone.
-func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, ips []netip.Addr, confirmedFiles int) {
+func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, confirmedFiles int) {
 	target := tasmota.TargetFor(dev)
 	ctx = backup.WithRun(ctx, backup.Run{Trigger: model.TriggerRestore})
 	if j.Transport == model.TransportMQTT {
@@ -66,78 +65,53 @@ func (m *Manager) run(ctx context.Context, j Job, dev model.Device, dmp []byte, 
 		m.failFiles(ctx, &j, err)
 		return
 	}
-	if viaMQTT {
-		m.sendMQTT(ctx, &j, dev, target, dmp, fo)
-		return
-	}
-	m.step(ctx, &j, store.RestoreSending, "asking the device to fetch the configuration")
-	// The address may have changed hands since Start (DHCP): the dump of this
-	// device must never go to another one.
-	if err := m.checkIdentity(ctx, dev); err != nil {
-		m.fail(ctx, &j, fo.afterFiles(failUnchanged+err.Error()))
-		return
-	}
-	before, err := m.uptime(ctx, target)
-	if err != nil {
-		m.fail(ctx, &j, fo.afterFiles(failUnreachable+err.Error()))
-		return
-	}
-	tok, err := m.issue(j, dmp, ips)
-	if err != nil {
-		m.fail(ctx, &j, fo.afterFiles(failToken+err.Error()))
-		return
-	}
-	defer m.revoke(tok)
-	if _, err := m.o.Client.Command(ctx, target, "WebGetConfig "+m.o.BaseURL+"/restore/"+tok); err != nil {
-		// WebGetConfig runs synchronously on the device: download, apply,
-		// reply, restart. A timeout or a reply the client cannot read after
-		// the device already did the work is an unknown outcome, not a
-		// failure: go on and look at the device. Anything else (auth,
-		// unknown command, unreachable) with no download is a real failure.
-		unknown := m.consumed(tok) || errors.Is(err, tasmota.ErrTimeout) || errors.Is(err, tasmota.ErrBadResponse)
-		if !unknown {
-			m.revoke(tok) // before the job reads failed: whoever sees "failed" must find the token dead
-			m.fail(ctx, &j, fo.afterFiles(failWebGetConfig+redactToken(err.Error(), tok)))
-			return
-		}
-		m.o.Log.Warn("restore: WebGetConfig outcome unknown, checking the device", "component", "restore", "job", j.ID, "err", redactToken(err.Error(), tok))
-	}
-
-	m.step(ctx, &j, store.RestoreWaiting, "waiting for the download and the reboot")
-	if err := m.waitReboot(ctx, target, tok, before); err != nil {
-		m.revoke(tok) // as above: revoke first, then report the failure
-		m.fail(ctx, &j, err.Error())
-		return
-	}
-
-	m.finish(ctx, j, dev, dmp, fo)
+	m.send(ctx, &j, dev, target, dmp, fo)
 }
 
-// sendMQTT is the upload half of a restore over MQTT: identity, BootCount, FileUpload, wait for
-// the restart. The order is the same as over HTTP (safety backup, identity, send); the device
-// applies the dump only after the MD5 matched, so a failed or aborted upload leaves it unchanged.
-func (m *Manager) sendMQTT(ctx context.Context, j *Job, dev model.Device, target tasmota.Target, dmp []byte, fo *filesOutcome) {
-	m.step(ctx, j, store.RestoreSending, "uploading the configuration over MQTT")
+// send is the upload half of a restore: identity, the boot count as the "device answers" check,
+// the upload (the HTTP restore upload, or FileUpload over MQTT), wait for the restart. Over both
+// paths a refused or aborted upload leaves the device unchanged: over HTTP the device answers its
+// "Failed" page and keeps running, over MQTT it applies the dump only after the MD5 matched.
+func (m *Manager) send(ctx context.Context, j *Job, dev model.Device, target tasmota.Target, dmp []byte, fo *filesOutcome) {
+	viaMQTT := j.Transport == model.TransportMQTT
+	if viaMQTT {
+		m.step(ctx, j, store.RestoreSending, "uploading the configuration over MQTT")
+	} else {
+		m.step(ctx, j, store.RestoreSending, "uploading the configuration")
+	}
+	// The address may have changed hands since Start (DHCP): the dump of this device must never
+	// go to another one.
 	if err := m.checkIdentity(ctx, dev); err != nil {
 		m.fail(ctx, j, fo.afterFiles(failUnchanged+err.Error()))
 		return
 	}
-	before, err := m.bootCount(ctx, target)
-	if err != nil {
+	if _, err := m.bootCount(ctx, target); err != nil {
 		m.fail(ctx, j, fo.afterFiles(failUnreachable+err.Error()))
 		return
 	}
-	if err := m.o.Uploader.UploadConfig(ctx, target, dmp, transport.BindingOf(dev)); err != nil {
-		// A lost "Done" is an unknown outcome: the device may have applied the dump and be
-		// restarting. Look at the device (BootCount) instead of failing; the upload is never repeated.
-		if !errors.Is(err, mqttcmd.ErrOutcomeUnknown) {
-			m.fail(ctx, j, fo.afterFiles(failUpload+err.Error()))
+	began := m.o.Clock.Now()
+	if viaMQTT {
+		if err := m.o.Uploader.UploadConfig(ctx, target, dmp, transport.BindingOf(dev)); err != nil {
+			// A lost "Done" is an unknown outcome: the device may have applied the dump and be
+			// restarting. Look at the device instead of failing; the upload is never repeated.
+			if !errors.Is(err, mqttcmd.ErrOutcomeUnknown) {
+				m.fail(ctx, j, fo.afterFiles(failUpload+err.Error()))
+				return
+			}
+			m.o.Log.Warn("restore: FileUpload outcome unknown, checking the device", "component", "restore", "job", j.ID)
+		}
+	} else if err := m.o.Client.(tasmota.ConfigRestorer).RestoreConfig(ctx, target, dmp); err != nil {
+		// The "Failed" page and an upload that never left are certain; anything else (a timeout,
+		// a lost or unreadable reply) may come after the device applied the dump: look at the
+		// device, never send it again.
+		if errors.Is(err, tasmota.ErrUploadRefused) || errors.Is(err, tasmota.ErrNotSent) {
+			m.fail(ctx, j, fo.afterFiles(failRestoreUpload+err.Error()))
 			return
 		}
-		m.o.Log.Warn("restore: FileUpload outcome unknown, checking the device", "component", "restore", "job", j.ID)
+		m.o.Log.Warn("restore: upload outcome unknown, checking the device", "component", "restore", "job", j.ID, "err", err)
 	}
 	m.step(ctx, j, store.RestoreWaiting, "waiting for the restart")
-	if err := m.waitBoot(ctx, target, before); err != nil {
+	if err := m.waitBoot(ctx, target, began); err != nil {
 		m.fail(ctx, j, err.Error())
 		return
 	}
@@ -159,27 +133,25 @@ func (m *Manager) bootCount(ctx context.Context, t tasmota.Target) (int, error) 
 	return *s.StatusPRM.BootCount, nil
 }
 
-// waitBoot returns when Status 1 answers with a larger BootCount than before the upload and
-// Status 11 shows an uptime shorter than the wait so far (the device really restarted since: a
-// count that rose for another reason, or a stale answer, is not a restart). While the device
-// restarts the channel refuses (LWT Offline) or the poll times out; both just mean "not yet" until
-// the deadline.
-func (m *Manager) waitBoot(ctx context.Context, t tasmota.Target, before int) error {
-	began := m.o.Clock.Now()
-	deadline := began.Add(m.o.RebootTimeout)
+// waitBoot returns when a fresh Status 11 shows an uptime shorter than the time since the upload
+// began (plus 2 s): the device has booted since. BootCount proves nothing here: the restored
+// settings bring the backup's counter back (SettingsConfigRestore copies the whole block), so
+// after an older backup it is lower than before, and the firmware counts the boot only at 10 s of
+// uptime. Whether the settings were applied is the verification's job. While the device restarts
+// the poll fails (LWT Offline, refused or timed out); that just means "not yet" until the deadline.
+func (m *Manager) waitBoot(ctx context.Context, t tasmota.Target, began time.Time) error {
+	deadline := m.o.Clock.Now().Add(m.o.RebootTimeout)
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-m.o.Clock.After(m.o.PollInterval):
 		}
-		if n, err := m.bootCount(ctx, t); err == nil && n > before {
-			if up, uerr := m.uptime(ctx, t); uerr == nil && time.Duration(up)*time.Second <= m.o.Clock.Now().Sub(began)+2*time.Second {
-				return nil
-			}
+		if up, err := m.uptime(ctx, t); err == nil && time.Duration(up)*time.Second <= m.o.Clock.Now().Sub(began)+2*time.Second {
+			return nil
 		}
 		if m.o.Clock.Now().After(deadline) {
-			return errors.New("the device did not restart in time (its boot count did not change); the configuration may or may not have been applied")
+			return errors.New("the device did not restart in time (its uptime shows no restart since the upload); the configuration may or may not have been applied")
 		}
 	}
 }
@@ -214,8 +186,6 @@ func (m *Manager) failFiles(ctx context.Context, j *Job, err error) {
 	m.fail(ctx, j, failFilesNone+err.Error())
 }
 
-func redactToken(s, tok string) string { return strings.ReplaceAll(s, tok, "***") }
-
 func (m *Manager) uptime(ctx context.Context, t tasmota.Target) (int64, error) {
 	raw, err := m.o.Client.Command(ctx, t, "Status 11")
 	if err != nil {
@@ -226,34 +196,6 @@ func (m *Manager) uptime(ctx context.Context, t tasmota.Target) (int64, error) {
 		return 0, err
 	}
 	return st.UptimeSec, nil
-}
-
-// waitReboot returns when the token was served and the device came back with
-// a smaller uptime (or was seen unreachable in between).
-func (m *Manager) waitReboot(ctx context.Context, t tasmota.Target, tok string, before int64) error {
-	deadline := m.o.Clock.Now().Add(m.o.RebootTimeout)
-	sawDown := false
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-m.o.Clock.After(m.o.PollInterval):
-		}
-		served := m.consumed(tok)
-		up, err := m.uptime(ctx, t)
-		switch {
-		case err != nil:
-			sawDown = true
-		case served && (sawDown || up < before):
-			return nil
-		}
-		if !served && m.o.Clock.Now().After(deadline) {
-			return errors.New("the device never downloaded the configuration (WebGetConfig unsupported or the firmware listener is unreachable for it)")
-		}
-		if served && m.o.Clock.Now().After(deadline) {
-			return errors.New("the device downloaded the configuration but did not come back in time")
-		}
-	}
 }
 
 // verify takes a fresh backup (take) and compares it with the restored one.

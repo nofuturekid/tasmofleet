@@ -32,11 +32,13 @@ const (
 	failPreBackupReplace = "backup of the replacement device failed, nothing was changed: "
 	failUnchanged        = "nothing was changed: "
 	failUnreachable      = "device not reachable, nothing was changed: "
-	failToken            = "token generation failed: "
-	failWebGetConfig     = "WebGetConfig was not accepted: "
+	failRestoreUpload    = "the restore upload was not accepted: "
 	failUpload           = "FileUpload was not accepted: "
-	failAfterRestore     = "restored, but "
-	failTakeOver         = "the replacement device was restored, but "
+	// The upload-step texts of the WebGetConfig restore before #430, still in the stored jobs.
+	failTokenBefore430        = "token generation failed: "
+	failWebGetConfigBefore430 = "WebGetConfig was not accepted: "
+	failAfterRestore          = "restored, but "
+	failTakeOver              = "the replacement device was restored, but "
 )
 
 // Step is the step a job is at: the running step, or for a failed job the step that failed;
@@ -60,7 +62,7 @@ func Step(j Job) int {
 }
 
 // FailedStep is the step a failure text (Detail of a failed job) belongs to. A text it does
-// not know is the wait for the restart: waitReboot's errors are the only unprefixed ones.
+// not know is the wait for the restart: the restart waits' errors are the only unprefixed ones.
 func FailedStep(detail string) int {
 	switch {
 	case strings.HasPrefix(detail, failFilesNone), strings.HasPrefix(detail, failFilesPartly):
@@ -71,7 +73,8 @@ func FailedStep(detail string) int {
 		return StepBackup
 	case strings.HasPrefix(detail, failAfterRestore), strings.HasPrefix(detail, failTakeOver):
 		return StepVerify
-	case strings.Contains(detail, failUnchanged), strings.HasPrefix(detail, failToken), strings.HasPrefix(detail, failWebGetConfig), strings.HasPrefix(detail, failUpload):
+	case strings.Contains(detail, failUnchanged), strings.HasPrefix(detail, failRestoreUpload), strings.HasPrefix(detail, failUpload),
+		strings.HasPrefix(detail, failTokenBefore430), strings.HasPrefix(detail, failWebGetConfigBefore430):
 		return StepUpload
 	}
 	return StepRestart

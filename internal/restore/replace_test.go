@@ -130,18 +130,9 @@ func TestReplaceRoundTripAgainstSimulator(t *testing.T) {
 	if fin.Result != "ok" || !strings.Contains(fin.Detail, old.MAC) || !strings.Contains(fin.Detail, e.newMAC) {
 		t.Errorf("replace.finish must name old and new MAC: %+v", fin)
 	}
-	cmds := e.cl.sent("WebGetConfig")
+	cmds := e.cl.sent("RestoreConfig")
 	if len(cmds) != 1 {
 		t.Fatalf("commands: %v", cmds)
-	}
-	tok := strings.TrimPrefix(cmds[0], "WebGetConfig "+e.srv.URL+"/restore/")
-	if w := get(e.m.Handler(), "/restore/"+tok, "127.0.0.1:9"); w.Code != 404 {
-		t.Errorf("replay of the spent token: %d", w.Code)
-	}
-	for _, ev := range e.audit.events() {
-		if strings.Contains(ev.Detail, tok) {
-			t.Errorf("token in audit record: %+v", ev)
-		}
 	}
 }
 
@@ -156,8 +147,8 @@ func TestReplaceRefusedWhileTheOldDeviceIsReachable(t *testing.T) {
 	if !errors.Is(err, ErrOldReachable) {
 		t.Fatalf("err = %v, want ErrOldReachable", err)
 	}
-	if n := len(e.cl.sent("WebGetConfig")); n != 0 {
-		t.Errorf("WebGetConfig sent %d times", n)
+	if n := len(e.cl.sent("RestoreConfig")); n != 0 {
+		t.Errorf("restore upload sent %d times", n)
 	}
 	if got := e.newDump(t); !bytes.Equal(got, e.dumpB) {
 		t.Error("the new board was touched")
@@ -175,8 +166,8 @@ func TestReplaceWithAnotherChipFamilyIsRefusedForGood(t *testing.T) {
 	if !errors.Is(err, ErrFamilyMismatch) {
 		t.Fatalf("err = %v, want ErrFamilyMismatch", err)
 	}
-	if n := len(e.cl.sent("WebGetConfig")); n != 0 {
-		t.Errorf("WebGetConfig sent %d times", n)
+	if n := len(e.cl.sent("RestoreConfig")); n != 0 {
+		t.Errorf("restore upload sent %d times", n)
 	}
 }
 
@@ -203,8 +194,8 @@ func TestReplaceRefusesHardwareThatIsAlreadyInTheInventory(t *testing.T) {
 	if _, err := e2.m.StartReplace(t.Context(), "alice", e2.req(0), StartOptions{AllowUnknownFamily: true}); !errors.Is(err, ErrCandidateBound) {
 		t.Fatalf("address taken by another entry: %v", err)
 	}
-	if n := len(e.cl.sent("WebGetConfig")) + len(e2.cl.sent("WebGetConfig")); n != 0 {
-		t.Errorf("WebGetConfig sent %d times", n)
+	if n := len(e.cl.sent("RestoreConfig")) + len(e2.cl.sent("RestoreConfig")); n != 0 {
+		t.Errorf("restore upload sent %d times", n)
 	}
 }
 
@@ -242,8 +233,8 @@ func TestReplaceFirmwareRules(t *testing.T) {
 		if _, err := e.m.StartReplace(t.Context(), "alice", e.req(0), StartOptions{AllowUnknownFamily: true}); !errors.As(err, &need) || !need.Major {
 			t.Fatalf("without the tick: %v", err)
 		}
-		if n := len(e.cl.sent("WebGetConfig")); n != 0 {
-			t.Errorf("WebGetConfig sent %d times before the tick", n)
+		if n := len(e.cl.sent("RestoreConfig")); n != 0 {
+			t.Errorf("restore upload sent %d times before the tick", n)
 		}
 		if _, err := e.m.StartReplace(t.Context(), "alice", e.req(0), StartOptions{AllowMajorChange: true, AllowUnknownFamily: true}); err != nil {
 			t.Fatalf("with the tick: %v", err)
@@ -302,8 +293,8 @@ func TestReplaceChecksTheNewBoardsMACAgainBeforeSending(t *testing.T) {
 	if done.State != store.RestoreFailed || !strings.Contains(done.Detail, "nothing was changed") {
 		t.Fatalf("job: %+v", done)
 	}
-	if n := len(e.cl.sent("WebGetConfig")); n != 0 {
-		t.Errorf("WebGetConfig sent %d times", n)
+	if n := len(e.cl.sent("RestoreConfig")); n != 0 {
+		t.Errorf("restore upload sent %d times", n)
 	}
 }
 
@@ -390,7 +381,7 @@ func TestRestoreStoresAMissingMAC(t *testing.T) {
 	if _, err := e.m.Start(t.Context(), "alice", a.ID); !errors.As(err, &need) || need.MAC != e.sim.MAC() {
 		t.Fatalf("start without a confirmed MAC: %v", err)
 	}
-	if d, _ := e.st.GetDevice(t.Context(), e.dev); d.MAC != "" || len(e.cl.sent("WebGetConfig")) != 0 {
+	if d, _ := e.st.GetDevice(t.Context(), e.dev); d.MAC != "" || len(e.cl.sent("RestoreConfig")) != 0 {
 		t.Fatal("recorded or sent without confirmation")
 	}
 	// A different host answering now than the one the admin confirmed.
@@ -439,8 +430,8 @@ func TestAdoptedMACIsRecheckedBeforeTheTokenIsIssued(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if done := e.finish(t, job.ID); done.State != store.RestoreFailed || len(e.cl.sent("WebGetConfig")) != 0 {
-		t.Fatalf("job: %+v, WebGetConfig %d", done, len(e.cl.sent("WebGetConfig")))
+	if done := e.finish(t, job.ID); done.State != store.RestoreFailed || len(e.cl.sent("RestoreConfig")) != 0 {
+		t.Fatalf("job: %+v, restore uploads %d", done, len(e.cl.sent("RestoreConfig")))
 	}
 }
 
@@ -460,8 +451,8 @@ func TestRestoreRefusesToAdoptTheMACOfAnotherEntry(t *testing.T) {
 	if _, err := e.m.StartWith(t.Context(), "alice", a.ID, StartOptions{ExpectMAC: e.sim.MAC()}); !errors.Is(err, ErrIdentity) {
 		t.Fatalf("err = %v", err)
 	}
-	if n := len(e.cl.sent("WebGetConfig")); n != 0 {
-		t.Errorf("WebGetConfig sent %d times", n)
+	if n := len(e.cl.sent("RestoreConfig")); n != 0 {
+		t.Errorf("restore upload sent %d times", n)
 	}
 }
 

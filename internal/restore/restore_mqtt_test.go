@@ -80,9 +80,10 @@ func (e *flowEnv) cmdLog() []string {
 	return append([]string(nil), e.cl.cmds...)
 }
 
-// Why (D12): without FIRMWARE_BASE_URL the service still exists when the MQTT path does; it is
-// unusable only when neither path exists, and an HTTP restore then says so instead of failing late.
-func TestNewNeedsOnePathAndHTTPNeedsTheBaseURL(t *testing.T) {
+// Why (#430): the service needs one way to restore: the HTTP restore upload of the client or the
+// MQTT upload; nothing depends on FIRMWARE_BASE_URL any more. A restore the facts send over HTTP
+// with a client that cannot upload says so at the start instead of failing late.
+func TestNewNeedsOnePathAndHTTPNeedsTheRestoreUpload(t *testing.T) {
 	base := Options{Devices: nopDevices{}, Backups: nopBackups{}, Store: nopStore{}, Client: nopClient{}}
 	if _, err := New(base); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("neither path: %v", err)
@@ -91,20 +92,33 @@ func TestNewNeedsOnePathAndHTTPNeedsTheBaseURL(t *testing.T) {
 	if _, err := New(base); err != nil {
 		t.Fatalf("MQTT only: %v", err)
 	}
+	base.Uploader = nil
+	base.Client = restoringClient{}
+	if _, err := New(base); err != nil {
+		t.Fatalf("HTTP only: %v", err)
+	}
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
-	m := e.mqttManager(t, &fakeUploader{e: e}, transport.HTTP) // the facts say HTTP, but there is no listener
+	m := e.mqttManager(t, &fakeUploader{e: e}, transport.HTTP)
+	m.o.Client = commandOnly{e.cl} // the facts say HTTP, but the client has no restore upload
 	if _, err := m.Start(t.Context(), "alice", a.ID); !errors.Is(err, ErrNotConfigured) {
-		t.Fatalf("HTTP without a base URL: %v", err)
+		t.Fatalf("HTTP without the restore upload: %v", err)
 	}
-	if got := e.cl.sent("WebGetConfig"); len(got) != 0 {
-		t.Fatalf("WebGetConfig sent: %v", got)
+	if got := e.cl.sent("RestoreConfig"); len(got) != 0 {
+		t.Fatalf("restore upload sent: %v", got)
 	}
 }
 
+// commandOnly hides every method of the wrapped client but tasmota.Client's.
+type commandOnly struct{ tasmota.Client }
+
+type restoringClient struct{ nopClient }
+
+func (restoringClient) RestoreConfig(context.Context, tasmota.Target, []byte) error { return nil }
+
 // Why: a restore over MQTT is the same promise as over HTTP (the device holds the backup, the
 // old state is kept, the result is verified), with the same order: safety backup, identity,
-// upload. It never sends WebGetConfig and records its transport.
+// upload. It never uses the HTTP restore upload and records its transport.
 func TestRestoreOverMQTTRoundTrip(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
@@ -135,8 +149,8 @@ func TestRestoreOverMQTTRoundTrip(t *testing.T) {
 	if pre, _, err := e.bk.Open(t.Context(), done.PreBackupID); err != nil || !bytes.Equal(pre, e.dumpB) {
 		t.Errorf("the pre-restore backup must hold the former configuration: %v", err)
 	}
-	if got := e.cl.sent("WebGetConfig"); len(got) != 0 {
-		t.Errorf("a restore over MQTT sent WebGetConfig: %v", got)
+	if got := e.cl.sent("RestoreConfig"); len(got) != 0 {
+		t.Errorf("a restore over MQTT used the HTTP restore upload: %v", got)
 	}
 	// the upload is bound to the identity the restore checked: the MAC and the topic of this device
 	dev, _ := e.st.GetDevice(t.Context(), e.dev)
@@ -191,7 +205,7 @@ func TestRestoreOverMQTTFailedUploadLeavesTheDeviceUnchanged(t *testing.T) {
 }
 
 // Why: a lost "Done" means the device may have applied the dump. The restore must look at the
-// device (boot count) instead of failing, and must not upload a second time.
+// device (its uptime) instead of failing, and must not upload a second time.
 func TestRestoreOverMQTTUnknownOutcomeIsCheckedOnTheDevice(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
@@ -206,10 +220,10 @@ func TestRestoreOverMQTTUnknownOutcomeIsCheckedOnTheDevice(t *testing.T) {
 	}
 }
 
-// Why: the restart is proven by a larger BootCount from a fresh Status 1, not by anything stale
-// (an INFO3 of the earlier boot, an unchanged device that merely answers). An upload that
-// returned but never restarted the device is a failure at the restart step.
-func TestRestoreOverMQTTNeedsTheBootCountToRise(t *testing.T) {
+// Why: the restart is proven by a fresh Status 11 uptime shorter than the time since the upload
+// began, not by anything stale (an unchanged device that merely answers). An upload that returned
+// but never restarted the device is a failure at the restart step.
+func TestRestoreOverMQTTNeedsARestart(t *testing.T) {
 	e := newFlow(t, "15.6.0")
 	a := e.dumpBackup(t, e.dumpA)
 	m := e.mqttManager(t, &fakeUploader{e: e, apply: false}, transport.MQTT) // says Done, nothing happens
@@ -219,7 +233,7 @@ func TestRestoreOverMQTTNeedsTheBootCountToRise(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := e.finish(t, job.ID)
-	if done.State != store.RestoreFailed || FailedStep(done.Detail) != StepRestart || !strings.Contains(done.Detail, "boot count") {
+	if done.State != store.RestoreFailed || FailedStep(done.Detail) != StepRestart || !strings.Contains(done.Detail, "did not restart") {
 		t.Fatalf("job: %+v", done)
 	}
 }

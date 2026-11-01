@@ -105,7 +105,7 @@ type Facts struct {
 	MQTT     MQTTFacts
 	Password Password
 	// FWReach is what the device reaches of the firmware server; FirmwareBaseURL says
-	// FIRMWARE_BASE_URL is configured. Without it neither a download nor a WebGetConfig works.
+	// FIRMWARE_BASE_URL is configured. Without it no firmware download works.
 	FWReach         model.FWReach
 	FirmwareBaseURL bool
 	Identity        model.Identity

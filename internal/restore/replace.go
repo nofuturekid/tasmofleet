@@ -151,7 +151,7 @@ func (m *Manager) Candidates(ctx context.Context, eps []Endpoint) []Endpoint {
 // PreviewReplace implements Replacer: every check a start does, nothing
 // changed on any device.
 func (m *Manager) PreviewReplace(ctx context.Context, req ReplaceRequest) (ReplacePreview, error) {
-	if m.o.Hardware == nil || m.o.Describe == nil || m.o.BaseURL == "" { // a replacement is restored through the firmware listener
+	if !m.replaceOn() {
 		return ReplacePreview{}, ErrReplaceOff
 	}
 	p, err := m.planReplace(ctx, req)
@@ -399,9 +399,16 @@ func (m *Manager) carries(ctx context.Context, b model.Backup) Carries {
 	return c
 }
 
+// replaceOn: a replace needs the hardware store, the identity reader and the HTTP restore upload
+// (the replacement hardware is not in the inventory, so it has no MQTT path).
+func (m *Manager) replaceOn() bool {
+	_, http := m.o.Client.(tasmota.ConfigRestorer)
+	return m.o.Hardware != nil && m.o.Describe != nil && http
+}
+
 // StartReplace implements Replacer.
 func (m *Manager) StartReplace(ctx context.Context, actor string, req ReplaceRequest, opt StartOptions) (Job, error) {
-	if m.o.Hardware == nil || m.o.Describe == nil || m.o.BaseURL == "" { // a replacement is restored through the firmware listener
+	if !m.replaceOn() {
 		return Job{}, ErrReplaceOff
 	}
 	release, holder, ok := m.o.Locks.TryAcquire(req.Device, "replace")
@@ -531,7 +538,7 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan, confirm
 		m.failReplace(ctx, &j, text)
 		return
 	}
-	m.step(ctx, &j, store.RestoreSending, "asking the replacement device to fetch the configuration")
+	m.step(ctx, &j, store.RestoreSending, "uploading the configuration to the replacement device")
 	if err := stillThere(); err != nil {
 		m.failReplace(ctx, &j, fo.afterFiles(failUnchanged+err.Error()))
 		return
@@ -541,23 +548,18 @@ func (m *Manager) runReplace(ctx context.Context, j Job, p *replacePlan, confirm
 		m.failReplace(ctx, &j, fo.afterFiles("replacement "+failUnreachable+err.Error()))
 		return
 	}
-	tok, err := m.issue(j, p.dmp, []netip.Addr{p.ip})
-	if err != nil {
-		m.failReplace(ctx, &j, fo.afterFiles(failToken+err.Error()))
-		return
-	}
-	defer m.revoke(tok)
-	if _, err := m.o.Client.Command(ctx, target, "WebGetConfig "+m.o.BaseURL+"/restore/"+tok); err != nil {
-		unknown := m.consumed(tok) || errors.Is(err, tasmota.ErrTimeout) || errors.Is(err, tasmota.ErrBadResponse)
-		if !unknown {
-			m.failReplace(ctx, &j, fo.afterFiles(failWebGetConfig+redactToken(err.Error(), tok)))
+	if err := m.o.Client.(tasmota.ConfigRestorer).RestoreConfig(ctx, target, p.dmp); err != nil {
+		// As for a restore: the "Failed" page and an upload that never left are certain, anything
+		// else is an unknown outcome that is looked at, never sent again.
+		if errors.Is(err, tasmota.ErrUploadRefused) || errors.Is(err, tasmota.ErrNotSent) {
+			m.failReplace(ctx, &j, fo.afterFiles(failRestoreUpload+err.Error()))
 			return
 		}
-		m.o.Log.Warn("replace: WebGetConfig outcome unknown, checking the device", "component", "restore", "job", j.ID, "err", redactToken(err.Error(), tok))
+		m.o.Log.Warn("replace: upload outcome unknown, checking the device", "component", "restore", "job", j.ID, "err", err)
 	}
 
-	m.step(ctx, &j, store.RestoreWaiting, "waiting for the download and the reboot")
-	found, err := m.waitReplaced(ctx, p, tok, before)
+	m.step(ctx, &j, store.RestoreWaiting, "waiting for the restart")
+	found, err := m.waitReplaced(ctx, p, before)
 	if err != nil {
 		m.failReplace(ctx, &j, err.Error())
 		return
@@ -627,10 +629,10 @@ func (m *Manager) seen(ctx context.Context, ep model.Device) (string, int64, err
 }
 
 // waitReplaced returns the endpoint where the replacement hardware (its own
-// MAC) is back after the configuration was served. At its old address it must
-// also have restarted (down in between, or a smaller uptime); at any other
-// address it can only be the restarted device.
-func (m *Manager) waitReplaced(ctx context.Context, p *replacePlan, tok string, before int64) (model.Device, error) {
+// MAC) is back after the upload. At its old address it must also have
+// restarted (down in between, or a smaller uptime); at any other address it
+// can only be the restarted device.
+func (m *Manager) waitReplaced(ctx context.Context, p *replacePlan, before int64) (model.Device, error) {
 	creds := func(addr string, port int) model.Device {
 		return model.Device{Address: addr, Port: port, HTTPUser: p.old.HTTPUser, HTTPPassword: p.old.HTTPPassword}
 	}
@@ -648,26 +650,20 @@ func (m *Manager) waitReplaced(ctx context.Context, p *replacePlan, tok string, 
 			return model.Device{}, ctx.Err()
 		case <-m.o.Clock.After(m.o.PollInterval):
 		}
-		served := m.consumed(tok)
 		mac, up, err := m.seen(ctx, here)
 		switch {
 		case err != nil:
 			sawDown = true
-		case served && mac == want && (sawDown || up < before):
+		case mac == want && (sawDown || up < before):
 			return here, nil
 		}
-		if served {
-			for _, o := range others {
-				if mac, _, err := m.seen(ctx, o); err == nil && mac == want {
-					return o, nil
-				}
+		for _, o := range others {
+			if mac, _, err := m.seen(ctx, o); err == nil && mac == want {
+				return o, nil
 			}
 		}
-		if !served && m.o.Clock.Now().After(deadline) {
-			return model.Device{}, errors.New("the replacement device never downloaded the configuration (WebGetConfig unsupported or the firmware listener is unreachable for it)")
-		}
-		if served && m.o.Clock.Now().After(deadline) {
-			return model.Device{}, errors.New("the replacement device downloaded the configuration but was not found again in time (it may have joined the network at another address; the inventory entry was not changed)")
+		if m.o.Clock.Now().After(deadline) {
+			return model.Device{}, errors.New("the replacement device took the configuration but was not found again in time (it did not restart, or it joined the network at another address; the inventory entry was not changed)")
 		}
 	}
 }

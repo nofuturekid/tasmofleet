@@ -40,8 +40,7 @@ func (p Paths) Reason(a Action) string {
 //
 //   - Commands: HTTP unless HTTP is failing and MQTT is usable.
 //   - Backup: HTTP unless failing; else MQTT FileDownload (usable, password set and not refused).
-//   - Restore: HTTP WebGetConfig unless HTTP fails, FIRMWARE_BASE_URL is missing or the device is
-//     known not to reach the firmware server; else MQTT FileUpload Type 2.
+//   - Restore: HTTP (the web UI's restore upload) unless HTTP is failing; else MQTT FileUpload Type 2.
 //   - Update, pull: download over HTTP, else download started over MQTT.
 //   - Update, push where possible: today's HTTP decision while HTTP works; with HTTP failing the
 //     upload over MQTT (only with the experimental checkbox, a fitting image and a usable
@@ -205,21 +204,17 @@ func chooseBackup(f Facts) (Path, string) {
 	return MQTT, "over MQTT (FileDownload), because " + httpFailText(f.HTTP)
 }
 
+// chooseRestore is the backup's rule: the restore upload goes over HTTP unless HTTP is failing
+// (#430: TasmoFleet pushes the dump with the web UI's restore upload, so the firmware server plays
+// no part); else FileUpload over MQTT.
 func chooseRestore(f Facts) (Path, string) {
-	var httpWhy string
-	switch {
-	case httpFailing(f):
-		httpWhy = httpFailText(f.HTTP)
-	default:
-		httpWhy = fwBlocker(f)
-	}
-	if httpWhy == "" {
-		return HTTP, "the device fetches the configuration from TasmoFleet (WebGetConfig)"
+	if !httpFailing(f) {
+		return HTTP, "over the device's HTTP API (restore upload)"
 	}
 	if why := transferBlocker(f, "restore"); why != "" {
-		return None, noPath(httpWhy, "a restore over MQTT is not possible: "+why)
+		return None, noPath(httpFailText(f.HTTP), "a restore over MQTT is not possible: "+why)
 	}
-	return MQTT, "over MQTT (FileUpload), because " + httpWhy
+	return MQTT, "over MQTT (FileUpload), because " + httpFailText(f.HTTP)
 }
 
 func chooseUpdate(f Facts) (Path, string) {

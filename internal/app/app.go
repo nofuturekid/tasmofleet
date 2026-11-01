@@ -244,7 +244,7 @@ func (a *runtime) run(ctx context.Context) error {
 	if a.cache != nil {
 		fw = &http.Server{
 			Addr: cfg.FWListen, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute,
-			Handler: firmware.NewServer(a.cache, firmware.ServerOptions{OnRequest: a.onFirmwareRequest, Logger: log, Extra: a.restoreHandler()}),
+			Handler: firmware.NewServer(a.cache, firmware.ServerOptions{OnRequest: a.onFirmwareRequest, Logger: log}),
 		}
 		fwLn, err := listen(ctx, cfg.FWListen)
 		if err != nil {

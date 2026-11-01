@@ -149,7 +149,7 @@ type Deps struct {
 	PolicyFix    PolicyFix          // optional: "Make compliant" on the policy page
 	CommandBatch PolicyFix          // optional: "Send command" to several devices (admin)
 	BackupBatch  BackupBatch        // optional: "Back up" several devices (admin)
-	Restore      RestoreService     // optional: nil without FIRMWARE_BASE_URL (M2-5)
+	Restore      RestoreService     // optional: nil without backups (M2-5)
 	SysConfig    SysConfigService   // optional: system settings page
 	Snapshots    SnapshotService    // optional: database snapshots on the Backups tab (needs SysConfig)
 	Notify       NotifyService      // optional: status lines and test buttons of the Notifications tab (needs SysConfig)
