@@ -225,7 +225,7 @@ func (e *Engine) workTemplate(ctx context.Context, j model.Job) {
 	}
 	if verr != nil {
 		if sendErr != nil {
-			verr = fmt.Errorf("sending: %v; verifying: %w", sendErr, verr)
+			verr = fmt.Errorf("sending: %w; verifying: %w", sendErr, verr)
 		}
 		e.finishTemplate(ctx, j, cmd, before, &after, trace, "", verr.Error())
 		return

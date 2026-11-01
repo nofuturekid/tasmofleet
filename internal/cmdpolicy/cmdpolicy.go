@@ -180,7 +180,7 @@ func parse(cmd string) (parsed, string) {
 	if cmd == "" {
 		return parsed{}, "empty"
 	}
-	if len(cmd) > maxCommandLen && !(len(cmd) <= maxTemplateLen && isTemplateCommand(cmd)) {
+	if len(cmd) > maxCommandLen && (len(cmd) > maxTemplateLen || !isTemplateCommand(cmd)) {
 		return parsed{}, "too long"
 	}
 	// Backlog is the one command whose arguments legitimately hold ';'. Each
