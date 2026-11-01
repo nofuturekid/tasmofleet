@@ -1,0 +1,38 @@
+# TasmoFleet as a Home Assistant app, phase 1 (#442, part of #209): ports only, no ingress yet.
+# The Supervisor validates this file but ignores unknown keys silently; the real check is an install
+# in a Supervisor (docs/runbooks/home-assistant-app.md).
+name: TasmoFleet
+# "dev" in the repository. The tag of `image` is this version, so a published copy of this file
+# carries the release version (the later publish job renders it; nothing publishes it yet).
+version: "dev"
+slug: tasmofleet
+description: Tasmota fleet manager and safe over-the-air updater
+url: https://github.com/nofuturekid/tasmofleet
+arch:
+  - amd64
+  - aarch64
+# The root variant of the image (Dockerfile target "ha"): /data of an app belongs to root, which
+# the standard image's non-root user cannot write. One multi-arch name, the tag is `version`.
+image: ghcr.io/nofuturekid/tasmofleet-ha
+# Not stable until ingress and the Supervisor integration are in (#443, #444).
+stage: experimental
+# The direct UI port (local sign-in, self-signed TLS) is the only way in until ingress (#443), so it
+# is on by default here; #443 turns it off. 80 inside the container is the firmware server that
+# the devices fetch updates from (plain HTTP); it is mapped to 8081 because 80 is usually taken.
+ports:
+  8080/tcp: 8080
+  80/tcp: 8081
+# The listener speaks TLS (self-signed certificate), so the link is https. The user accepts the
+# certificate warning once.
+webui: "https://[HOST]:[PORT:8080]"
+# TCP only: the HTTP health endpoint is behind the self-signed certificate.
+watchdog: "tcp://[HOST]:[PORT:8080]"
+# Cold: the app stops while the backup is made, so the SQLite database and its write-ahead log are
+# copied consistently. A running update is resumed after the restart (it never re-sends the upgrade
+# command). A hot backup with a database snapshot follows in #444.
+backup: cold
+# /data is always mapped. Options are bootstrap settings only; everything else is set in the app's
+# System settings page and lives in the database.
+options: {}
+schema:
+  initial_admin_password: password?

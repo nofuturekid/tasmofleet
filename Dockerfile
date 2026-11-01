@@ -11,7 +11,10 @@
 #             exactly upstream v16.0.0 + #127 from github.com/nofuturekid/tasmota-decode-config
 #             (release v16.0.0-arm64). TODO: switch to upstream's asset
 #             (decode-config-ubuntu-24.04-arm64.tar.gz) once a release ships aarch64.
-#  - final:   distroless cc (glibc, needed by the PyInstaller build), nonroot.
+#  - app:     distroless cc (glibc, needed by the PyInstaller build), nonroot. The default target.
+#  - ha:      the same image as root with the Home Assistant labels, for the Home Assistant app
+#             (deploy/homeassistant): the Supervisor's /data belongs to root, which the nonroot
+#             user cannot write. Build it with --target ha.
 
 ARG GO_VERSION=1.27
 ARG DECODER_PLATFORM=linux/amd64
@@ -63,7 +66,7 @@ RUN mkdir -p /out/root/usr/local/bin && if [ "$WITH_DECODER" = "true" ]; then \
 
 FROM decoder-${TARGETARCH} AS decoder
 
-FROM gcr.io/distroless/cc-debian13:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot AS app
 COPY --from=build /out/tasmofleet /usr/local/bin/tasmofleet
 COPY --from=decoder /out/root/ /
 COPY --from=build --chown=65532:65532 /out/data /data
@@ -75,3 +78,18 @@ EXPOSE 8080 80
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD ["/usr/local/bin/tasmofleet", "healthcheck"]
 ENTRYPOINT ["/usr/local/bin/tasmofleet"]
 CMD ["serve"]
+
+# Home Assistant app image. io.hass.arch uses the Supervisor's names, so each platform gets its own
+# stage (a LABEL cannot map TARGETARCH). io.hass.version is the release version (VERSION).
+FROM app AS ha-amd64
+LABEL io.hass.arch="amd64"
+FROM app AS ha-arm64
+LABEL io.hass.arch="aarch64"
+FROM ha-${TARGETARCH} AS ha
+ARG VERSION=dev
+USER root
+LABEL io.hass.type="app" \
+      io.hass.version="${VERSION}"
+
+# The default target stays the standard image (docker build without --target).
+FROM app

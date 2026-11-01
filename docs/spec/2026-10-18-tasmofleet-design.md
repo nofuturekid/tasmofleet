@@ -1955,6 +1955,16 @@ it with a `before` cursor; `sysconfig.RuleHistory` lists the versions that touch
 Validation errors at start name the key and stop the process. Settings saved on the page use the
 same validators; a stored value that stops validating is skipped with a log line and shown on the page.
 
+**Home Assistant profile (#442, part of #209).** When `SUPERVISOR_TOKEN` is set (a Home Assistant app),
+`config.Load` reads `<DATA_DIR>/options.json`, which the Supervisor writes, as one more bootstrap source
+and applies the profile defaults (`DATA_DIR=/data`, `LISTEN=:8080`, `FIRMWARE_LISTEN=:80`,
+`LOG_FORMAT=text`). Precedence: environment, env file, option, profile default. The file must exist and
+contain only known options (`initial_admin_password` so far); anything else stops the start with an error
+naming the file. Options are bootstrap and security settings only, so the principle above is unchanged:
+operational settings stay on the settings page. Without the token nothing of this runs, so Docker and
+Unraid installs are unaffected. The options are listed in `docs/configuration.md` ("Home Assistant app")
+and must equal the `schema` of `deploy/homeassistant/tasmofleet/config.yaml` (tests).
+
 ---
 
 ## 17. HTTP routes
@@ -2097,6 +2107,10 @@ component, device, job, batch, request_id, remote, user`. No secrets (redactor),
   (firmware). Binding port 80 as non-root relies on Docker's default
   `net.ipv4.ip_unprivileged_port_start=0` in the container namespace. If a runtime
   doesn't set it, use `FIRMWARE_LISTEN=:8081` and a port mapping.
+- **Home Assistant app image** (#442): Dockerfile target `ha` is the same image as root with the
+  `io.hass.type`, `io.hass.version` and `io.hass.arch` labels (the Supervisor's `/data` belongs to root, which
+  the non-root user cannot write). `docker build` without `--target` still produces the standard image.
+  CI builds it and runs `tools/ha-app-smoke.sh` on every image build; it is not published yet (#444).
 - **Registry**: `ghcr.io/nofuturekid/tasmofleet` and, when the repository's Docker Hub secrets are set,
   `docker.io/nofuturekid/tasmofleet` (overview text `deploy/dockerhub/README.md`), with the same tags
   `<version>` (X.Y.Z) and `latest`. Built and published by GitHub Actions.
@@ -2114,6 +2128,12 @@ component, device, job, batch, request_id, remote, user`. No secrets (redactor),
   the same backup, or the device passwords cannot be decrypted.
 
 ### 20.1 Home Assistant add-on path (M3)
+
+Phase 1 (#442) is in the tree: `deploy/homeassistant/tasmofleet/` (`config.yaml` with ports `8080/tcp` for
+the UI with self-signed TLS and local sign-in, `80/tcp` mapped to host 8081 for the firmware server,
+`webui`, `backup: cold`, `stage: experimental`; `DOCS.md`, icons, translations), the profile in §16 and the
+runbook `docs/runbooks/home-assistant-app.md`. Ingress, the ingress auth mode, the Supervisor client and the
+app repository follow in #443 and #444; the list below is the plan for those.
 
 The design is ingress-ready from M1: base path from `X-Ingress-Path` (trusted proxy
 `172.30.32.2`), relative links everywhere, SSE under the base path. The CSP allows `frame-ancestors 'self'` only, so

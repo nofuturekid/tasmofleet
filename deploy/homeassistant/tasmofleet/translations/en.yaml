@@ -1,0 +1,9 @@
+configuration:
+  initial_admin_password:
+    name: Initial admin password
+    description: >-
+      Password of the first local administrator "admin", used only on the first start (it must be
+      changed at the first sign-in). Leave empty to get a random one; the app log then prints a one-time setup link.
+network:
+  8080/tcp: Web interface (HTTPS, self-signed certificate)
+  80/tcp: Firmware server for your devices (plain HTTP)

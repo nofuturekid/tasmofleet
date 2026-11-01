@@ -40,6 +40,9 @@ type Config struct {
 	// AutoTLS is true when the server serves a self-signed certificate only
 	// because nothing else was configured. It has no env tag: Load decides.
 	AutoTLS bool
+	// HAProfile is true inside a Home Assistant app (SUPERVISOR_TOKEN is set): Load then read
+	// <DATA_DIR>/options.json and applied the app defaults (haprofile.go). It has no env tag.
+	HAProfile bool
 	// Warnings are start-up notices Load collected (for example removed
 	// settings that are still set). They have no env tag; the caller logs them.
 	Warnings []string

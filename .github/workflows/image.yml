@@ -16,6 +16,8 @@
 # aarch64 decoder build (Dockerfile).
 # Before anything is pushed, the arm64 image is built, loaded and started under QEMU (version, and
 # the decoder decodes a real backup fixture).
+# The Home Assistant app image (Dockerfile target "ha", deploy/homeassistant) is built and smoke-tested on
+# every run but not pushed anywhere yet; publishing it comes with #444.
 # Layers are cached in the GitHub Actions cache.
 name: image
 
@@ -181,6 +183,20 @@ jobs:
             -v "$PWD/$fx/synthetic-15.6.0.3.dmp:/in/s.dmp:ro" tasmofleet:smoke-arm64 \
             --source /in/s.dmp --output-format json | jq -S 'del(.header.env)' > /tmp/decoded-arm64.json
           jq -S . "$fx/decoded.json" | diff - /tmp/decoded-arm64.json
+      # Home Assistant app image (target "ha", deploy/homeassistant): started the way the Supervisor
+      # starts it, with a fake SUPERVISOR_TOKEN and options.json (tools/ha-app-smoke.sh).
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          target: ha
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          tags: tasmofleet-ha:smoke
+          build-args: VERSION=${{ steps.v.outputs.version }}
+          cache-from: type=gha
+      - name: HA app image smoke run
+        run: tools/ha-app-smoke.sh tasmofleet-ha:smoke
       - uses: docker/build-push-action@v7.4.0
         with:
           context: .

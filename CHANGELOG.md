@@ -6,6 +6,10 @@ always upgrade automatically.
 
 ## Unreleased
 
+### Added
+
+- Home Assistant app, phase 1 (#442, part of #209): `deploy/homeassistant/tasmofleet/` holds the app (config, documentation, icon) with the web interface on `8080/tcp` (HTTPS, self-signed certificate, local sign-in) and the firmware server on `80/tcp` mapped to host port 8081. It is experimental and not published yet; there is no ingress, no Home Assistant sign-in and no automatic MQTT setup until the later phases. Inside an app (`SUPERVISOR_TOKEN` set) TasmoFleet reads the Supervisor's `/data/options.json` (option `initial_admin_password`) and logs plain text; a missing or malformed options file stops the start. Docker and Unraid installs are unchanged. The Dockerfile has a new target `ha` (root user and Home Assistant labels) that CI builds and smoke-tests; the default image is the same as before
+
 ## 0.26.1 "Skerryvore" (2026-11-01)
 
 ### Upgrade notes

@@ -58,7 +58,15 @@ func Load(environ []string) (Config, error) {
 		return Config{}, fmt.Errorf("config file %s: %w", file, err)
 	}
 
+	haProfile := inHomeAssistant(environ)
+	if haProfile {
+		if err := applyHAProfile(env, dataDir); err != nil {
+			return Config{}, err
+		}
+	}
+
 	var c Config
+	c.HAProfile = haProfile
 	c.Legacy = map[string]string{}
 	c.Locked = map[string]bool{}
 	rv := reflect.ValueOf(&c).Elem()
