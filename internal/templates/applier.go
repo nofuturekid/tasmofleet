@@ -23,8 +23,8 @@ type Applier struct {
 	// Settle is the pause before the first read-back: the device restarts about two seconds after the
 	// command (restart_flag, T5) and a read before that shows the stored template, not the running one.
 	Settle time.Duration
-	// Attempts is how often the read-back is tried while the device does not answer or does not yet
-	// show the template (default 8).
+	// Attempts is how often the read-back is tried while the device does not answer, does not yet show
+	// the template or has not been seen restarting (default 12; the boot count rises at 10 s of uptime).
 	Attempts int
 	// Pause is the time between attempts (default 5 s).
 	Pause time.Duration
@@ -36,11 +36,10 @@ type Applier struct {
 	pending map[model.DeviceID]beforeSend // devices a Template command was sent to by this process
 }
 
-// beforeSend is what the device reported just before the command: its uptime then, and when.
+// beforeSend is what the device reported just before the command: its boot count, and when.
 type beforeSend struct {
-	uptime time.Duration
-	at     time.Time
-	ok     bool // the uptime was read; without it no restart can be proven
+	boot int
+	at   time.Time
 }
 
 var _ ota.TemplateApplier = (*Applier)(nil)
@@ -96,70 +95,78 @@ func (a *Applier) Read(ctx context.Context, d model.Device) (ota.TemplateReading
 	return a.read(ctx, d)
 }
 
-// uptime reads Status 1 (never Status 0) and returns the device's uptime.
-func (a *Applier) uptime(ctx context.Context, d model.Device) (time.Duration, bool) {
+// bootCount reads Status 1 (never Status 0): a fresh answer from the device.
+func (a *Applier) bootCount(ctx context.Context, d model.Device) (int, error) {
 	raw, err := a.Client.Command(ctx, tasmota.TargetFor(d), "Status 1")
 	if err != nil {
-		return 0, false
+		return 0, err
 	}
-	var v struct {
-		StatusPRM struct{ Uptime string } `json:"StatusPRM"`
+	var s struct {
+		StatusPRM struct{ BootCount *int }
 	}
-	if json.Unmarshal(raw, &v) != nil {
-		return 0, false
+	if err := json.Unmarshal(raw, &s); err != nil || s.StatusPRM.BootCount == nil {
+		return 0, tasmota.ErrBadResponse
 	}
-	return parseUptime(v.StatusPRM.Uptime)
+	return *s.StatusPRM.BootCount, nil
 }
 
-// parseUptime reads Tasmota's "0T06:37:07" (days T hours:minutes:seconds).
-func parseUptime(s string) (time.Duration, bool) {
-	var days, h, m, sec int
-	if n, err := fmt.Sscanf(s, "%dT%d:%d:%d", &days, &h, &m, &sec); err != nil || n != 4 {
-		return 0, false
+// uptimeSec reads Status 11.
+func (a *Applier) uptimeSec(ctx context.Context, d model.Device) (int64, error) {
+	raw, err := a.Client.Command(ctx, tasmota.TargetFor(d), "Status 11")
+	if err != nil {
+		return 0, err
 	}
-	return time.Duration(days)*24*time.Hour + time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(sec)*time.Second, true
+	st, err := tasmota.ParseStatus11(raw)
+	if err != nil {
+		return 0, err
+	}
+	return st.UptimeSec, nil
 }
 
-// Send implements ota.TemplateApplier. It notes the device's uptime first, so Verify can tell a restart
-// from a read of the stored template before the device went down.
+// Send implements ota.TemplateApplier. The boot count is read first and nothing is sent when it cannot
+// be: without it the restart could not be proven (the same rule as restore, R26 in docs/security/restore.md).
 func (a *Applier) Send(ctx context.Context, d model.Device, command string) error {
-	up, ok := a.uptime(ctx, d)
+	boot, err := a.bootCount(ctx, d)
+	if err != nil {
+		return fmt.Errorf("could not read the boot count, nothing was sent: %w", err)
+	}
 	a.mu.Lock()
 	if a.pending == nil {
 		a.pending = map[model.DeviceID]beforeSend{}
 	}
-	a.pending[d.ID] = beforeSend{uptime: up, at: a.now(), ok: ok}
+	a.pending[d.ID] = beforeSend{boot: boot, at: a.now()}
 	a.mu.Unlock()
-	_, err := a.Client.Command(ctx, tasmota.TargetFor(d), command)
+	_, err = a.Client.Command(ctx, tasmota.TargetFor(d), command)
 	return err
 }
 
-// restarted says whether the device went through a restart since Send. Without a note (this process did
-// not send, or the uptime was unreadable) nothing can be proven and the layout alone decides.
+// restarted proves that the device restarted since Send, the way restore does (R26): a larger BootCount
+// than before the send and an uptime not longer than the time since the send (plus two seconds of slack),
+// so neither a count that rose for another reason nor a reboot that happened before the send passes. The
+// firmware counts a boot at 10 s of uptime, so the count rises a few polls after the device answers
+// again. Without a note (this process did not send: a job resumed after a server restart, or a device
+// that needed no send) nothing can be proven and the layout alone decides.
 func (a *Applier) restarted(ctx context.Context, d model.Device) bool {
 	a.mu.Lock()
 	b, sent := a.pending[d.ID]
 	a.mu.Unlock()
-	if !sent || !b.ok {
+	if !sent {
 		return true
 	}
-	now, ok := a.uptime(ctx, d)
-	if !ok {
+	n, err := a.bootCount(ctx, d)
+	if err != nil || n <= b.boot {
 		return false
 	}
-	// A device that did not restart has aged by the time since the note; a restarted one is younger.
-	return now+restartMargin < b.uptime+a.now().Sub(b.at)
+	up, err := a.uptimeSec(ctx, d)
+	return err == nil && time.Duration(up)*time.Second <= a.now().Sub(b.at)+2*time.Second
 }
-
-// restartMargin is the slack of the uptime comparison (Tasmota's uptime has one-second resolution).
-const restartMargin = 1500 * time.Millisecond
 
 // Verify implements ota.TemplateApplier: wait for the restart, then read until the device shows the
 // planned layout. It returns the last reading it got, with an error when the device never showed it.
 func (a *Applier) Verify(ctx context.Context, d model.Device, wantLayout string) (ota.TemplateReading, error) {
 	attempts, pause := a.Attempts, a.Pause
 	if attempts <= 0 {
-		attempts = 8
+		attempts = 12
 	}
 	if pause <= 0 {
 		pause = 5 * time.Second
@@ -199,7 +206,7 @@ func (a *Applier) Verify(ctx context.Context, d model.Device, wantLayout string)
 	}
 	switch {
 	case errors.Is(lastErr, errNoRestart):
-		return last, errors.New("the device shows the new template but has not restarted, so the pins are not in use yet")
+		return last, errors.New("the device shows the new template but its boot count did not rise as after a restart, so the pins may not be in use yet")
 	case lastErr != nil:
 		return last, fmt.Errorf("the device did not answer after the restart: %w", lastErr)
 	}

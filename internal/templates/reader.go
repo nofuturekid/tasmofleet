@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -35,7 +34,7 @@ func readLive(ctx context.Context, c Commander, d model.Device, now time.Time) (
 	t := tasmota.TargetFor(d)
 	raw, err := c.Command(ctx, t, "Module")
 	if err != nil {
-		return reading{}, fmt.Errorf("Module: %w", err)
+		return reading{}, fmt.Errorf("reading Module: %w", err)
 	}
 	m, err := policy.ParseModule(raw)
 	if err != nil {
@@ -47,7 +46,7 @@ func readLive(ctx context.Context, c Commander, d model.Device, now time.Time) (
 	}
 	raw, err = c.Command(ctx, t, "Template")
 	if err != nil {
-		return reading{}, fmt.Errorf("Template: %w", err)
+		return reading{}, fmt.Errorf("reading Template: %w", err)
 	}
 	tpl, err := policy.ParseTemplate(raw)
 	if err != nil {
@@ -110,5 +109,3 @@ func fromSnapshot(data []byte, at time.Time) (reading, bool) {
 	r.TplErr = "the backup has no readable template"
 	return r, true
 }
-
-var errNoReading = errors.New("no reading")
