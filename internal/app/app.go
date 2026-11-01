@@ -392,7 +392,7 @@ func (a *runtime) logStarting() {
 	if dec == "" {
 		dec = "none"
 	}
-	a.log.Info("tasmofleet starting", "version", DisplayVersion(), "go", goruntime.Version(), "decoder", dec)
+	a.log.Info("tasmofleet starting", "version", DisplayVersion(), "build", Version, "go", goruntime.Version(), "decoder", dec)
 }
 
 func (a *runtime) setupBackups(ctx context.Context) error {

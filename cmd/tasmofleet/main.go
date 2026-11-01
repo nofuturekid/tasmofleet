@@ -6,7 +6,7 @@
 //	tasmofleet settings export|import <file>      operational settings and policy rules as JSON (automated setups)
 //	tasmofleet sessions revoke [--user <name>]    end every web session, or one user's
 //	tasmofleet healthcheck                        GET /healthz on the local listener (container HEALTHCHECK)
-//	tasmofleet version
+//	tasmofleet version [--full]                   the version; --full adds the build stamp (commit)
 //
 // Local accounts are managed here (host access) and, for admins with step-up,
 // in the web UI; both go through auth.Accounts.
@@ -51,6 +51,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 	switch cmd {
 	case "version":
 		_, _ = fmt.Fprintln(stdout, app.DisplayVersion())
+		if len(args) > 0 && args[0] == "--full" { // the build stamp as built in, for bug reports (#436)
+			_, _ = fmt.Fprintln(stdout, "build", version)
+		}
 		return nil
 	case "serve":
 		cfg, err := config.Load(os.Environ())
