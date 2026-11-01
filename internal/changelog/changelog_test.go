@@ -181,8 +181,10 @@ func TestDisplayVersion(t *testing.T) {
 	cases := []struct{ name, raw, want string }{
 		{"release tag build, nothing to add", "v0.15.2", "v0.15.2"},
 		{"image stamped from a tag has no v", "0.10.1", "0.10.1"},
-		{"CI edge image: base plus the commit", "edge-0123456789ab", "0.10.1+edge (0123456789ab)"},
-		{"CI pull request image", "pr-0123456789ab", "0.10.1+pr (0123456789ab)"},
+		// #436: GitHub shows 7 characters, so the UI and the log do too; the image tag keeps its 12
+		{"CI edge image: base plus the 7-character commit", "edge-0123456789ab", "0.10.1+edge (0123456)"},
+		{"CI pull request image", "pr-0123456789ab", "0.10.1+pr (0123456)"},
+		{"a hash that is already short stays as it is", "edge-0123456", "0.10.1+edge (0123456)"},
 		{"git describe between releases already has base and hash", "v0.10.1-3-gabc1234", "v0.10.1-3-gabc1234"},
 		{"git describe of a dirty tree", "v0.10.1-3-gabc1234-dirty", "v0.10.1-3-gabc1234-dirty"},
 		{"plain docker build has no git history", "dev", "0.10.1+dev"},
