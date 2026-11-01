@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"slices"
 	"strings"
@@ -65,17 +66,9 @@ func (m *rulesMem) ListPolicyRuleVersionsBefore(_ context.Context, before int64,
 	return out, nil
 }
 
-func rulesEnv(t *testing.T, envJSON string, tweak ...func(*sysconfig.RulesOptions)) (*env, *rulesMem, *[]policy.Rule) {
-	t.Helper()
-	return rulesEnvDeps(t, nil, tweak...)
-}
-
-// rulesEnvDeps is rulesEnv with more dependencies set by deps.
-func rulesEnvDeps(t *testing.T, deps func(*Deps), tweak ...func(*sysconfig.RulesOptions)) (*env, *rulesMem, *[]policy.Rule) {
-	t.Helper()
-	mem := &rulesMem{}
-	live := &[]policy.Rule{}
-	aud := &fakeAudit{}
+// testRulesService is the rules service the web tests use: stored in mem, audited into aud, live
+// rules copied to live on every change.
+func testRulesService(mem *rulesMem, aud *fakeAudit, live *[]policy.Rule, tweak ...func(*sysconfig.RulesOptions)) *sysconfig.Rules {
 	o := sysconfig.RulesOptions{
 		Store: mem, Audit: aud, Queryable: settings.Queryable,
 		ValidateWant: func(c, w string) error {
@@ -98,7 +91,56 @@ func rulesEnvDeps(t *testing.T, deps func(*Deps), tweak ...func(*sysconfig.Rules
 	for _, f := range tweak {
 		f(&o)
 	}
-	svc := sysconfig.NewRules(o)
+	return sysconfig.NewRules(o)
+}
+
+// rulesServiceFor gives a test that only fakes the policy report the rules service the pages need:
+// version 1 holds the rules the fake report names (the pages list the saved rules, never the report's).
+func rulesServiceFor(t *testing.T, p PolicyService) *sysconfig.Rules {
+	t.Helper()
+	mem := &rulesMem{}
+	var rules []policy.Rule
+	if fp, ok := p.(*fakePolicy); ok {
+		rules = fp.rep.Rules // Report is counted by tests that check how often a page asks for it
+	} else if rep, err := p.Report(context.Background(), "test", false); err == nil {
+		rules = rep.Rules
+	}
+	if len(rules) > 0 {
+		raw, err := json.Marshal(specsOf(rules))
+		if err != nil {
+			t.Fatal(err)
+		}
+		mem.vs = append(mem.vs, store.PolicyRuleVersion{ID: 1, Actor: "test", Rules: string(raw)})
+	}
+	return testRulesService(mem, &fakeAudit{}, &[]policy.Rule{})
+}
+
+// specsOf turns report rules into rule specs (a fake report names rules, the service stores specs).
+func specsOf(rules []policy.Rule) []sysconfig.RuleSpec {
+	out := make([]sysconfig.RuleSpec, len(rules))
+	for i, r := range rules {
+		fams := make([]string, len(r.Families))
+		for j, f := range r.Families {
+			fams[j] = string(f)
+		}
+		out[i] = sysconfig.RuleSpec{ID: r.ID, Name: r.Name, Command: r.Command, Want: r.Want, Note: r.Note, Severity: r.Severity,
+			Families: fams, Tags: r.Tags, Devices: r.Devices, Except: r.Except, Disabled: r.Disabled}
+	}
+	return out
+}
+
+func rulesEnv(t *testing.T, envJSON string, tweak ...func(*sysconfig.RulesOptions)) (*env, *rulesMem, *[]policy.Rule) {
+	t.Helper()
+	return rulesEnvDeps(t, nil, tweak...)
+}
+
+// rulesEnvDeps is rulesEnv with more dependencies set by deps.
+func rulesEnvDeps(t *testing.T, deps func(*Deps), tweak ...func(*sysconfig.RulesOptions)) (*env, *rulesMem, *[]policy.Rule) {
+	t.Helper()
+	mem := &rulesMem{}
+	live := &[]policy.Rule{}
+	aud := &fakeAudit{}
+	svc := testRulesService(mem, aud, live, tweak...)
 	e := setupWith(t, func(d *Deps) {
 		d.PolicyRules = svc
 		d.Recorder = aud
@@ -608,5 +650,14 @@ func TestPolicyRulesSaveAndDeleteDoNotOverwriteAConcurrentChange(t *testing.T) {
 	race.inject = edit(2, "8")
 	if r, _ := e.do(t, "POST", "/policy/rules/delete", "admin", url.Values{"csrf": {"tok"}, "id": {id}, "version": {"2"}}); r.StatusCode != 409 || len(mem.vs) != 3 {
 		t.Fatalf("raced delete: %d versions=%d", r.StatusCode, len(mem.vs))
+	}
+}
+
+// Why: the policy pages read the saved rules from the rules service. A wiring that gives the
+// pages a policy report but no service (the removed POLICY_RULES environment mode) must stop at
+// start, not panic on the first visit of /policy.
+func TestHandlerRefusesPolicyWithoutRules(t *testing.T) {
+	if _, err := Handler(Deps{Policy: noPolicy{}}); err == nil {
+		t.Fatal("Handler accepted Policy without PolicyRules")
 	}
 }

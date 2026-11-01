@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,6 +98,35 @@ func TestConcurrentSavesNotifySubscribersInOrder(t *testing.T) {
 		t.Fatalf("last event %s, final state %s", last, s.Snapshot().BackupSchedule)
 	}
 }
+
+// S14: a request that both sets and clears one key (or names it twice) has no single meaning: a
+// clear means "back to the default", a value means "this one". Applying either would silently pick
+// a winner, so the request is refused as a whole and nothing is stored or announced.
+func TestSetAndClearOfOneKeyIsRefusedAsAWhole(t *testing.T) {
+	cases := map[string]Request{
+		"value and clear":  {Actor: "a", Values: map[string]string{"BACKUP_KEEP": "9"}, Clear: []string{"BACKUP_KEEP"}},
+		"clear twice":      {Actor: "a", Clear: []string{"BACKUP_KEEP", "BACKUP_KEEP"}},
+		"other key stored": {Actor: "a", Values: map[string]string{"BACKUP_KEEP": "9", "OTA_PARALLEL": "3"}, Clear: []string{"BACKUP_KEEP"}},
+	}
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			st := newMem()
+			s, _ := newSvc(t, st)
+			before, rowsBefore := s.Snapshot(), len(st.rows) // the first-start marker row is already there
+			events := 0
+			s.Subscribe(func(Event) { events++ })
+			_, err := s.Apply(context.Background(), req)
+			var ve *ValidationError
+			if !errors.As(err, &ve) || ve.Fields["BACKUP_KEEP"] == "" {
+				t.Fatalf("err = %v, want a validation error naming BACKUP_KEEP", err)
+			}
+			if len(st.rows) != rowsBefore || events != 0 || !reflect.DeepEqual(s.Snapshot(), before) {
+				t.Fatalf("a refused request changed something: rows %v, events %d", st.rows, events)
+			}
+		})
+	}
+}
+
 func TestUndecryptableStoredSecretDoesNotStopTheStart(t *testing.T) {
 	st := newMem()
 	st.rows["MQTT_URL"] = store.SystemSetting{Key: "MQTT_URL", Value: "tcp://broker.lan:1883"}

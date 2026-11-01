@@ -23,7 +23,6 @@ type fleetTile struct {
 type policyHead struct {
 	Base, CSRF string
 	Admin      bool
-	CanRules   bool // the rules service exists: Import / Export / New rule; false in env mode
 	// Show: tiles and tabs are drawn. Without rules and versions the page is an empty state.
 	Show        bool
 	HasVersions bool
@@ -40,7 +39,7 @@ const policySub = "Settings every device should have. Nothing is written automat
 // policyHead builds the shared header from the valid specs (invalid: how many stored rules were left
 // out) and the report of the page.
 func (h *handler) policyHead(v view, specs []sysconfig.RuleSpec, invalid int, rep PolicyReport, repErr error) policyHead {
-	p := policyHead{Base: v.Base, CSRF: v.CSRF, Admin: v.IsAdmin, CanRules: h.d.PolicyRules != nil}
+	p := policyHead{Base: v.Base, CSRF: v.CSRF, Admin: v.IsAdmin}
 	disabled := 0
 	for _, s := range specs {
 		if s.Disabled {
@@ -75,16 +74,11 @@ func (h *handler) policyHead(v view, specs []sysconfig.RuleSpec, invalid int, re
 	return p
 }
 
-// policyTabs lists the tabs of the policy pages. History exists only with the rules service: in
-// POLICY_RULES mode no versions are kept, so every page agrees on having no History tab.
+// policyTabs lists the tabs of the policy pages. History is the version history of the rules.
 func (h *handler) policyTabs(base, current string, rules, deviating int) []ui.Tab {
-	tabs := []ui.Tab{
+	return []ui.Tab{
 		{Label: "Rules", Href: base + policyPath, Current: current == "rules", Badge: rules},
 		{Label: "Deviating devices", Href: base + policyDevPath, Current: current == "deviations", Badge: deviating},
 		{Label: "History", Href: base + policyHistoryPath, Current: current == "history"},
 	}
-	if h.d.PolicyRules == nil {
-		tabs = tabs[:len(tabs)-1]
-	}
-	return tabs
 }

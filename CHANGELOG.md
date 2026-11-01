@@ -10,6 +10,17 @@ always upgrade automatically.
 
 - The "Devices without a backup" tile on Settings, Backups now opens the device list narrowed to exactly those devices. The list has a new "No backup" chip (`?chip=nobackup`) with the tile's count, so the two always agree. On a phone the active filter chip is scrolled into view in its row, so a filtered list never looks unfiltered (#381, thanks @Noschvie)
 
+### Changed
+
+- Small buttons (`.btn-sm`) and the small control height are one size now: `.btn-sm`, link buttons and the icon-sized small button use the `--ctl-sm` token (32 px on desktop, was 28 px for pagers and toolbars and a separate 32 px for `.btn-sm`), so they can no longer drift apart. On phones all of them are 40 px, the touch size (#329)
+
+### Removed
+
+- The `details.m-fold` stylesheet rules and the e2e helper `openFolds`: no page has used the phone-only fold since the design v2 port (#329)
+- `GET /login/local` no longer redirects to `/login`; it is not a route any more (the sign-in form still posts there). Sign in at `/login` (#329)
+- The read-only "rules come from POLICY_RULES" mode of the policy pages: the rules service has always been present, so the mode could never be reached. A `TASMOFLEET_POLICY_RULES` value is still imported once as the first managed version, as before (#329)
+- `docs/security/admin-listener.md`, the record of the admin listener removed on 2026-10-19 (#329)
+
 ## 0.25.0 "Cape Point" (2026-10-31)
 
 ### Upgrade notes

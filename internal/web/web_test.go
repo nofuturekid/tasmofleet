@@ -320,6 +320,9 @@ func setupWith(t *testing.T, mutate func(*Deps)) *env {
 	if mutate != nil {
 		mutate(&deps)
 	}
+	if deps.Policy != nil && deps.PolicyRules == nil {
+		deps.PolicyRules = rulesServiceFor(t, deps.Policy)
+	}
 	h, err := Handler(deps)
 	if err != nil {
 		t.Fatal(err)

@@ -99,7 +99,7 @@ type RulesOptions struct {
 	// Preview evaluates rules against the fleet. nil disables previews.
 	Preview func(ctx context.Context, rules []policy.Rule) (PreviewResult, error)
 	// OnChange receives the new active rules after every stored change (live
-	// reload). It is not called while POLICY_RULES is set.
+	// reload).
 	OnChange func(rules []policy.Rule)
 }
 

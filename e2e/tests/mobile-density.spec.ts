@@ -1,6 +1,6 @@
 import { deviceBox } from "../support/devicelist";
 import { test, expect } from "../support/fixtures";
-import { expectNoOverflow, openFolds, overflowProblem, smallTargets } from "../support/layout";
+import { expectNoOverflow, overflowProblem, smallTargets } from "../support/layout";
 import { realisticDevenvArgs, realisticPolicyRules, seedAuditTail, seedRealisticData } from "../support/seed";
 import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
@@ -304,7 +304,6 @@ test("phone: every control is a 40 px touch target", async ({ page }) => {
   for (const [name, path] of Object.entries(pages)) {
     await page.goto(path.startsWith("http") ? path : app.url + path);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    await openFolds(page);
     for (const t of await smallTargets(page)) small.push(`${name}: ${t}`);
   }
   // the phone drawer holds the theme switch and the account links

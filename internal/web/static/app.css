@@ -115,7 +115,7 @@
 
   /* controls: one height per size */
   --ctl: 34px;
-  --ctl-sm: 28px;
+  --ctl-sm: 32px;
   --ctl-lg: 40px;
   --ctl-pad: 14px;
   --ctl-pad-sm: 10px;
@@ -893,7 +893,6 @@ section.card:first-child {
 }
 .card > h2:first-child,
 .card > .card-head,
-.card > details.m-fold.fold-h:first-child > summary,
 .card > details.fold.fold-h:first-child > summary {
   position: absolute;
   top: calc(var(--hair-w) / -2);
@@ -1720,16 +1719,13 @@ dialog.dlg::backdrop,
 
 /* ==========================================================================
    Collapsible section. Collapsed = header only.
-   details.fold: a section with a rule; details.m-fold: the app's phone fold
-   (same look); .fold-h inside a card: the summary is the framed title.
+   details.fold: a section with a rule; .fold-h inside a card: the summary is the framed title.
    ========================================================================== */
-details.fold,
-details.m-fold {
+details.fold {
   border-top: var(--hair-w) solid var(--color-border);
   margin: var(--sp-16) 0;
 }
-details.fold > summary,
-details.m-fold > summary {
+details.fold > summary {
   display: flex;
   align-items: center;
   gap: var(--sp-8);
@@ -1740,12 +1736,10 @@ details.m-fold > summary {
   font-weight: 700;
   font-size: var(--fs-body);
 }
-details.fold > summary::-webkit-details-marker,
-details.m-fold > summary::-webkit-details-marker {
+details.fold > summary::-webkit-details-marker {
   display: none;
 }
-details.fold > summary::after,
-details.m-fold > summary::after {
+details.fold > summary::after {
   /* one chevron app-wide (same as the navigation): down when closed, up when open */
   content: "";
   flex: none;
@@ -1757,22 +1751,17 @@ details.m-fold > summary::after {
   transform: translateY(-2px) rotate(45deg);
   transition: transform 0.12s;
 }
-details.fold > summary:has(.meta)::after,
-details.m-fold > summary:has(.meta)::after {
+details.fold > summary:has(.meta)::after {
   margin-left: var(--sp-12);
 }
-details.fold[open] > summary::after,
-details.m-fold[open] > summary::after {
+details.fold[open] > summary::after {
   transform: translateY(2px) rotate(-135deg);
 }
 details.fold > summary:hover,
-details.fold > summary.is-hover,
-details.m-fold > summary:hover,
-details.m-fold > summary.is-hover {
+details.fold > summary.is-hover {
   background: var(--color-surface-2);
 }
-details.fold > summary .meta,
-details.m-fold > summary .meta {
+details.fold > summary .meta {
   /* NEW: right-aligned summary info */
   margin-left: auto;
   font-family: var(--font-sans);
@@ -1780,26 +1769,22 @@ details.m-fold > summary .meta {
   font-size: var(--fs-ui);
   color: var(--color-text-2);
 }
-details.fold[open] > summary,
-details.m-fold[open] > summary {
+details.fold[open] > summary {
   margin-bottom: var(--sp-8);
 }
 /* the fold inside a card: the summary is the framed title */
-.card > details.fold.fold-h:first-child,
-.card > details.m-fold.fold-h:first-child {
+.card > details.fold.fold-h:first-child {
   border: 0;
   margin: 0;
 }
-.card > details.fold.fold-h:first-child > summary,
-.card > details.m-fold.fold-h:first-child > summary {
+.card > details.fold.fold-h:first-child > summary {
   min-height: 0;
   margin: 0;
 }
 .card > details.fold-h:first-child > summary::after {
   margin-left: var(--sp-8);
 }
-.card > details.fold.fold-h > summary > h2,
-.card > details.m-fold.fold-h > summary > h2 {
+.card > details.fold.fold-h > summary > h2 {
   margin: 0;
   font: inherit;
   display: inline;
@@ -1810,8 +1795,7 @@ details.m-fold[open] > summary {
   margin-bottom: var(--sp-16);
 }
 @media (prefers-reduced-motion: reduce) {
-  details.fold > summary::after,
-  details.m-fold > summary::after {
+  details.fold > summary::after {
     transition: none;
   }
 }
@@ -2124,7 +2108,7 @@ td a.ext {
    left-aligned except the user menu (#75).
 
    Refined (no new names): header.top/.user (Sign out inside the user menu),
-   td.rowacts, .table-scroll, .bulkbar (fixed to the viewport), details.fold/.m-fold (chevron right of
+   td.rowacts, .table-scroll, .bulkbar (fixed to the viewport), details.fold (chevron right of
    the title), .card (content offset under the framed title, 40px hit area on fold titles). */
 
 :root {
@@ -2257,17 +2241,14 @@ details.rowmenu.bulk-more {
 }
 
 /* ---- collapsible sections ---------------------------------------------------- */
-details.fold > summary::after,
-details.m-fold > summary::after {
+details.fold > summary::after {
   order: 1;
   margin: 0 4px 0 var(--sp-4);
 }
-details.fold > summary .meta,
-details.m-fold > summary .meta {
+details.fold > summary .meta {
   order: 2;
 }
-details.fold > summary:has(.meta)::after,
-details.m-fold > summary:has(.meta)::after {
+details.fold > summary:has(.meta)::after {
   margin-left: var(--sp-4);
 }
 .card {
@@ -3341,15 +3322,6 @@ label.chip:has(input:focus-visible) {
   .rule-editor {
     gap: 0.4rem;
   }
-  fieldset > details.m-fold,
-  .rule-editor > details.m-fold {
-    margin: 0;
-  }
-  fieldset > details.m-fold > summary,
-  .rule-editor > details.m-fold > summary {
-    min-height: 1.8rem;
-    padding: 0.2rem 0;
-  }
   .rule-editor .notice,
   .rule-editor .error {
     margin: 0.2rem 0;
@@ -3963,50 +3935,10 @@ table.rules td[data-label="Findings"] {
 .setup-intro {
   margin-bottom: 1.4rem;
 }
-
-/* ==== wide screens: a phone fold (details.m-fold) is plain, always-open content ====
-   A fold that stays a real fold at every width carries .fold-closed (Devices filters, Firmware
-   Prefetch and Custom images); every other m-fold is open from 45rem. */
-/* A fold is collapsed on phones and always open on wide screens, so the
-   desktop layout is the one it always was. Without ::details-content support
-   the summary stays visible on wide screens and the fold simply works. */
-details.m-fold > summary {
-  cursor: pointer;
-}
 @supports selector(::details-content) {
   @media (min-width: 45rem) {
-    details.m-fold:not(.fold-closed)::details-content {
-      content-visibility: visible;
-      display: block;
-    }
-    fieldset > details.m-fold:not(.fold-closed)::details-content {
-      display: grid;
-      gap: 0.85rem;
-    }
-    .stack > details.m-fold:not(.fold-closed)::details-content {
-      display: grid;
-      gap: 1rem;
-    }
     .stack > .actionbar {
       display: contents;
-    }
-    .rule-editor > details.m-fold:not(.fold-closed)::details-content {
-      display: grid;
-      gap: 0.9rem;
-    }
-    details.m-fold:not(.fold-closed):not(.fold-h) > summary {
-      display: none;
-    }
-    details.m-fold.fold-h:not(.fold-closed) > summary {
-      list-style: none;
-      pointer-events: none;
-      cursor: default;
-    }
-    details.m-fold.fold-h:not(.fold-closed) > summary::-webkit-details-marker {
-      display: none;
-    }
-    section.card > details.m-fold.fold-h:first-child > summary > h2 {
-      margin-top: 0;
     }
   }
 }
@@ -4096,7 +4028,6 @@ thead th {
     flex: 1 1 0;
     min-width: 0;
   }
-  details.m-fold:not(.fold-h) > summary,
   details.job-log > summary {
     min-height: 40px;
   }
@@ -4161,9 +4092,6 @@ td.sel > label.hit {
   table.picker.dense td.sel {
     top: 0;
   }
-  .card > details.m-fold:not(.fold-h) {
-    margin-block: var(--sp-8);
-  }
 }
 
 @media (max-width: 44.99rem) {
@@ -4185,16 +4113,6 @@ td.sel > label.hit {
     top: var(--sp-4);
   }
 }
-
-/* a fold inside a table cell has no section rule above it */
-td details.m-fold {
-  border-top: 0;
-  margin: 0;
-}
-td details.m-fold > summary {
-  min-height: 0;
-}
-
 @media (max-width: 44.99rem) {
   section.card {
     margin: var(--sp-24) 0 var(--sp-12);
@@ -4331,39 +4249,8 @@ table[data-table="bulk_command"] td.p1 a {
     display: none;
   }
 }
+/* ---- QA v0.9.0 follow-up: policy pages (packages K, L) ---------- */
 
-/* ---- QA v0.9.0 follow-up: policy pages and the phone fold on desktop (packages K, L) ---------- */
-
-/* L: from 45rem a phone fold (details.m-fold without .fold-closed) is plain content. Its summary
-   is the card's title like on every other card: no chevron, and the card is framed although the
-   details element is not [open] (the wide-screen rule shows its content anyway). */
-@supports selector(::details-content) {
-  @media (min-width: 45rem) {
-    details.m-fold.fold-h:not(.fold-closed) > summary::after {
-      display: none;
-    }
-    .card:has(
-      > details.m-fold.fold-h:first-child:not(.fold-closed):not([open])
-    ) {
-      background: var(--color-surface);
-      border-color: var(--color-border);
-      border-top-color: var(--color-border);
-      padding: calc(var(--fs-h2-lg) * 1.2 + 0.75rem) var(--sp-16) var(--sp-16);
-      margin-bottom: var(--sp-20);
-    }
-    .card:has(> details.m-fold.fold-h:first-child:not(.fold-closed):not([open]))
-      > details
-      > summary {
-      background: var(--color-surface);
-    }
-    .card:has(> details.m-fold.fold-h:first-child:not(.fold-closed))
-      > details
-      > summary
-      + * {
-      margin-top: 0;
-    }
-  }
-}
 /* L: closed card folds on a phone are one 40 px target each, also when they are stacked (Setup steps) */
 @media (max-width: 44.99rem) {
   .card:has(> details.fold-h:first-child:not([open])) {
@@ -5726,7 +5613,7 @@ html[data-live="offline"] .conn-banner.conn-off {
 }
 .btn.btn-link {
   height: auto;
-  min-height: 32px;
+  min-height: var(--ctl-sm);
   padding: 0;
   border: 0;
   background: none;
@@ -5737,7 +5624,7 @@ html[data-live="offline"] .conn-banner.conn-off {
   color: var(--color-accent-hover);
 }
 .btn.btn-sm {
-  height: 32px;
+  height: var(--ctl-sm);
 }
 .btn.btn-icon {
   width: var(--ctl);
@@ -5747,7 +5634,7 @@ html[data-live="offline"] .conn-banner.conn-off {
   font: 600 16px var(--font-sans);
 }
 .btn.btn-icon.btn-sm {
-  width: 32px;
+  width: var(--ctl-sm);
 }
 .btn.btn-tall {
   height: calc(var(--ctl) + 4px);
@@ -7592,20 +7479,6 @@ form.useradd:has(input[name="otp"][value="1"]:checked) .useradd-pw {
   padding: var(--sp-14);
   font-size: 13px;
   color: var(--color-text-2);
-}
-/* phones: the prototype's 32 px buttons and header links keep their look and get a 40 px touch
-   target from a ::after reaching 4 px past them (e2e smallTargets measures it) */
-@media (max-width: 44.99rem) {
-  .att-acts .btn-sm,
-  .ulist-head .btn-link {
-    position: relative;
-  }
-  .att-acts .btn-sm::after,
-  .ulist-head .btn-link::after {
-    content: "";
-    position: absolute;
-    inset: -4px 0;
-  }
 }
 
 /* ==========================================================================
@@ -11224,9 +11097,6 @@ dialog.fw-notes-dlg .fw-dlg-body {
 .add-table td a.btn-primary {
   font-weight: 600;
   color: var(--color-on-accent);
-}
-.add-table td .btn-sm {
-  height: 32px;
 }
 .add-table td .btn-link {
   height: var(--ctl);

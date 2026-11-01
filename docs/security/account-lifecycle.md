@@ -2,8 +2,7 @@
 
 Scope: local accounts (`AUTH_MODE=local`, or `LOCAL_LOGIN=true` next to OIDC or
 header mode), their sessions and device cookies, the admin web UI and the host
-CLI. (The direct admin listener was removed on 2026-10-19, see
-`admin-listener.md`.) Code: `internal/auth/{accounts,accountweb,local,session,service,stepup,bootstrap}.go`,
+CLI. Code: `internal/auth/{accounts,accountweb,local,session,service,stepup,bootstrap}.go`,
 `internal/store/auth.go`, `cmd/tasmofleet/users.go`. Login rate limiting is
 specified separately in `login-rate-limiting.md`.
 

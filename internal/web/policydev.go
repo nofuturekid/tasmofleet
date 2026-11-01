@@ -76,18 +76,13 @@ func (h *handler) devRender(w http.ResponseWriter, r *http.Request, status int, 
 	v := h.view(r, "Policy", "policy", nil)
 	rep, repErr := h.d.Policy.Report(ctx, actor(r), live)
 
-	var st sysconfig.RulesState
-	var err error
-	if h.d.PolicyRules != nil {
-		if st, err = h.d.PolicyRules.State(ctx); err != nil {
-			h.fail(w, r, err)
-			return
-		}
-	} else {
-		st.Specs = specsOf(rep.Rules)
+	st, err := h.d.PolicyRules.State(ctx)
+	if err != nil {
+		h.fail(w, r, err)
+		return
 	}
 	valid, invalid := st.Specs, 0
-	if h.d.PolicyRules != nil && len(st.Specs) > 0 {
+	if len(st.Specs) > 0 {
 		var bad []*sysconfig.RuleError
 		_, valid, bad = h.d.PolicyRules.ValidRules(st.Specs)
 		invalid = len(bad)

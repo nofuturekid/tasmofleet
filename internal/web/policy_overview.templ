@@ -7,9 +7,6 @@ import "github.com/nofuturekid/tasmofleet/internal/web/ui"
 templ policyPage(p policyView) {
 	<div class="pol-page">
 		@policyShell(p.Head) {
-			if p.Env {
-				@ui.Banner(ui.BannerData{Tone: ui.ToneAccent, Text: "These rules come from POLICY_RULES (the environment). They can't be changed here."})
-			}
 			if p.Banner != "" {
 				@ui.Banner(ui.BannerData{Tone: ui.ToneDanger, Text: p.Banner, Alert: true})
 			}
@@ -28,7 +25,7 @@ templ policyPage(p policyView) {
 					</div>
 				}
 				<p class="pol-none">
-					if p.Admin && p.CanRules {
+					if p.Admin {
 						When rules overlap, the higher one wins. Drag ⋮⋮ to reorder.
 					} else {
 						When rules overlap, the higher one wins.
@@ -45,7 +42,7 @@ templ policyPage(p policyView) {
 				Alt:  fixDialogAlt(p.Fix), AltAction: p.Base + "/policy/fix",
 			})
 		}
-		if p.Admin && p.CanRules {
+		if p.Admin {
 			for _, r := range p.Rows {
 				@ui.Dialog(ui.DialogData{
 					ID: "dlg-rule-" + r.ID, Title: "Delete rule “" + r.Name + "”?", Body: r.Delete,
@@ -66,7 +63,7 @@ templ policyTable(p policyView) {
 		<table class="dense">
 			<thead>
 				<tr>
-					if p.Admin && p.CanRules {
+					if p.Admin {
 						<th><span class="sr-only">Order</span></th>
 					}
 					<th>Rule</th>
@@ -74,7 +71,7 @@ templ policyTable(p policyView) {
 					<th>Applies to</th>
 					<th>When it deviates</th>
 					<th>Compliance</th>
-					if p.Admin && p.CanRules {
+					if p.Admin {
 						<th><span class="sr-only">Actions</span></th>
 					}
 				</tr>
@@ -85,7 +82,7 @@ templ policyTable(p policyView) {
 				}
 			</tbody>
 		</table>
-		if p.Admin && p.CanRules {
+		if p.Admin {
 			<form id="rule-order" method="post" action={ templ.SafeURL(p.Base + rulesPath + "/order") } hidden>
 				<input type="hidden" name="csrf" value={ p.CSRF }/>
 				<input type="hidden" name="version" value={ vstr(p.Version) }/>
@@ -99,11 +96,11 @@ templ policyRow(p policyView, i int, r ruleRow) {
 	<tr
 		class={ templ.KV("is-dim", r.Disabled), templ.KV("is-saved", r.Saved) }
 		data-rule-idx={ itoa(i) }
-		if p.Admin && p.CanRules {
+		if p.Admin {
 			draggable="true"
 		}
 	>
-		if p.Admin && p.CanRules {
+		if p.Admin {
 			<td aria-hidden="true"><span class="pol-grip" title="Drag to reorder">⋮⋮</span></td>
 		}
 		<td class="p1" data-label="Rule">
@@ -139,7 +136,7 @@ templ policyRow(p policyView, i int, r ruleRow) {
 					<span class="pol-none">–</span>
 			}
 		</td>
-		if p.Admin && p.CanRules {
+		if p.Admin {
 			<td data-label="Actions" class="rowacts">
 				@policyRowMenu(p, r)
 			</td>
@@ -209,7 +206,7 @@ templ policyAlert(p policyView) {
 // policyEmpty is the empty state. Admins get New rule and the first templates, each a link to a
 // draft (nothing is saved before Save rule).
 templ policyEmpty(p policyView) {
-	if p.Admin && p.CanRules {
+	if p.Admin {
 		@ui.Empty("No policy rules yet", "Start with a template. You can change every field afterwards.") {
 			<a class="btn btn-primary" href={ templ.SafeURL(p.Base + rulesPath + "/new") }>New rule</a>
 		}
@@ -225,9 +222,7 @@ templ policyEmpty(p policyView) {
 				}
 			</div>
 		}
-	} else if p.CanRules {
-		@ui.Empty("No policy rules yet", "An admin can add them.")
 	} else {
-		@ui.Empty("No policy rules yet", "No rules are configured in POLICY_RULES.")
+		@ui.Empty("No policy rules yet", "An admin can add them.")
 	}
 }

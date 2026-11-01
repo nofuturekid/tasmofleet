@@ -155,8 +155,6 @@ type policyView struct {
 	Base      string
 	CSRF      string
 	Admin     bool
-	CanRules  bool // the rules can be changed here (the rules service exists)
-	Env       bool // the rules come from POLICY_RULES
 	Version   int64
 	HasRules  bool
 	Rows      []ruleRow
@@ -196,26 +194,21 @@ func (h *handler) policyRender(w http.ResponseWriter, r *http.Request, status in
 // rules: the live-check tile says what failed and offers "Retry now".
 func (h *handler) policyData(r *http.Request, v view, o policyOpts) (policyView, error) {
 	ctx := r.Context()
-	p := policyView{Base: v.Base, CSRF: v.CSRF, Admin: v.IsAdmin, Banner: o.banner, CanRules: h.d.PolicyRules != nil, Env: h.d.PolicyRules == nil}
+	p := policyView{Base: v.Base, CSRF: v.CSRF, Admin: v.IsAdmin, Banner: o.banner}
 	rep, repErr := h.d.Policy.Report(ctx, actor(r), o.live)
-	var st sysconfig.RulesState
-	if h.d.PolicyRules != nil {
-		var err error
-		if st, err = h.d.PolicyRules.State(ctx); err != nil {
-			return p, err
-		}
-	} else {
-		st.Specs = specsOf(rep.Rules)
+	st, err := h.d.PolicyRules.State(ctx)
+	if err != nil {
+		return p, err
 	}
 	p.Version = st.VersionID
 	p.HasRules = len(st.Specs) > 0
-	editable := p.Admin && p.CanRules
+	editable := p.Admin
 
 	// A stored rule that no longer validates (a legacy value the stricter checks refuse) is flagged
 	// on its row and left out of everything that is counted: one bad rule must not make the fleet
 	// look compliant, and must not hide the others.
 	valid, invalid := st.Specs, map[string]string{}
-	if p.CanRules && p.HasRules {
+	if p.HasRules {
 		var bad []*sysconfig.RuleError
 		_, valid, bad = h.d.PolicyRules.ValidRules(st.Specs)
 		for _, re := range bad {
@@ -231,7 +224,7 @@ func (h *handler) policyData(r *http.Request, v view, o policyOpts) (policyView,
 	for i, s := range st.Specs {
 		names[i] = ruleName(s)
 	}
-	if p.CanRules && p.HasRules {
+	if p.HasRules {
 		validNames := make([]string, len(valid))
 		for i, s := range valid {
 			validNames[i] = ruleName(s)
@@ -356,20 +349,6 @@ func nameList(names []string) string {
 		return strings.Join(names, ", ")
 	}
 	return strings.Join(names[:3], ", ") + " and " + strconv.Itoa(len(names)-3) + " more"
-}
-
-// specsOf turns report rules into specs, for a page without the rules service.
-func specsOf(rules []policy.Rule) []sysconfig.RuleSpec {
-	out := make([]sysconfig.RuleSpec, len(rules))
-	for i, r := range rules {
-		fams := make([]string, len(r.Families))
-		for j, f := range r.Families {
-			fams[j] = string(f)
-		}
-		out[i] = sysconfig.RuleSpec{ID: r.ID, Name: r.Name, Command: r.Command, Want: r.Want, Note: r.Note, Severity: r.Severity,
-			Families: fams, Tags: r.Tags, Devices: r.Devices, Except: r.Except, Disabled: r.Disabled}
-	}
-	return out
 }
 
 // ruleName is the title of a rule: its name, else the setting's label.

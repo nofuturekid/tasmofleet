@@ -31,9 +31,7 @@ Read this file first, then the parts of the spec you need
 tasmofleet has no stable external API before 1.0 (maintainer's rule).
 Don't add or keep compatibility layers: no redirects for moved routes, no deprecated
 config/env aliases, no old CLI command names, no API compat layers. Breaking changes are
-fine. (One kept exception: `GET /login/local` redirects to `/login`, the old address of the
-break-glass login that bookmarks and the emergency runbook name; spec §15.1 and the runbook say so.)
-Record each one in `CHANGELOG.md` (section "Unreleased", then the release).
+fine. Record each one in `CHANGELOG.md` (section "Unreleased", then the release).
 **The only exception is user data:** migrations stay append-only, and the live database
 must upgrade cleanly.
 

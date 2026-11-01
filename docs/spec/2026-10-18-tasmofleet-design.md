@@ -1506,7 +1506,7 @@ expected value is refused; the audit entry `policy.copy` names device and comman
 
 **Overview (`/policy`).** Five tiles: Rules (enabled and disabled), Compliant devices, Deviating
 (required and advisory), Not judged (all `policy.FleetTally`) and the live-check tile (state, last
-run, Run now, Pause or Resume for admins, Retry now after a failure). Tabs follow (Rules, Deviating devices, History; History only with managed rules, not with `POLICY_RULES`;
+run, Run now, Pause or Resume for admins, Retry now after a failure). Tabs follow (Rules, Deviating devices, History;
 Import or export has its own page, `/policy/io`), then the rule table in stored order: a drag handle (admins), name (a link to
 `/policy/rules/{id}`, Disabled chip), setting, applies to with the device count, Required or Advisory, a
 compliance bar from `policy.Tally` read by rule id, and the row menu (Edit, Duplicate, Enable or Disable,
@@ -1618,7 +1618,7 @@ default on) can be combined with every mode and are the only method in `local` m
   setting, default "Single sign-on", works for any provider) and the username/password
   form (when local login is on and a local account exists). The browser is redirected to the
   IdP automatically only when OIDC is the only method. The button is `GET /login/sso`;
-  `GET /login/local` redirects to `/login`. Header mode is unchanged (the page appears
+  there is no `GET /login/local` (the form only posts there). Header mode is unchanged (the page appears
   only when the proxy did not identify the visitor and a local account exists).
 - **Break-glass** is a local admin on this page plus `tasmofleet user passwd` on the
   host (runbook `docs/runbooks/emergency-access.md`). The direct admin listener
@@ -1860,7 +1860,7 @@ only when their feature is wired (updates, firmware, policy, ...) are listed wit
 | GET | `/login` | none | sign-in page (IdP button and local form); redirects to the IdP if OIDC is the only method |
 | GET | `/login/sso` | none | start the OIDC flow (the button) |
 | GET | `/oidc/callback` | none | OIDC redirect target |
-| GET, POST | `/login/local` | none | GET redirects to `/login`; POST checks the local login |
+| POST | `/login/local` | none | checks the local login (there is no GET) |
 | POST | `/logout` | any | logout (+ RP-initiated) |
 | POST | `/oidc/stepup` | admin | step-up by re-authentication at the IdP |
 | GET | `/` | operator | dashboard: six stat tiles, fleet health bar, "Needs attention", update transactions |

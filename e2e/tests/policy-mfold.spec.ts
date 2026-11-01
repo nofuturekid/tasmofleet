@@ -2,9 +2,9 @@ import { test, expect } from "../support/fixtures";
 import { realisticPolicyRules } from "../support/seed";
 import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
-// QA v0.9.0 follow-up, packages K and L: a phone fold (details.m-fold) is plain content from 45rem
-// up, so a section title is a title and not a half-working toggle, and the policy pages read the
-// same on a phone as on a desktop. CSS decides all of it, so it is checked on the computed styles.
+// QA v0.9.0 follow-up, packages K and L: a section title is a title and not a half-working toggle,
+// and the policy pages read the same on a phone as on a desktop. CSS decides all of it, so it is
+// checked on the computed styles.
 let app: App;
 let env: Devenv;
 test.beforeAll(async () => {
@@ -28,23 +28,6 @@ test.afterAll(async () => {
 });
 test.use({ extraHTTPHeaders: { "X-authentik-username": "adam", "X-authentik-groups": "adm" } });
 
-// The title of every card of a page: chevron shown or not, and how the card is painted.
-async function cards(page: import("@playwright/test").Page) {
-  return page.$$eval("section.card", (els) =>
-    els.map((c) => {
-      const s = c.querySelector(":scope > details > summary");
-      const cs = getComputedStyle(c);
-      return {
-        title: (s ?? c.querySelector(":scope > h2"))?.textContent?.trim() ?? "",
-        fold: !!s,
-        chevron: s ? getComputedStyle(s, "::after").display !== "none" : false,
-        background: cs.backgroundColor,
-        border: cs.borderLeftColor,
-      };
-    }),
-  );
-}
-
 // Why: the setup used to be four folds in two looks (framed and unframed, chevrons that
 // contradicted the content). Design v2 makes it one card without folds (P8): nothing to open,
 // nothing hidden, at every width.
@@ -67,7 +50,6 @@ test("desktop: the policy overview is tiles, tabs and a table without folds", as
   await expect(page.locator(".dev-tile")).toHaveCount(5);
   await expect(page.locator("nav.utabs")).toBeVisible();
   await expect(page.locator("section#rules table.dense tbody tr").first()).toBeVisible();
-  await expect(page.locator("main details.m-fold")).toHaveCount(0);
   await page.locator("td.p1 a").first().click();
   for (const id of ["#dc-rule", "#dc-devs"]) {
     const sec = page.locator(`section:has(${id})`);

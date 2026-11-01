@@ -93,9 +93,6 @@ templ rulePageTempl(p rulePageView) {
 				}
 			</div>
 		</div>
-		if p.Env {
-			@ui.Banner(ui.BannerData{Tone: ui.ToneAccent, Text: "These rules come from POLICY_RULES (the environment). They can't be changed here."})
-		}
 		if p.Banner != "" {
 			@ui.Banner(ui.BannerData{Tone: p.BannerTone, Text: p.Banner, Alert: p.BannerTone == ui.ToneDanger})
 		}

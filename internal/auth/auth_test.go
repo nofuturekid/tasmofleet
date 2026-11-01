@@ -595,15 +595,16 @@ func TestLoginPageOffersEveryConfiguredMethod(t *testing.T) {
 }
 
 // Why: the local admin is the break-glass access, so signing in locally must
-// work while OIDC is configured, and the old local address leads to the one page.
+// work while OIDC is configured. GET /login/local is not a route any more (no redirects for
+// moved routes before 1.0): the form posts there, the sign-in page is /login only.
 func TestLocalSignInWorksWithOIDCConfigured(t *testing.T) {
 	e := newEnv(t, ModeOIDC)
 	b := e.browser()
 	if r := localLogin(b, "admin", testPassword, "/"); r.code != http.StatusSeeOther || r.loc != "/" {
 		t.Fatalf("local login with OIDC configured: %d %q", r.code, r.loc)
 	}
-	if r := e.browser().get("/login/local?next=%2Fx"); r.code != http.StatusSeeOther || r.loc != "/login?next=%2Fx" {
-		t.Fatalf("/login/local: %d %q", r.code, r.loc)
+	if r := e.browser().get("/login/local?next=%2Fx"); r.code != http.StatusMethodNotAllowed || r.loc != "" {
+		t.Fatalf("GET /login/local: %d %q, want 405 and no redirect", r.code, r.loc)
 	}
 	l := newEnv(t, ModeLocal)
 	if r := l.browser().get("/login/sso"); r.code != http.StatusNotFound {
@@ -614,9 +615,8 @@ func TestLocalSignInWorksWithOIDCConfigured(t *testing.T) {
 func TestLocalLoginDisabled(t *testing.T) {
 	e := newEnv(t, ModeOIDC, func(o *Options) { o.LocalLogin = false })
 	b := e.browser()
-	r := b.get("/login/local")
-	if r.code != http.StatusSeeOther {
-		t.Fatalf("old local address: %d", r.code)
+	if r := b.get("/login/local"); r.code == http.StatusSeeOther {
+		t.Fatalf("GET /login/local redirects (%q): the moved route is gone", r.loc)
 	}
 	if r := b.do(http.MethodPost, "/login/local", url.Values{"username": {"admin"}, "password": {testPassword}}, nil); r.code == http.StatusSeeOther && r.loc == "/" {
 		t.Fatal("local login worked while disabled")
@@ -627,7 +627,7 @@ func TestLocalLoginDisabled(t *testing.T) {
 // without a session. The lists are the complete sets auth serves, so a new
 // route cannot slip in unreviewed (CLAUDE.md safety rule 5).
 func TestOnlyAccountRoutesChangeCredentials(t *testing.T) {
-	want := []string{"GET /login", "GET /oidc/callback", "GET /login/sso", "GET /login/local", "POST /login/local", "POST /logout", "POST /oidc/stepup"}
+	want := []string{"GET /login", "GET /oidc/callback", "GET /login/sso", "POST /login/local", "POST /logout", "POST /oidc/stepup"}
 	if !slices.Equal(routePatterns, want) {
 		t.Fatalf("login routes changed: %v; review that none changes credentials, then update this test", routePatterns)
 	}

@@ -6,13 +6,11 @@ import "github.com/nofuturekid/tasmofleet/internal/web/ui"
 // and the tab row. The tab's own content is the child.
 templ policyShell(h policyHead) {
 	@ui.PageHeader("Policy", policySub) {
-		if h.Admin && h.CanRules {
+		if h.Admin {
 			<a class="btn" href={ templ.SafeURL(h.Base + policyIOPath + "?tab=import") }>Import…</a>
 		}
-		if h.CanRules {
-			<a class="btn" href={ templ.SafeURL(h.Base + policyIOPath) }>Export</a>
-		}
-		if h.Admin && h.CanRules {
+		<a class="btn" href={ templ.SafeURL(h.Base + policyIOPath) }>Export</a>
+		if h.Admin {
 			<a class="btn btn-primary" href={ templ.SafeURL(h.Base + rulesPath + "/new") }>New rule</a>
 		}
 	}

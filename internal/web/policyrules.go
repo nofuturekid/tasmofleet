@@ -52,11 +52,7 @@ const policyIOPath = "/policy/io"
 
 func (h *handler) registerPolicyRules(route func(string, func(http.Handler) http.Handler, http.HandlerFunc), op, adm func(http.Handler) http.Handler) {
 	if h.d.Policy != nil {
-		// Also in env mode (POLICY_RULES): the rule page is then read-only.
 		route("GET "+rulesPath+"/{id}", op, h.rulePage)
-	}
-	if h.d.PolicyRules == nil {
-		return
 	}
 	if h.d.Policy != nil {
 		route("GET "+policyHistoryPath, op, h.policyHistory)

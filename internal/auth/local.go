@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -89,11 +88,6 @@ func (s *Service) loginPage(w http.ResponseWriter, r *http.Request, next string)
 		d.CSRFToken = s.formToken(w, r)
 	}
 	s.o.Pages.Login(w, r, http.StatusOK, d)
-}
-
-// localLoginRedirect sends the old local sign-in address to the one page.
-func (s *Service) localLoginRedirect(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, httpx.BasePath(r.Context())+"/login?next="+url.QueryEscape(httpx.LocalPath(r.URL.Query().Get("next"))), http.StatusSeeOther)
 }
 
 // localSubmit checks a break-glass login. The CSRF middleware has already

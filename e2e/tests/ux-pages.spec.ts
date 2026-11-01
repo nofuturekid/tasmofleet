@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { test, expect } from "../support/fixtures";
-import { expectNoOverflow, openFolds } from "../support/layout";
+import { expectNoOverflow } from "../support/layout";
 import { realisticDevenvArgs, realisticPolicyRules, seedRealisticData } from "../support/seed";
 import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
@@ -44,7 +44,6 @@ test.afterAll(async () => {
 });
 
 // folds only exist on a phone; the desktop layout has nothing to open
-const fold = async (page: import("@playwright/test").Page, width = 1280) => { if (width <= 480) await openFolds(page); };
 
 async function pages(page: import("@playwright/test").Page): Promise<Record<string, string>> {
   await page.goto(app.url + "/devices");
@@ -106,7 +105,6 @@ test("pages: intros fit one line and labels are short", async ({ page }) => {
   const bad: string[] = [];
   for (const [name, path] of Object.entries(await pages(page))) {
     await page.goto(app.url + path);
-    await fold(page);
     for (const lead of await page.locator("p.lead:visible").all()) {
       const { h, lh } = await lead.evaluate((e) => ({ h: e.getBoundingClientRect().height, lh: parseFloat(getComputedStyle(e).lineHeight) || 24 }));
       if (h > lh * 1.4) bad.push(`${name}: intro wraps (${Math.round(h)}px): ${(await lead.innerText()).slice(0, 60)}`);
@@ -133,7 +131,6 @@ test("pages: no raw subject outside tooltips", async ({ page }) => {
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(app.url + path);
-      await fold(page, width);
       const text = await page.locator("body").innerText(); // tooltips live in title/data-tip attributes, not in the text
       const m = text.match(/[0-9a-f]{32,}/i); // a subject is 40 to 64 hex characters (QA M13: the Users page printed 40)
       if (m && name !== "firmware") bad.push(`${name} @${width}: ${m[0].slice(0, 16)}...`);

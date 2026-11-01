@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { test, expect } from "../support/fixtures";
-import { expectNoOverflow, openFolds } from "../support/layout";
+import { expectNoOverflow } from "../support/layout";
 import { realisticPolicyRules } from "../support/seed";
 import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
@@ -298,7 +298,6 @@ for (const vp of viewports) {
     await page.setExtraHTTPHeaders(admin);
     for (const [name, path] of [["device", `/devices/${deviceID}`], ["about", "/about"], ["transactions", "/transactions"], ["dashboard", "/"], ["policy", "/policy"], ["firmware", "/firmware"]]) {
       await page.goto(app.url + path);
-      if (vp.name === "phone") await openFolds(page);
       await expectNoOverflow(page, name);
       await page.screenshot({ path: join(shots!, `${name}-${vp.name}.png`), fullPage: true });
     }

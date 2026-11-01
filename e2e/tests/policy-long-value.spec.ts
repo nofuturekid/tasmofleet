@@ -1,6 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../support/fixtures";
-import { openFolds } from "../support/layout";
 import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
 
 // A rule whose value is a long URL (OtaUrl rules, since the policy knows that setting) put the
@@ -55,7 +54,6 @@ async function openPolicy(page: Page): Promise<void> {
   await page.goto(app.url + "/policy");
   await page.getByRole("button", { name: "Run now" }).click(); // the values are read live
   await expect(page.locator(".banner", { hasText: "deviate from a required rule" })).toBeVisible({ timeout: 60_000 }); // the banner offers Make compliant
-  await openFolds(page);
 }
 
 for (const vp of [

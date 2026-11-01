@@ -45,12 +45,6 @@ export async function overflowProblem(page: Page, name: string): Promise<string 
   return overflow > 0 ? `${name} is wider than the visible page by ${overflow}px; widest elements: ${culprits.join("; ")}` : null;
 }
 
-/** openFolds expands every collapsed section of a phone-width page (details.m-fold); on wide screens there is nothing to open. */
-export async function openFolds(page: Page): Promise<void> {
-  const closed = page.locator("details.m-fold:not([open]) > summary:visible");
-  while ((await closed.count()) > 0) await closed.first().click();
-}
-
 /**
  * smallTargets lists the touch targets of the page smaller than min px in either
  * direction: buttons, summaries, links in rows and menus, checkbox hit areas,

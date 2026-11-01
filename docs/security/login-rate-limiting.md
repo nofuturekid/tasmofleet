@@ -5,8 +5,7 @@ trusted-header logins are rate limited by the identity provider or proxy,
 not here. Code: `internal/auth/ratelimit.go`, `internal/auth/local.go`.
 
 Account lifecycle, sessions and revocation are specified in
-`account-lifecycle.md`. (The direct admin listener that once used this limiter
-was removed on 2026-10-19; see `admin-listener.md`.)
+`account-lifecycle.md`.
 
 Brute-force resistance and lockout resistance pull against each other. A
 budget that stops guessing can also be spent by an attacker to keep the

@@ -530,42 +530,6 @@ func (n *noDevices) Evaluate(_ context.Context, rules []policy.Rule) (PolicyRepo
 	return PolicyReport{Rules: rules}, nil
 }
 
-// Why: POLICY_RULES mode has no stored rules to edit; the rule page must still open (a link
-// from the overview) but read-only, saying why.
-func TestRulePageEnvModeIsReadOnly(t *testing.T) {
-	rp := defaultRP()
-	rules := []policy.Rule{{ID: "r1", Name: "Flash wear", Command: "SaveData", Want: "0", Severity: policy.SeverityWarn}}
-	e := setupWith(t, func(d *Deps) { d.Policy = &envPolicy{rulePolicy: rp, rules: rules} })
-	r, body := e.do(t, "GET", "/policy/rules/r1", "admin", nil)
-	if r.StatusCode != 200 {
-		t.Fatalf("status %d\n%s", r.StatusCode, body)
-	}
-	for _, w := range []string{"POLICY_RULES", "Flash wear", "kitchen"} {
-		if !strings.Contains(body, w) {
-			t.Errorf("env mode page lacks %q", w)
-		}
-	}
-	for _, bad := range []string{"Save rule", "Duplicate", "Delete…", "/policy/rules/save"} {
-		if strings.Contains(body, bad) {
-			t.Errorf("env mode page renders a write control: %q", bad)
-		}
-	}
-	if r, _ := e.do(t, "GET", "/policy/rules/r7", "admin", nil); r.StatusCode != 404 {
-		t.Errorf("unknown id in env mode = %d", r.StatusCode)
-	}
-}
-
-type envPolicy struct {
-	*rulePolicy
-	rules []policy.Rule
-}
-
-func (p *envPolicy) Report(context.Context, string, bool) (PolicyReport, error) {
-	devs := p.devices()
-	return PolicyReport{Rules: p.rules, Devices: devs, Values: p.values, Provenance: p.prov,
-		Outcomes: policy.Outcomes(p.rules, devs, p.values)}, nil
-}
-
 // Why: a refused save of a new rule must not lose where the draft came from, or the default
 // change note ("from template: X") silently disappears on the retry.
 func TestRuleNewRefusedSaveKeepsTheOrigin(t *testing.T) {

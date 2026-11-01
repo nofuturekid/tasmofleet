@@ -6,8 +6,7 @@ an account.
 
 **Break-glass is a local admin on the normal login page, plus the host CLI
 `tasmofleet user passwd`.** There is nothing else: the direct admin listener
-(`ADMIN_LISTEN`, port 8443) was removed on 2026-10-19 (see
-`docs/security/admin-listener.md`, superseded). It is not Fort Knox: the only
+(`ADMIN_LISTEN`, port 8443) was removed on 2026-10-19. It is not Fort Knox: the only
 protection on the login page is the login rate limiting
 (`docs/security/login-rate-limiting.md`).
 
@@ -66,4 +65,4 @@ sign-in. Every CLI action is audited with actor `cli`. The CLI is not rate limit
 | The browser goes straight to the IdP               | Only when OIDC is the only method. Same cause and fix as above.                                                                                                                                                                            |
 | "Too many attempts" (HTTP 429)                     | The login limiter. Wait the time shown (1 min after the 5th wrong attempt, then longer). A browser that signed in before (device cookie) is limited more gently than a new one. The host CLI (section 2) is not rate limited.                |
 | "missing or invalid CSRF token" on the direct address | Before 0.11.1, an `https://` `PUBLIC_URL` made every cookie Secure, and the browser dropped them on plain HTTP. Update to 0.11.1 or later. |
-| The old address `/login/local` or port 8443 fails  | `/login/local` redirects to `/login`; port 8443 was the removed admin listener. A set `TASMOFLEET_ADMIN_*` variable is ignored with a warning at start; remove it and the firewall rule. The old certificate directory `<DATA_DIR>/tls/admin/` can be deleted.                                                   |
+| The old address `/login/local` (HTTP 405) or port 8443 fails | Sign in on `/login`: `/login/local` is only the form's POST target. Port 8443 was the removed admin listener. A set `TASMOFLEET_ADMIN_*` variable is ignored with a warning at start; remove it and the firewall rule. The old certificate directory `<DATA_DIR>/tls/admin/` can be deleted.                                                   |

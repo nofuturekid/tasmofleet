@@ -36,29 +36,15 @@ type ruleOpts struct {
 // ruleRows is how many devices the devices card lists before "Show all".
 const ruleRows = 25
 
-// ruleList is the rules the rule page works on: the saved ones, or in env mode (POLICY_RULES)
-// the ones the report holds, read-only.
+// ruleList is the saved rules the rule page works on.
 type ruleList struct {
-	Specs    []sysconfig.RuleSpec
-	Version  int64
-	Editable bool
-	rep      PolicyReport // env mode only
+	Specs   []sysconfig.RuleSpec
+	Version int64
 }
 
 func (h *handler) ruleList(r *http.Request) (ruleList, error) {
-	if h.d.PolicyRules != nil {
-		st, err := h.d.PolicyRules.State(r.Context())
-		return ruleList{Specs: st.Specs, Version: st.VersionID, Editable: true}, err
-	}
-	rep, err := h.d.Policy.Report(r.Context(), actor(r), false)
-	if err != nil {
-		return ruleList{}, err
-	}
-	specs := specsOf(rep.Rules)
-	for i := range specs {
-		specs[i].ID = rep.Rules[i].ID
-	}
-	return ruleList{Specs: specs, Editable: false, rep: rep}, nil
+	st, err := h.d.PolicyRules.State(r.Context())
+	return ruleList{Specs: st.Specs, Version: st.VersionID}, err
 }
 
 func indexOfRule(specs []sysconfig.RuleSpec, id string) int {
@@ -98,30 +84,24 @@ func (h *handler) ruleStats(ctx context.Context, src ruleList, spec sysconfig.Ru
 	} else {
 		list[pos] = spec
 	}
-	var rules []policy.Rule
-	if h.d.PolicyRules != nil {
-		// A rule that does not validate is left out of the evaluation, so the page of a valid rule
-		// still works when another stored rule is broken. When the broken one is this rule, say why.
-		valid, _, bad := h.d.PolicyRules.ValidRules(list)
-		dropped := 0
-		for _, re := range bad {
-			switch {
-			case re.Index < 0:
-				return ruleStat{Err: re.Error()}, nil
-			case re.Index == pos:
-				if field, text := ruleProblem(re.Msg); field == "command" {
-					return ruleStat{Err: text}, nil // the reason, not the validator's sentence
-				}
-				return ruleStat{Err: re.Msg}, nil
-			case re.Index < pos:
-				dropped++
+	// A rule that does not validate is left out of the evaluation, so the page of a valid rule
+	// still works when another stored rule is broken. When the broken one is this rule, say why.
+	rules, _, bad := h.d.PolicyRules.ValidRules(list)
+	dropped := 0
+	for _, re := range bad {
+		switch {
+		case re.Index < 0:
+			return ruleStat{Err: re.Error()}, nil
+		case re.Index == pos:
+			if field, text := ruleProblem(re.Msg); field == "command" {
+				return ruleStat{Err: text}, nil // the reason, not the validator's sentence
 			}
+			return ruleStat{Err: re.Msg}, nil
+		case re.Index < pos:
+			dropped++
 		}
-		rules, pos = valid, pos-dropped
-	} else {
-		rules = slices.Clone(src.rep.Rules)
-		rules[pos].Disabled = false
 	}
+	pos -= dropped
 	rep, err := h.d.Policy.Evaluate(ctx, rules)
 	if err != nil {
 		return ruleStat{}, err
@@ -278,7 +258,6 @@ type rulePageView struct {
 	Admin      bool // the form and the actions are shown
 	ID         string
 	Draft      bool
-	Env        bool // the rules come from POLICY_RULES: nothing here can be changed
 	Name       string
 	Required   bool
 	Disabled   bool
@@ -371,13 +350,13 @@ func (h *handler) rulePageRender(w http.ResponseWriter, r *http.Request, status 
 		name = "New rule"
 	}
 	v := h.view(r, name, "policy", nil)
-	canEdit := src.Editable && v.IsAdmin
+	canEdit := v.IsAdmin
 	v.Crumbs = []ui.Crumb{{Label: "Devices", Path: "/devices"}, {Label: "Policy", Path: policyPath}, {Label: name}}
 	if f := ruleFlash(r.URL.Query().Get("ok")); f != "" {
 		v.Flash = f
 	}
 	p := rulePageView{
-		Base: v.Base, CSRF: v.CSRF, Admin: canEdit, ID: o.ID, Draft: draft, Env: !src.Editable,
+		Base: v.Base, CSRF: v.CSRF, Admin: canEdit, ID: o.ID, Draft: draft,
 		Name: name, Required: spec.Severity != policy.SeverityInfo, Disabled: spec.Disabled,
 		Version: src.Version, Origin: o.Origin, Source: o.Source,
 		Banner: o.Banner, BannerTone: ui.ToneDanger,
@@ -410,7 +389,7 @@ func (h *handler) rulePageRender(w http.ResponseWriter, r *http.Request, status 
 	} else {
 		p.KV = ruleKV(spec)
 	}
-	if !draft && h.d.PolicyRules != nil {
+	if !draft {
 		key := spec.Name // the history names a rule by its name, or its command when unnamed
 		if key == "" {
 			key = spec.Command
@@ -420,7 +399,7 @@ func (h *handler) rulePageRender(w http.ResponseWriter, r *http.Request, status 
 	h.show(w, r, status, "policyrule", v, rulePageTempl(p))
 }
 
-// ruleKV is the rule as read-only rows (operators, env mode).
+// ruleKV is the rule as read-only rows (operators).
 func ruleKV(s sysconfig.RuleSpec) []ui.KVRow {
 	sev := policy.SeverityLabel(s.Severity)
 	rows := []ui.KVRow{
@@ -547,7 +526,7 @@ func (h *handler) ruleDevicesPreview(w http.ResponseWriter, r *http.Request, d r
 		}
 		spec.ID = d.ID
 	}
-	stat, err := h.ruleStats(r.Context(), ruleList{Specs: st.Specs, Version: st.VersionID, Editable: true}, spec, pos)
+	stat, err := h.ruleStats(r.Context(), ruleList{Specs: st.Specs, Version: st.VersionID}, spec, pos)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -794,15 +773,12 @@ func (h *handler) ruleNewRender(w http.ResponseWriter, r *http.Request, status i
 		h.fail(w, r, err)
 		return
 	}
-	var saved []sysconfig.RuleSpec
-	if h.d.PolicyRules != nil {
-		st, err := h.d.PolicyRules.State(r.Context())
-		if err != nil {
-			h.fail(w, r, err)
-			return
-		}
-		saved = st.Specs
+	st, err := h.d.PolicyRules.State(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
 	}
+	saved := st.Specs
 	p := newRuleView{Base: v.Base, CSRF: v.CSRF, Q: o.Q, Command: o.Command, CommandErr: o.CommandErr,
 		CopyCommand: o.CopyCommand, CopyErr: o.CopyErr, Banner: o.Banner}
 	needle := strings.ToLower(o.Q)
@@ -856,7 +832,7 @@ func (h *handler) liveCheck(w http.ResponseWriter, r *http.Request) {
 			h.devRender(w, r, http.StatusOK, true)
 			return
 		}
-		if r.PostForm.Get("back") == "history" && h.d.PolicyRules != nil {
+		if r.PostForm.Get("back") == "history" {
 			h.historyRender(w, r, true)
 			return
 		}

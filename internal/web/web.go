@@ -153,7 +153,7 @@ type Deps struct {
 	SysConfig    SysConfigService   // optional: system settings page
 	Snapshots    SnapshotService    // optional: database snapshots on the Backups tab (needs SysConfig)
 	Notify       NotifyService      // optional: status lines and test buttons of the Notifications tab (needs SysConfig)
-	PolicyRules  PolicyRulesService // optional: policy rule editor
+	PolicyRules  PolicyRulesService // the policy rules; required whenever Policy is set
 	// PolicyLivePause is optional: Pause / Resume of the automatic policy live check.
 	PolicyLivePause PolicyLivePause
 	Setup           SetupService         // optional: first-run setup
@@ -224,6 +224,9 @@ type handler struct {
 // Handler returns the UI router (without the auth routes and the global
 // middleware, which package app adds).
 func Handler(d Deps) (http.Handler, error) {
+	if d.Policy != nil && d.PolicyRules == nil {
+		return nil, errors.New("web: Policy needs PolicyRules (the policy pages list the saved rules)")
+	}
 	if d.Clock == nil {
 		d.Clock = clock.Real{}
 	}

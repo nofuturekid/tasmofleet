@@ -140,21 +140,6 @@ func TestPolicyOverviewMoveEntriesWorkWithoutJavaScript(t *testing.T) {
 	}
 }
 
-// Why: POLICY_RULES mode has no rules service, so the overview cannot offer a change: it says
-// where the rules come from and has no New rule, Import, handle or menu.
-func TestPolicyOverviewEnvModeIsReadOnly(t *testing.T) {
-	e := setupWith(t, func(d *Deps) { d.Policy = &fakePolicy{rep: fleetReport()} })
-	_, body := e.do(t, "GET", "/policy", "admin", nil)
-	if !strings.Contains(body, "come from POLICY_RULES") {
-		t.Error("no env mode banner")
-	}
-	for _, bad := range []string{"New rule", "Import…", "draggable", "⋮⋮", "Actions for", "Export"} {
-		if strings.Contains(body, bad) {
-			t.Errorf("env mode renders %q", bad)
-		}
-	}
-}
-
 // validOnlyPolicy reports on the rules that validate (A = r1, C = r3), as the app does: the broken
 // stored rule (r2) never reaches the evaluation.
 type validOnlyPolicy struct{ noEval }

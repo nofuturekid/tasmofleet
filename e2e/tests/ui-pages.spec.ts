@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { deviceBox, deviceEntry, sendCommand } from "../support/devicelist";
 import { test, expect } from "../support/fixtures";
-import { expectLayout, expectNativeControlsFollowTheme, expectNoOverflow, openFolds } from "../support/layout";
+import { expectLayout, expectNativeControlsFollowTheme, expectNoOverflow } from "../support/layout";
 import { quickPick } from "../support/updates";
 import { hash40, realisticDevenvArgs, renamedDevices, realisticPolicyRules, seedRealisticData } from "../support/seed";
 import { App, Devenv, freePort, startApp, startDevenv, writeTasmoAdminDir } from "../support/stack";
