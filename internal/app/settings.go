@@ -18,6 +18,7 @@ import (
 	"github.com/nofuturekid/tasmofleet/internal/policy"
 	"github.com/nofuturekid/tasmofleet/internal/settings"
 	"github.com/nofuturekid/tasmofleet/internal/sysconfig"
+	"github.com/nofuturekid/tasmofleet/internal/templates"
 	"github.com/nofuturekid/tasmofleet/internal/web"
 )
 
@@ -39,6 +40,13 @@ func (a *runtime) setupSettings() error {
 	a.importLegacyPolicy()
 	a.policy = rep
 	a.fixer = &policy.Fixer{Client: a.svc.Client, Reader: a.settings}
+	a.templates = templates.New(templates.Options{Devices: a.svc.Store, Client: a.svc.Client, Backups: a.backups, Settings: a.settings,
+		Health: func(id model.DeviceID) model.Health {
+			if a.tracker == nil {
+				return model.Health{}
+			}
+			return a.tracker.Get(id)
+		}, Log: a.log})
 	if a.livePause, err = sysconfig.NewLivePause(a.bgContext, a.svc.Store, a.svc.Audit); err != nil {
 		return err
 	}

@@ -143,7 +143,9 @@ func (j Job) IsBackup() bool { return j.Kind == KindBackup }
 func (j Job) IsTemplate() bool { return j.Kind == KindTemplate }
 
 // IsUpdate reports whether the job is a firmware update (the OTA state machine).
-func (j Job) IsUpdate() bool { return !j.IsPolicy() && !j.IsCommand() && !j.IsBackup() && !j.IsTemplate() }
+func (j Job) IsUpdate() bool {
+	return !j.IsPolicy() && !j.IsCommand() && !j.IsBackup() && !j.IsTemplate()
+}
 
 // Delivery is how a job gets the firmware onto the device.
 type Delivery string

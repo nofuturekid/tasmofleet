@@ -135,6 +135,8 @@ var (
 	ErrBatchRunning = errors.New("ota: the batch still has running jobs")
 	// ErrNothingToRetry: no device of the batch is failed or cancelled and still needs an update.
 	ErrNothingToRetry = errors.New("ota: nothing to retry")
+	// ErrNotRetryable: a GPIO template transaction is never replayed; a fresh preview is made instead.
+	ErrNotRetryable = errors.New("ota: this kind of transaction is checked again, not retried")
 	// ErrNotCancellable: a "Make compliant" job that is already sending its
 	// commands runs to its end; stopping it halfway would leave the device
 	// with some settings changed and not saved.
@@ -1543,6 +1545,9 @@ func (e *Engine) submitRetry(ctx context.Context, actor string, batchID model.Ba
 		return res, ErrNothingToRetry
 	}
 	sort.Slice(picked, func(a, b int) bool { return picked[a].ID < picked[b].ID })
+	if picked[0].IsTemplate() {
+		return res, ErrNotRetryable
+	}
 	if !picked[0].IsUpdate() {
 		return e.retryPolicy(ctx, actor, batchID, picked)
 	}
