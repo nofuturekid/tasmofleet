@@ -52,4 +52,16 @@ test("the Devices without a backup tile opens exactly those devices", async ({ p
   await expect(rows).toHaveCount(total - 1);
   await expect(page.getByRole("link", { name: "plug-4m", exact: true })).toHaveCount(0);
   await expect(page.locator(".dv-chip[aria-current=true]")).toContainText("No backup");
+
+  // On a phone the chip row is wider than the screen: the active chip must be scrolled into the
+  // row's visible box, or the list looks unfiltered (coordinator review of #408).
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.goto(app.url + "/devices?chip=nobackup");
+  const inside = await page.evaluate(() => {
+    const row = document.querySelector(".dv-chips")!.getBoundingClientRect();
+    const c = document.querySelector('.dv-chip[aria-current="true"]')!.getBoundingClientRect();
+    return { ok: c.left >= row.left - 0.5 && c.right <= row.right + 0.5, scrolled: window.scrollY };
+  });
+  expect(inside.ok, "active chip inside the row's visible box at 375").toBe(true);
+  expect(inside.scrolled, "the page itself did not jump").toBe(0);
 });

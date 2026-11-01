@@ -152,6 +152,19 @@
     } catch (err) {
       /* storage unavailable */
     }
+    // An active pill the row hides (a dashboard or Backups tile opens the list filtered; on a phone
+    // the row is wider than the screen) is scrolled into view, so the filter shows. Only the row
+    // scrolls, never the page (#381).
+    var on = row && row.querySelectorAll('.dv-chip[aria-current="true"]');
+    if (on && on.length) {
+      var chip = on[on.length - 1].getBoundingClientRect();
+      var box = row.getBoundingClientRect();
+      if (chip.right > box.right) {
+        row.scrollLeft += chip.right - box.right;
+      } else if (chip.left < box.left) {
+        row.scrollLeft -= box.left - chip.left;
+      }
+    }
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", restoreChipsScroll);
