@@ -8107,7 +8107,7 @@ body:has(.bulkbar:not([hidden]) > .bulk-acts) {
   margin: 0 0 12px;
 }
 .dv-q {
-  flex: 1 1 240px;
+  flex: 1 1 180px;
   min-width: 0;
   max-width: 380px;
   height: var(--ctl);

@@ -364,7 +364,9 @@ test("native controls are flat and full width", async ({ page }) => {
     "a failed job's bar is full, not an empty pill",
   ).toBeGreaterThan(0.9);
   expect(m.chip, "chips are control-radius, not pills").toBe("7px");
-  expect(m.file, "the file button is a button.sm (28px)").toBe("28px");
+  // #329 made .btn-sm and the pager/toolbar size one --ctl-sm token, 32px on desktop (it was 28px); the
+  // file button follows that token, so this test pins "same as button.sm", not an old pixel value.
+  expect(m.file, "the file button is a button.sm (--ctl-sm, 32px)").toBe("32px");
   expect(m.invalidShadow, "no red bar through an invalid checkbox").toBe(
     "none",
   );

@@ -143,19 +143,23 @@
   document.addEventListener("change", saveChipsScroll);
   function restoreChipsScroll() {
     var row = document.querySelector(".dv-chips");
+    var kept = false;
     try {
       var x = sessionStorage.getItem(chipsKey);
       sessionStorage.removeItem(chipsKey);
       if (row && x) {
         row.scrollLeft = Number(x);
+        kept = true;
       }
     } catch (err) {
       /* storage unavailable */
     }
     // An active pill the row hides (a dashboard or Backups tile opens the list filtered; on a phone
     // the row is wider than the screen) is scrolled into view, so the filter shows. Only the row
-    // scrolls, never the page (#381).
-    var on = row && row.querySelectorAll('.dv-chip[aria-current="true"]');
+    // scrolls, never the page (#381). Not after the row's own reload: the person just used the row
+    // where it was, and the default "All" pill is current whenever only Chip or Tag is chosen, so
+    // scrolling it into view would throw the row back to its start (#116, #428).
+    var on = row && !kept && row.querySelectorAll('.dv-chip[aria-current="true"]');
     if (on && on.length) {
       var chip = on[on.length - 1].getBoundingClientRect();
       var box = row.getBoundingClientRect();

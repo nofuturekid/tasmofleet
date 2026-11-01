@@ -14,6 +14,11 @@ always upgrade automatically.
 
 - Devices → List · Policy · Add on one page, System → Snapshots (#410): the Devices menu now reads List, Policy, Add ("All devices" became "List", "Add devices" became "Add"; the heading of the list stays "Devices", its breadcrumb says Devices / List). **Add** is one page with four boxes instead of four tabs: Discovered and Network scan in the wide column, Add manually and Import from TasmoAdmin in the narrow one (phones: Discovered, Add manually, Network scan, Import). The Discovered table has no MAC, Hostname or First seen column any more (the phone card keeps the hostname), and its Online/Offline filter chips only appear while the list holds both. The Network scan box is the range, Scan now and one line about the last scan with its date and a link "All results"; the scan itself runs live on the results page. The database snapshot download, the stored snapshots, their schedule and the restore instructions moved from Settings → Backups to the new **System → Snapshots** page (right after Settings; admins), with the schedule saved by the page's own save bar; "Backups of deleted devices" now sits under the device backup schedule. **Moved routes, no redirects:** `GET /discovery` and `GET /import/tasmoadmin` are gone (the page is `/devices/new`); the scan results stay at `/discovery/scan` and `/discovery/scan/{id}`; Settings → Backups no longer holds the snapshots (`/settings/system/snapshots`); the old "Open Discovered" and bookmark addresses answer 404. Update bookmarks. No database migration
 
+### Fixed
+
+- The device list's pill row keeps its scroll position again after a Chip or Tag choice on a narrow screen: the current "All" pill was scrolled back into view and threw the row to its start (#428)
+- The device list's toolbar is one row again at 1280 px: the "No backup" pill made search, pills and Columns too wide for one line, so the pills dropped under the search box. The search field now shrinks to make room (#428)
+
 ## 0.26.1 "Skerryvore" (2026-11-01)
 
 ### Upgrade notes
