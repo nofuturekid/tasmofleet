@@ -51,7 +51,7 @@ func readLive(ctx context.Context, c Commander, d model.Device, now time.Time) (
 	tpl, err := policy.ParseTemplate(raw)
 	if err != nil {
 		r.TplErr = err.Error()
-		return r, nil
+		return r, nil //nolint:nilerr // an unreadable Template is a state of the device (Module known, template not), not a failed read
 	}
 	r.Template = &tpl
 	return r, nil

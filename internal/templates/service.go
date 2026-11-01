@@ -200,7 +200,7 @@ func (m *Manager) refresh(ctx context.Context, devs []model.Device) bool {
 		wg.Add(1)
 		go func() {
 			defer func() { <-sem; wg.Done() }()
-			m.readInto(ctx, d)
+			_, _ = m.readInto(ctx, d) // a failed read is logged there and leaves the cache as it was
 		}()
 	}
 	wg.Wait()
