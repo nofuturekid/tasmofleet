@@ -13,6 +13,12 @@ always upgrade automatically.
 
 - Home Assistant app, phase 1 (#442, part of #209): `deploy/homeassistant/tasmofleet/` holds the app (config, documentation, icon) with the web interface on `8080/tcp` (HTTPS, self-signed certificate, local sign-in) and the firmware server on `80/tcp` mapped to host port 8081. It is experimental and not published yet; there is no ingress, no Home Assistant sign-in and no automatic MQTT setup until the later phases. Inside an app (`SUPERVISOR_TOKEN` set) TasmoFleet reads the Supervisor's `/data/options.json` (option `initial_admin_password`) and logs plain text; a missing or malformed options file stops the start. Docker and Unraid installs are unchanged. The Dockerfile has a new target `ha` (root user and Home Assistant labels) that CI builds and smoke-tests; the default image is the same as before
 
+- GPIO templates tab on the Policy page (#327): devices are grouped by template name and chip family and compared with the most common template or one you choose (not stored); each group shows who matches, who differs (pin by pin) and who cannot be changed and why. An admin ticks the devices and opens a preview with the exact `Template` command, the restart and PowerOnState warning and the backup-first line, confirms with a tick, and a transaction applies it to one device at a time (backup, read again, send, verify) and stops the rest after the first failure. Operators see the tab read-only. A failed transaction is not retried: "Check again…" opens the tab for a fresh comparison
+
+### Security
+
+- Cancelling and retrying transactions is admin-only for GPIO template transactions and for job kinds this build does not know; the role is checked before the job kind. Before, an operator could cancel any transaction kind except command and backup retries
+
 ### Changed
 
 - The version in the header, About and the startup log shows the commit of CI builds with 7 characters, like GitHub: `0.26.0+edge (41bfd05)`. The build stamp keeps its length: the startup log has a `build` field, `tasmofleet version --full` prints it, and image tags are unchanged (#436, thanks @Noschvie)
@@ -22,6 +28,10 @@ always upgrade automatically.
 
 - The device list's pill row keeps its scroll position again after a Chip or Tag choice on a narrow screen: the current "All" pill was scrolled back into view and threw the row to its start (#428)
 - The device list's toolbar is one row again at 1280 px: the "No backup" pill made search, pills and Columns too wide for one line, so the pills dropped under the search box. The search field now shrinks to make room (#428)
+
+### Security
+
+- Cancelling and retrying transactions is admin-only for GPIO template transactions and for job kinds this build does not know; the role is checked before the job kind. Update, Make compliant, Send command and Back up transactions stay open to operators as before
 
 ## 0.26.1 "Skerryvore" (2026-11-01)
 

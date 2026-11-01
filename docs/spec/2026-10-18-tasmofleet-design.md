@@ -1806,7 +1806,7 @@ Two roles. Every authenticated principal has one of them; no mapped role means n
 
 | Role     | May                                                                                                                                                           |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| operator | read everything except backup downloads and backup values (diffs show the keys that changed, values hidden); OTA batches, backups, power toggle (single and bulk), read and harmless console commands (`cmdpolicy` classes read and operator), cancel jobs, refresh a device's identity, change own local password |
+| operator | read everything except backup downloads and backup values (diffs show the keys that changed, values hidden); OTA batches, backups, power toggle (single and bulk), read and harmless console commands (`cmdpolicy` classes read and operator), cancel jobs (not GPIO template transactions or kinds this build does not know: admin only), refresh a device's identity, change own local password |
 | admin | + inventory edits, discovery, import, firmware management, any other console or bulk command (`cmdpolicy` class admin), restore, backup download and delete, device settings, system settings, policy rule editing, audit log, About, local user management (with step-up) |
 
 Example: `Tasmofleet Users` -> operator, `Tasmofleet Admins` -> admin.
@@ -2019,7 +2019,7 @@ only when their feature is wired (updates, firmware, policy, ...) are listed wit
 | POST | `/updates` | operator | submit batch |
 | GET | `/transactions` | operator | transaction history (updates, policy fixes, commands, backups) |
 | GET | `/transactions/{batch}`, `/transactions/{batch}/live` | operator | batch progress (SSE) |
-| GET, POST | `/transactions/{batch}/cancel`, `/transactions/{batch}/retry`, `/jobs/{id}/cancel` | operator | cancel a batch or job; retry the failed devices |
+| GET, POST | `/transactions/{batch}/cancel`, `/transactions/{batch}/retry`, `/jobs/{id}/cancel` | operator | cancel a batch or job; retry the failed devices. Admin only (403 for operators, decided before the job kind is looked at) for GPIO template transactions and any job kind the build does not know; a template transaction is never retried (409, the page offers "Check again…", which opens the GPIO templates tab) |
 | GET | `/policy`, `/policy/deviations`, `/policy/history`, `/policy/io`, `/policy/io/export` | operator | overview, deviating devices, version history, import or export page, export |
 | GET | `/policy/rules/{id}` | operator | rule page (read-only for operators) |
 | POST | `/policy/live` | operator | run the live check now |
