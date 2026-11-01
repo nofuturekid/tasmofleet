@@ -38,7 +38,7 @@ type fakeFleet struct {
 	cmds     []string
 	snap     map[model.DeviceID][]byte // newest snapshot
 	powerOn  string
-	uptime   func(model.DeviceID) time.Duration // nil: Status 1 fails
+	status   func(model.DeviceID) (boot int, uptime time.Duration) // nil: Status 1 and 11 fail
 }
 
 func newFleet() *fakeFleet {
@@ -77,11 +77,15 @@ func (f *fakeFleet) Command(_ context.Context, t tasmota.Target, cmnd string) (j
 		return json.RawMessage(f.module[id]), nil
 	case "Template":
 		return json.RawMessage(f.template[id]), nil
-	case "Status 1":
-		if f.uptime != nil {
-			return json.RawMessage(fmt.Sprintf(`{"StatusPRM":{"Uptime":"0T%02d:%02d:%02d"}}`, int(f.uptime(id).Hours()), int(f.uptime(id).Minutes())%60, int(f.uptime(id).Seconds())%60)), nil
+	case "Status 1", "Status 11":
+		if f.status == nil {
+			return nil, errors.New("no status")
 		}
-		return nil, errors.New("no uptime")
+		boot, up := f.status(id)
+		if cmnd == "Status 1" {
+			return json.RawMessage(fmt.Sprintf(`{"StatusPRM":{"BootCount":%d}}`, boot)), nil
+		}
+		return json.RawMessage(fmt.Sprintf(`{"StatusSTS":{"UptimeSec":%d}}`, int(up.Seconds()))), nil
 	}
 	return nil, errors.New("unexpected " + cmnd)
 }

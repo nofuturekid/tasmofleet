@@ -102,51 +102,92 @@ func (s scripted) Command(ctx context.Context, t tasmota.Target, cmnd string) (j
 	return s.fakeFleet.Command(ctx, t, cmnd)
 }
 
-// Why: the stored template changes at once, long before the device restarts. A read-back that only
-// compared the layout would call the change done while the old pin map is still running. After a send
-// from this process, the verify waits until the uptime shows a restart.
-func TestVerifyWaitsForTheRestartAfterASend(t *testing.T) {
+// restartRig is a device whose stored template is already the new one (it changes at once, the restart
+// follows seconds later) and whose boot count and uptime the test scripts.
+type restartRig struct {
+	f      *fakeFleet
+	d      model.Device
+	now    time.Time
+	boot   int
+	bootAt time.Time // when the device last booted
+	a      *Applier
+}
+
+func newRestartRig(t *testing.T) *restartRig {
+	t.Helper()
 	f := newFleet()
 	id := f.add("a", "NOUS A1T", 21)
 	d, _ := f.GetDevice(context.Background(), id)
-	now := t0
-	bootAt := t0.Add(-time.Hour) // the device booted an hour ago
-	f.uptime = func(model.DeviceID) time.Duration { return now.Sub(bootAt) }
-	f.template[id] = tplJSON("NOUS A1T", 52) // stored template is new at once
-	a := &Applier{Client: f, Now: func() time.Time { return now }, Attempts: 6, Pause: 5 * time.Second, Settle: time.Second,
-		Wait: func(_ context.Context, d time.Duration) error {
-			now = now.Add(d)
-			if now.After(t0.Add(12 * time.Second)) {
-				bootAt = t0.Add(10 * time.Second) // restarted at +10 s
-			}
-			return nil
-		}}
-	if err := a.Send(context.Background(), d, "Template {}"); err == nil {
-		// fakeFleet answers only reads; the send itself fails, which the engine tolerates
-		t.Fatal("expected the fake to refuse the write")
+	r := &restartRig{f: f, d: d, now: t0, boot: 40, bootAt: t0.Add(-time.Hour)}
+	f.template[id] = tplJSON("NOUS A1T", 52)
+	f.status = func(model.DeviceID) (int, time.Duration) { return r.boot, r.now.Sub(r.bootAt) }
+	r.a = &Applier{Client: f, Now: func() time.Time { return r.now }, Attempts: 6, Pause: 5 * time.Second, Settle: time.Second}
+	return r
+}
+
+// Why (restore's rule R26): the stored template changes at once, long before the device restarts. A
+// read-back of the layout alone would call the change done while the old pin map still runs. After a
+// send from this process the verify waits until the boot count rose AND the uptime is shorter than the time
+// since the send. The firmware counts the boot at 10 s of uptime, so the count rises after the device is back.
+func TestVerifyWaitsForTheBootCountAndAShortUptime(t *testing.T) {
+	r := newRestartRig(t)
+	r.a.Wait = func(_ context.Context, d time.Duration) error {
+		r.now = r.now.Add(d)
+		if r.now.After(t0.Add(8*time.Second)) && r.bootAt.Before(t0) {
+			r.bootAt = t0.Add(8 * time.Second) // restarted at +8 s, the count follows at 10 s of uptime
+		}
+		if r.now.After(t0.Add(19 * time.Second)) {
+			r.boot = 41
+		}
+		return nil
 	}
-	if _, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52)); err != nil {
+	if err := r.a.Send(context.Background(), r.d, "Template {}"); err == nil {
+		t.Fatal("the fake refuses writes, as expected")
+	}
+	if _, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52)); err != nil {
 		t.Fatal(err)
 	}
-	if now.Before(t0.Add(11 * time.Second)) {
-		t.Fatalf("verify returned at +%v, before the restart", now.Sub(t0))
+	if r.now.Before(t0.Add(19 * time.Second)) {
+		t.Fatalf("verify returned at +%v, before the boot count rose", r.now.Sub(t0))
 	}
 }
 
-// Why: a device that keeps its old pin map running (no restart) must fail the job, not pass on the stored layout.
-func TestVerifyFailsWhenTheDeviceNeverRestarts(t *testing.T) {
-	f := newFleet()
-	id := f.add("a", "NOUS A1T", 21)
-	d, _ := f.GetDevice(context.Background(), id)
-	now := t0
-	f.uptime = func(model.DeviceID) time.Duration { return time.Hour + now.Sub(t0) }
-	f.template[id] = tplJSON("NOUS A1T", 52)
-	a := &Applier{Client: f, Now: func() time.Time { return now }, Attempts: 3, Pause: 5 * time.Second,
-		Wait: func(_ context.Context, d time.Duration) error { now = now.Add(d); return nil }}
-	_ = a.Send(context.Background(), d, "Template {}")
-	_, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52))
-	if err == nil || !strings.Contains(err.Error(), "has not restarted") {
+// Why: a short uptime alone proves nothing: a watchdog or crash-loop reboot BEFORE the command gives a
+// short uptime too, and the count may not have moved yet. "Uptime short but BootCount unchanged" is not verified.
+func TestVerifyRefusesAShortUptimeWithTheSameBootCount(t *testing.T) {
+	r := newRestartRig(t)
+	r.bootAt = t0.Add(-3 * time.Second) // rebooted just before the send
+	r.a.Wait = func(_ context.Context, d time.Duration) error { r.now = r.now.Add(d); return nil }
+	_ = r.a.Send(context.Background(), r.d, "Template {}")
+	_, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52))
+	if err == nil || !strings.Contains(err.Error(), "boot count did not rise") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// Why: and the count alone proves nothing either: it can rise for another reason (a reboot before the
+// send that the first read missed). An uptime longer than the time since the send cannot be a restart caused by it.
+func TestVerifyRefusesARisenBootCountWithALongUptime(t *testing.T) {
+	r := newRestartRig(t)
+	r.a.Wait = func(_ context.Context, d time.Duration) error { r.now = r.now.Add(d); r.boot = 41; return nil }
+	_ = r.a.Send(context.Background(), r.d, "Template {}")
+	if _, err := r.a.Verify(context.Background(), r.d, wantLayout(t, "NOUS A1T", 52)); err == nil {
+		t.Fatal("a long uptime passed as a restart")
+	}
+}
+
+// Why: no boot count, no send. Without it the restart could not be proven, and a template written
+// without a way to confirm it is exactly the case to avoid.
+func TestSendSendsNothingWhenTheBootCountCannotBeRead(t *testing.T) {
+	r := newRestartRig(t)
+	r.f.status = nil
+	if err := r.a.Send(context.Background(), r.d, "Template {}"); err == nil || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Fatalf("err %v", err)
+	}
+	for _, c := range r.f.cmds {
+		if strings.Contains(c, "Template {") {
+			t.Fatalf("a Template command was sent: %v", r.f.cmds)
+		}
 	}
 }
 
@@ -156,7 +197,6 @@ func TestVerifyWithoutASendOfThisProcessChecksTheLayoutOnly(t *testing.T) {
 	f := newFleet()
 	id := f.add("a", "NOUS A1T", 52)
 	d, _ := f.GetDevice(context.Background(), id)
-	f.uptime = func(model.DeviceID) time.Duration { return time.Hour }
 	a := &Applier{Client: f, Wait: func(context.Context, time.Duration) error { return nil }}
 	if _, err := a.Verify(context.Background(), d, wantLayout(t, "NOUS A1T", 52)); err != nil {
 		t.Fatal(err)
