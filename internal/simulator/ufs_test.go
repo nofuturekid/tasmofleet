@@ -203,3 +203,23 @@ func TestUFS_RefererGuardApplies(t *testing.T) {
 		t.Errorf("a request without Referer got HTTP %d; SetOption128 0 sends nothing", r.StatusCode)
 	}
 }
+
+// Why: the device cuts "<ufs_path>/<name>" at 49 characters, and the root is "//name". The simulator
+// must do the same, or no test can show what a too long name does to another file.
+func TestUFS_UploadNameIsCutLikeTheDevice(t *testing.T) {
+	long47 := "/" + strings.Repeat("a", 47)
+	spec := DeviceSpec{Name: "m", Profile: ProfileESP32, Version: "16.0.0", Files: map[string]FSFile{long47: {Data: []byte("precious")}}}
+	c := add(t, newTestFleet(t, "", Extra{}), spec)
+	httpGet(t, "http://"+c.Addr()+"/ufsd?dir=2")
+	name48 := strings.Repeat("a", 48)
+	if out := post(t, c.Addr(), "fsz=3", name48, []byte("NEW")); !strings.Contains(out, "Successful") {
+		t.Fatal(out)
+	}
+	_, got := httpGet(t, "http://"+c.Addr()+"/ufsd?dir=2&download="+long47)
+	if string(got) != "NEW" {
+		t.Errorf("the cut name should have replaced the 47 byte file, it holds %q", got)
+	}
+	if r, _, err := send(http.MethodGet, "http://"+c.Addr()+"/ufsd?dir=2&download=/"+name48, "", nil); err == nil {
+		t.Errorf("the 48 byte name must not exist (HTTP %d)", r.StatusCode)
+	}
+}

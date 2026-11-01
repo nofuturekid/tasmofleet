@@ -3,6 +3,7 @@ package tasmota
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -123,16 +124,21 @@ func TestListFiles_FilesFoldersEmptyAndMissing(t *testing.T) {
 			"/autoexec.be":      {Data: []byte("a"), Modified: time.Date(2026, 10, 31, 12, 34, 56, 0, time.UTC)},
 			"/lib/x.be":         {Data: []byte("xyz")},
 			`/we"ird.txt`:       {Data: []byte("q")},
+			"/ trim.txt":        {Data: []byte("q")},
+			"/a b.txt":          {Data: []byte("q")},
 			"/.drvset000":       {Data: []byte("hidden")},
 			"/deep/er/file.txt": {Data: []byte("1")},
 		},
 		Dirs: []string{"/empty"}}, Options{})
 	root, err := fs.ListFiles(ctxS(t), tg, "/")
-	if err != nil {
-		t.Fatal(err)
+	// Why: one odd name must not hide the other files of the folder from the backup; the caller
+	// still learns about it through the error.
+	var sk *SkippedNamesError
+	if !errors.As(err, &sk) || !errors.Is(err, ErrNamesSkipped) || strings.Join(sk.Names, "|") != ` trim.txt|we"ird.txt` {
+		t.Fatalf("err = %v, want SkippedNamesError for the quote and the leading space", err)
 	}
-	if got := strings.Join(names(root), ","); got != `autoexec.be,deep,empty,lib,we"ird.txt` {
-		t.Errorf("root = %s (dot files must stay hidden, JSON escapes must survive)", got)
+	if got := strings.Join(names(root), ","); got != `a b.txt,autoexec.be,deep,empty,lib` {
+		t.Errorf("root = %s (dot files stay hidden, valid names with a space inside stay)", got)
 	}
 	by := map[string]FileEntry{}
 	for _, e := range root {
@@ -162,7 +168,6 @@ func TestListFiles_RejectsMalformedDeviceReplies(t *testing.T) {
 		"two-field rows of firmware before 14.6": `{"UfsList":[["a",12]]}`,
 		"name with a slash":                      `{"UfsList":[["../x","2026-01-01T00:00:00",1]]}`,
 		"name that is dot dot":                   `{"UfsList":[["..","",0]]}`,
-		"dot file name":                          `{"UfsList":[[".settings","2026-01-01T00:00:00",1]]}`,
 		"negative size":                          `{"UfsList":[["a","2026-01-01T00:00:00",-1]]}`,
 		"unknown string answer":                  `{"UfsList":"Nope"}`,
 		"missing key":                            `{"Other":1}`,
@@ -202,8 +207,8 @@ func TestDownloadFile_EmptyFileIsAFileNotAMissingOne(t *testing.T) {
 func TestDownloadFile_MissingFileIsAnErrorNotAnEmptyFile(t *testing.T) {
 	fs, tg, _ := fsSim(t, simulator.DeviceSpec{}, Options{})
 	got, err := fs.DownloadFile(ctxS(t), tg, "/nope.txt", 0)
-	if !errors.Is(err, ErrFileUnavailable) {
-		t.Fatalf("err = %v, want ErrFileUnavailable", err)
+	if !errors.Is(err, ErrFileNotFound) {
+		t.Fatalf("err = %v, want ErrFileNotFound", err)
 	}
 	if got != nil {
 		t.Errorf("got %q alongside the error", got)
@@ -423,7 +428,7 @@ func TestUploadFile_NoRequestSlipsBetweenGetAndPost(t *testing.T) {
 func TestUploadFile_MissingFolderFailsWithoutWriting(t *testing.T) {
 	fs, tg, c := fsSim(t, simulator.DeviceSpec{}, Options{})
 	err := fs.UploadFile(ctxS(t), tg, "/newdir/x.be", []byte("abc"))
-	if !errors.Is(err, ErrFileUnavailable) {
+	if !errors.Is(err, ErrFolderNotFound) || errors.Is(err, ErrFileNotFound) {
 		t.Fatalf("err = %v", err)
 	}
 	for _, cmd := range c.Commands() {
@@ -468,7 +473,10 @@ func TestUploadFile_DeviceRefusalsAreErrors(t *testing.T) {
 }
 
 func TestUploadFile_ReplyWithoutSuccessIsNotSuccess(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("<html>hello</html>")) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body) // answer after the body, or the reset races the reply
+		_, _ = w.Write([]byte("<html>hello</html>"))
+	}))
 	defer srv.Close()
 	if err := newClient(Options{}).(FileSystem).UploadFile(ctxS(t), target(t, srv, 1, "", ""), "/a.txt", []byte("x")); !errors.Is(err, ErrBadResponse) {
 		t.Errorf("err = %v", err)
@@ -495,6 +503,10 @@ func TestPathRules(t *testing.T) {
 		"/a\x7fb":                     "DEL",
 		"/a\\b":                       "backslash",
 		"/\xff":                       "invalid UTF-8",
+		`/a"b`:                        "double quote",
+		"/ a":                         "leading space",
+		"/a ":                         "trailing space",
+		"/lib/a /x":                   "trailing space in a folder",
 		"/" + strings.Repeat("ü", 25): "multi-byte over 49 bytes",
 	}
 	for _, p := range ok {
@@ -530,8 +542,8 @@ func TestBadPathsSendNothing(t *testing.T) {
 	if _, err := fs.ListFiles(ctxS(t), tg, "/"); err != nil && errors.Is(err, ErrBadPath) {
 		t.Error("the root is a valid folder to list")
 	}
-	if got := hits.Load(); got != 1 {
-		t.Errorf("%d requests; only the valid ListFiles(/) may be sent", got)
+	if got := hits.Load(); got != 2 {
+		t.Errorf("%d requests; only the valid ListFiles(/) may be sent (GET /ufsd + UfsList)", got)
 	}
 }
 
@@ -560,5 +572,183 @@ func TestFilesSupported(t *testing.T) {
 		if got := FilesSupported(tc.version, tc.info); got != tc.want {
 			t.Errorf("FilesSupported(%q, %+v) = %v, want %v", tc.version, tc.info, got, tc.want)
 		}
+	}
+}
+
+// recordingDevice is an httptest device that records every request in order and answers like
+// the file system routes. /ufsd answers the HTML page, /cm answers UfsList with a fixed list.
+func recordingDevice(t *testing.T, hook func(r *http.Request)) (*httptest.Server, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var order []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		order = append(order, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
+		mu.Unlock()
+		if hook != nil {
+			hook(r)
+		}
+		switch r.URL.Path {
+		case "/ufsd":
+			_, _ = w.Write([]byte("<html>Manage File system</html>"))
+		case "/cm":
+			if strings.HasPrefix(strings.ToLower(r.URL.Query().Get("cmnd")), "ufslist") {
+				_, _ = w.Write([]byte(`{"UfsList":[["a.txt","2026-01-01T00:00:00",1]]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"Status":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), order...)
+	}
+}
+
+// Why (H1): UfsList reads the device's global file system selection. With an SD card mounted, or
+// after someone browsed the SD card in the file manager, a bare UfsList lists the SD card and a
+// backup would store the wrong files. The client selects flash (dir=2) first, in the same lock hold.
+func TestListFiles_SelectsFlashBeforeListingUnderOneLock(t *testing.T) {
+	getSeen := make(chan struct{})
+	var once sync.Once
+	srv, got := recordingDevice(t, func(r *http.Request) {
+		if r.URL.Path == "/ufsd" {
+			once.Do(func() { close(getSeen) })
+			time.Sleep(200 * time.Millisecond) // a window for a concurrent request
+		}
+	})
+	cl := newClient(Options{})
+	tg := target(t, srv, 1, "", "")
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-getSeen:
+		case <-time.After(3 * time.Second): // the GET never came: the order assertion below reports it
+		}
+		_, _ = cl.Command(ctxS(t), tg, "Status 1")
+	}()
+	entries, err := cl.(FileSystem).ListFiles(ctxS(t), tg, "/lib")
+	wg.Wait()
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("%v %v", entries, err)
+	}
+	want := []string{"GET /ufsd?dir=2", "GET /cm?cmnd=UfsList%20%2Flib", "GET /cm?cmnd=Status%201"}
+	if g := got(); strings.Join(g, "|") != strings.Join(want, "|") {
+		t.Errorf("requests:\n got  %q\n want %q", g, want)
+	}
+}
+
+// Why (M1): the device formats "<folder>/<name>" into a 49 character buffer and cuts the rest, so a long
+// name lands on a different file (the cut name is removed first). A root upload is "//name", two
+// characters of overhead. The client refuses what the device would cut; the simulator cuts like the device.
+func TestUploadFile_RefusesNamesTheDeviceWouldCut(t *testing.T) {
+	long47 := "/" + strings.Repeat("a", 47)
+	long48 := "/" + strings.Repeat("a", 48)
+	fs, tg, c := fsSim(t, simulator.DeviceSpec{Files: map[string]simulator.FSFile{
+		long47:           {Data: []byte("precious")},
+		"/lib/helper.be": {Data: []byte("x")}}}, Options{})
+	if err := fs.UploadFile(ctxS(t), tg, long48, []byte("NEW")); !errors.Is(err, ErrBadPath) {
+		t.Fatalf("48 byte root name: %v (the device would cut it to 47 and overwrite the other file)", err)
+	}
+	if got, err := fs.DownloadFile(ctxS(t), tg, long47, 0); err != nil || string(got) != "precious" {
+		t.Errorf("the 47 byte file = %q, %v: it must be untouched", got, err)
+	}
+	for _, cmd := range c.Commands() {
+		if strings.HasPrefix(cmd, "POST") {
+			t.Errorf("POST sent: %v", c.Commands())
+		}
+	}
+	// the longest root name that fits, and the longest name in a folder
+	if err := fs.UploadFile(ctxS(t), tg, long47, []byte("fits")); err != nil {
+		t.Errorf("47 byte root name: %v", err)
+	}
+	if got, _ := fs.DownloadFile(ctxS(t), tg, long47, 0); string(got) != "fits" {
+		t.Errorf("47 byte root name stored as %q", got)
+	}
+	inLib := "/lib/" + strings.Repeat("b", 49-len("/lib/"))
+	if err := fs.UploadFile(ctxS(t), tg, inLib, []byte("ok")); err != nil {
+		t.Errorf("%d byte path in /lib: %v", len(inLib), err)
+	}
+	if err := fs.UploadFile(ctxS(t), tg, inLib+"b", nil); !errors.Is(err, ErrBadPath) {
+		t.Errorf("one byte more in /lib: %v", err)
+	}
+}
+
+// Why (M2): "file missing", "link dropped" and "HTTP API refused" all end in a connection that closes
+// without a byte. A backup must say which: a vanished file is normal, a refused API affects every
+// device operation and needs the operator.
+func TestDownloadFile_NoReplyIsToldApart(t *testing.T) {
+	closeConn := func(w http.ResponseWriter) {
+		c, _, _ := http.NewResponseController(w).Hijack()
+		_ = c.Close()
+	}
+	t.Run("file missing: main page and plain /ufsd answer", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/ufsd" && r.URL.Query().Get("download") != "" {
+				closeConn(w)
+				return
+			}
+			_, _ = w.Write([]byte("<html></html>"))
+		}))
+		defer srv.Close()
+		_, err := newClient(Options{}).(FileSystem).DownloadFile(ctxS(t), target(t, srv, 1, "", ""), "/x", 0)
+		if !errors.Is(err, ErrFileNotFound) || errors.Is(err, ErrHTTPAPIRefused) || errors.Is(err, ErrUnreachable) {
+			t.Errorf("err = %v", err)
+		}
+	})
+	t.Run("API refused: main page answers, every /ufsd is dropped", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/ufsd" {
+				closeConn(w)
+				return
+			}
+			_, _ = w.Write([]byte("<html></html>"))
+		}))
+		defer srv.Close()
+		_, err := newClient(Options{}).(FileSystem).DownloadFile(ctxS(t), target(t, srv, 1, "", ""), "/x", 0)
+		if !errors.Is(err, ErrHTTPAPIRefused) || errors.Is(err, ErrFileNotFound) {
+			t.Errorf("err = %v", err)
+		}
+	})
+	t.Run("link dropped: nothing answers", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { closeConn(w) }))
+		defer srv.Close()
+		_, err := newClient(Options{}).(FileSystem).DownloadFile(ctxS(t), target(t, srv, 1, "", ""), "/x", 0)
+		if !errors.Is(err, ErrUnreachable) || errors.Is(err, ErrFileNotFound) || errors.Is(err, ErrHTTPAPIRefused) {
+			t.Errorf("err = %v", err)
+		}
+	})
+	t.Run("upload to an unreadable folder keeps the same split", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/ufsd" {
+				closeConn(w)
+				return
+			}
+			_, _ = w.Write([]byte("<html></html>"))
+		}))
+		defer srv.Close()
+		err := newClient(Options{}).(FileSystem).UploadFile(ctxS(t), target(t, srv, 1, "", ""), "/lib/x", []byte("a"))
+		if !errors.Is(err, ErrHTTPAPIRefused) {
+			t.Errorf("err = %v", err)
+		}
+	})
+}
+
+// Why (L1): the limit is "at most max bytes". Off by one in either direction either rejects a
+// file that fits or accepts one that does not.
+func TestDownloadFile_LimitBoundary(t *testing.T) {
+	fs, tg, _ := fsSim(t, simulator.DeviceSpec{Files: map[string]simulator.FSFile{
+		"/exact": {Data: make([]byte, 100)}, "/over": {Data: make([]byte, 101)}}}, Options{})
+	if got, err := fs.DownloadFile(ctxS(t), tg, "/exact", 100); err != nil || len(got) != 100 {
+		t.Errorf("exactly max: %d bytes, %v", len(got), err)
+	}
+	if got, err := fs.DownloadFile(ctxS(t), tg, "/over", 100); !errors.Is(err, ErrFileTooLarge) || got != nil {
+		t.Errorf("max+1: %d bytes, %v", len(got), err)
 	}
 }

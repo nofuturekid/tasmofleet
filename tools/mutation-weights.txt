@@ -5,6 +5,7 @@ cost internal/policy 50
 cost internal/cmdpolicy 21
 cost internal/mqttcmd 395
 cost internal/transport 45
+cost internal/tasmota 300
 internal/fwselect decide.go 10
 internal/fwselect detect.go 47
 internal/fwselect family.go 15
@@ -45,3 +46,10 @@ internal/transport memory.go 1
 internal/transport rootpage.go 15
 internal/transport router.go 80
 internal/transport topics.go 5
+internal/tasmota client.go 59
+internal/tasmota filesystem.go 123
+internal/tasmota networks.go 2
+internal/tasmota parse.go 28
+internal/tasmota safeboot.go 8
+internal/tasmota tasmota.go 1
+internal/tasmota upload.go 36

@@ -30,7 +30,7 @@ BIN       := bin
 # covered mutants a test kills). Each owning work package raises its own entry
 # (targets: fwselect 90, ota 85) as the code lands. A package without tests
 # fails the gate, so add the entry together with the tests.
-MUTATION := ./internal/fwselect:90 ./internal/ota:85 ./internal/policy:85 ./internal/cmdpolicy:90 ./internal/mqttcmd:85 ./internal/transport:90
+MUTATION := ./internal/fwselect:90 ./internal/ota:85 ./internal/policy:85 ./internal/cmdpolicy:90 ./internal/mqttcmd:85 ./internal/transport:90 ./internal/tasmota:85
 
 # Safety-critical packages (CLAUDE.md "Safety rules": guard, OTA engine, device client and
 # credentials, accounts, trusted proxies) plus the mutation packages. A pull request that changes

@@ -350,9 +350,17 @@ func (d *simDevice) serveUfsu(w http.ResponseWriter, r *http.Request) {
 	}
 	name := path.Base(part.FileName())
 	d.mu.Lock()
-	folder := cleanFolder(fs.ufsPath)
+	ufsPath := fs.ufsPath
 	d.mu.Unlock()
-	target := path.Join(folder, name)
+	// UfsUploadFileOpen: snprintf(npath, UFS_FILENAME_SIZE, "%s/%s", ufs_path, filename). The buffer
+	// holds 49 characters; the rest is cut, and a root upload is "//name". The cut name is what
+	// gets removed and written, which can be a different, existing file.
+	npath := ufsPath + "/" + name
+	if len(npath) > fsNameMax {
+		npath = npath[:fsNameMax]
+	}
+	target := path.Clean(npath)
+	folder := path.Dir(target)
 	d.record("POST /ufsu " + target + " " + strconv.Itoa(len(body)) + " fsz=" + strconv.Itoa(fsz))
 	d.mu.Lock()
 	var msg string
@@ -361,7 +369,7 @@ func (d *simDevice) serveUfsu(w http.ResponseWriter, r *http.Request) {
 		msg = "Upload failed. Enable logging 3"
 	case fsz > fs.freeKB()*1024: // UPLOAD_FILE_START: upload_size > freeBytes
 		msg = "File too large"
-	case !fs.dirs[folder] || len(target) > fsNameMax:
+	case !fs.dirs[folder]:
 		msg = "Not enough space" // UfsUploadFileOpen failed
 	default:
 		fs.put(target, body, time.Now())

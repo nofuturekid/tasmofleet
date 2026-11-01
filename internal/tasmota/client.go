@@ -262,7 +262,11 @@ func (c *httpClient) get(ctx context.Context, t Target, path, rawQuery string, c
 		return nil, err
 	}
 	defer release()
+	return c.getLocked(ctx, t, path, rawQuery, class)
+}
 
+// getLocked is get inside a device slot the caller already holds.
+func (c *httpClient) getLocked(ctx context.Context, t Target, path, rawQuery string, class time.Duration) ([]byte, error) {
 	rctx, cancel := context.WithTimeout(ctx, c.timeout(class))
 	defer cancel()
 	u := url.URL{Scheme: "http", Host: t.hostPort(), Path: path, RawQuery: rawQuery}
@@ -394,6 +398,18 @@ func encodeCmnd(cmnd string) string {
 
 func (c *httpClient) command(ctx context.Context, t Target, cmnd string) (json.RawMessage, error) {
 	body, err := c.get(ctx, t, "/cm", encodeCmnd(cmnd), commandTimeout(cmnd))
+	return commandReply(body, err)
+}
+
+// commandLocked is command inside a device slot the caller already holds. It
+// does not raise the web log level: it is for read-only queries inside a
+// sequence that must not be interleaved.
+func (c *httpClient) commandLocked(ctx context.Context, t Target, cmnd string) (json.RawMessage, error) {
+	body, err := c.getLocked(ctx, t, "/cm", encodeCmnd(cmnd), commandTimeout(cmnd))
+	return commandReply(body, err)
+}
+
+func commandReply(body []byte, err error) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}

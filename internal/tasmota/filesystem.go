@@ -42,10 +42,17 @@ const fileTimeout = 60 * time.Second
 var (
 	// ErrBadPath: the path breaks the rules of CheckFSPath. Nothing was sent.
 	ErrBadPath = errors.New("tasmota: invalid file system path")
-	// ErrFileUnavailable: the device sent nothing. Tasmota's /ufsd handler
-	// returns without a reply for a missing file or folder; a dropped link or
-	// a device that refuses HTTP API requests (SetOption128 0) looks the same.
-	ErrFileUnavailable = errors.New("tasmota: device sent nothing (file or folder missing, or HTTP API refused)")
+	// ErrFileNotFound: the file does not exist. Tasmota's /ufsd handler
+	// returns without a reply for a missing file, which looks like a dropped
+	// link or a refused HTTP API; the client tells them apart with two probes
+	// (the main page and a plain /ufsd) before it says "not found".
+	ErrFileNotFound = errors.New("tasmota: file not found")
+	// ErrFolderNotFound: the folder of an upload does not exist. Nothing was
+	// written; the device cannot create folders over this API.
+	ErrFolderNotFound = errors.New("tasmota: folder not found")
+	// ErrNamesSkipped: ListFiles dropped entries whose names the client does
+	// not accept. The returned entries are valid; see SkippedNamesError.
+	ErrNamesSkipped = errors.New("tasmota: listed names skipped")
 	// ErrNotAFile: /ufsd answered with its HTML page instead of the file, so
 	// the path is a folder.
 	ErrNotAFile = errors.New("tasmota: path is not a file")
@@ -55,6 +62,18 @@ var (
 	// Nothing was read.
 	ErrFileTooLarge = errors.New("tasmota: file larger than the limit")
 )
+
+// SkippedNamesError is the error of a ListFiles that dropped entries. The
+// slice returned with it holds every other entry, so a caller that backs up
+// best-effort uses both and reports Names as skipped; a caller that treats any
+// error as failure fails safe. errors.Is(err, ErrNamesSkipped) matches.
+type SkippedNamesError struct{ Names []string }
+
+func (e *SkippedNamesError) Error() string {
+	return ErrNamesSkipped.Error() + ": " + strconv.Itoa(len(e.Names)) + " entries (" + strings.Join(e.Names, ", ") + ")"
+}
+
+func (e *SkippedNamesError) Unwrap() error { return ErrNamesSkipped }
 
 // FSInfo describes the flash file system of a device. The SD card is never
 // used: its type and size are not reported.
@@ -91,12 +110,21 @@ type FileEntry struct {
 // obey CheckFSPath; they are checked before any request. Dot files are
 // refused everywhere: UfsList hides them, and /.settings or /.drvset* must
 // never be written through this API.
+//
+// Callers must gate on FilesSupported(version, info) before any call: a device
+// with only an SD card has no flash file system, and the calls would then
+// reach the SD card.
 type FileSystem interface {
 	// FSInfo asks UfsType and UfsSize/UfsFree. A device that does not know
 	// the commands (no file system in the build) yields Type FSNone, nil.
 	FSInfo(ctx context.Context, t Target) (FSInfo, error)
-	// ListFiles runs UfsList for one folder ("/" is the root). An empty
-	// folder yields an empty slice.
+	// ListFiles lists one folder ("/" is the root): GET /ufsd?dir=2 selects
+	// the flash file system, then UfsList runs, both under one lock hold (the
+	// command reads the device's global file system selection). An empty
+	// folder yields an empty slice, and so does a folder that does not exist
+	// (the device answers "Done" for both). Entries with a name the client
+	// does not accept are dropped: the entries come back together with a
+	// *SkippedNamesError.
 	ListFiles(ctx context.Context, t Target, dir string) ([]FileEntry, error)
 	// DownloadFile fetches GET /ufsd?download=. max is the largest accepted
 	// size (<= 0: the client's MaxResponse); a larger file fails with
@@ -105,8 +133,15 @@ type FileSystem interface {
 	// UploadFile writes data to path: GET /ufsd (selects folder and flash)
 	// and POST /ufsu under one lock hold. The device deletes an existing
 	// file first and creates no folders; a missing folder fails with
-	// ErrFileUnavailable before anything is written. A nil error means the
-	// device said "Successful": the caller compares sizes with ListFiles.
+	// ErrFolderNotFound before anything is written. The device builds
+	// "<folder>/<name>" in a 49 byte buffer and cuts longer names, so a path
+	// whose folder (or "/" for the root), a slash and the file name exceed 49
+	// bytes is refused with ErrBadPath (root names: at most 47 bytes).
+	//
+	// After any error once the POST started the state of the file is unknown:
+	// the old file may already be deleted and the new content partial. The
+	// device also says "Successful" after a short write, so after a nil error
+	// the caller must verify the size with ListFiles.
 	UploadFile(ctx context.Context, t Target, path string, data []byte) error
 }
 
@@ -178,8 +213,8 @@ func CheckFSPath(p string) error {
 		return badPath("not valid UTF-8")
 	}
 	for _, r := range p {
-		if r < 0x20 || r == 0x7f || r == '\\' {
-			return badPath("control character or backslash")
+		if r < 0x20 || r == 0x7f || r == '\\' || r == '"' {
+			return badPath("control character, backslash or double quote")
 		}
 	}
 	for _, seg := range strings.Split(p[1:], "/") {
@@ -188,6 +223,8 @@ func CheckFSPath(p string) error {
 			return badPath("empty segment")
 		case seg[0] == '.':
 			return badPath("segment starts with a dot")
+		case seg[0] == ' ' || seg[len(seg)-1] == ' ':
+			return badPath("segment starts or ends with a space")
 		}
 	}
 	return nil
@@ -299,15 +336,41 @@ func (c *httpClient) ListFiles(ctx context.Context, t Target, dir string) ([]Fil
 	if err := checkFolder(dir); err != nil {
 		return nil, err
 	}
-	raw, err := c.Command(ctx, t, "UfsList "+dir)
+	// UfsList reads the device's global file system selection (dfsp), which an
+	// SD card or the file manager can have moved. The GET names flash (dir=2)
+	// and nothing may come between it and the command.
+	release, err := c.acquire(ctx, t.hostPort())
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	rctx, cancel := context.WithTimeout(ctx, c.timeout(statusTimeout+rootTimeout))
+	defer cancel()
+	if err := c.selectFlash(rctx, ctx, t); err != nil {
+		return nil, err
+	}
+	raw, err := c.commandLocked(rctx, t, "UfsList "+dir)
 	if err != nil {
 		return nil, err
 	}
 	return parseUfsList(raw)
 }
 
+// selectFlash sends GET /ufsd?dir=2 (the page is discarded) inside a held slot.
+func (c *httpClient) selectFlash(rctx, parent context.Context, t Target) error {
+	resp, err := c.ufsGet(rctx, parent, t, url.Values{"dir": {"2"}}, ErrFolderNotFound, "file manager")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck // read-only body, nothing to recover
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, c.o.MaxResponse))
+	return nil
+}
+
 // parseUfsList reads {"UfsList":[["name","date",size],...]} and the empty
-// folder answer {"UfsList":"Done"}.
+// folder answer {"UfsList":"Done"}. Entries with a name that fails
+// checkEntryName are dropped and reported in a *SkippedNamesError next to the
+// valid entries.
 func parseUfsList(raw json.RawMessage) ([]FileEntry, error) {
 	m, err := decodeObject(raw)
 	if err != nil {
@@ -332,6 +395,7 @@ func parseUfsList(raw json.RawMessage) ([]FileEntry, error) {
 		return nil, badResponse("bad UfsList")
 	}
 	out := make([]FileEntry, 0, len(rows))
+	var skipped []string
 	for _, r := range rows {
 		if len(r) != 3 {
 			return nil, badResponse("UfsList entry has %d fields", len(r))
@@ -341,14 +405,18 @@ func parseUfsList(raw json.RawMessage) ([]FileEntry, error) {
 		if json.Unmarshal(r[0], &name) != nil || json.Unmarshal(r[1], &date) != nil || json.Unmarshal(r[2], &size) != nil || size < 0 {
 			return nil, badResponse("bad UfsList entry")
 		}
-		if err := checkEntryName(name); err != nil {
-			return nil, err
+		if checkEntryName(name) != nil {
+			skipped = append(skipped, name)
+			continue
 		}
 		e := FileEntry{Name: name, Dir: date == "", Size: size}
 		if !e.Dir {
 			e.ModTime = parseDeviceTime(date)
 		}
 		out = append(out, e)
+	}
+	if len(skipped) > 0 {
+		return out, &SkippedNamesError{Names: skipped}
 	}
 	return out, nil
 }
@@ -364,9 +432,9 @@ func parseDeviceTime(s string) time.Time {
 	return time.Time{}
 }
 
-// ufsGet performs GET /ufsd inside an acquired device slot. A connection that
-// closes without a byte is ErrFileUnavailable. The caller closes the body.
-func (c *httpClient) ufsGet(rctx, parent context.Context, t Target, query url.Values) (*http.Response, error) {
+// ufsRequest performs GET /ufsd inside an acquired device slot. The caller
+// closes the body.
+func (c *httpClient) ufsRequest(rctx context.Context, t Target, query url.Values) (*http.Response, error) {
 	u := url.URL{Scheme: "http", Host: t.hostPort(), Path: "/ufsd", RawQuery: query.Encode()}
 	req, err := http.NewRequestWithContext(rctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -380,10 +448,22 @@ func (c *httpClient) ufsGet(rctx, parent context.Context, t Target, query url.Va
 		req.SetBasicAuth(user, t.pass)
 	}
 	setReferer(req, t)
-	resp, err := c.hc.Do(req)
+	return c.hc.Do(req)
+}
+
+// ufsGet performs GET /ufsd inside an acquired device slot. A connection that
+// closes without a byte is what the device does for a missing file or folder,
+// but also what a dropped link and a refused HTTP API (SetOption128 0) look
+// like. Two probes tell them apart: if the main page does not answer the link
+// is gone (ErrUnreachable); if a plain /ufsd (no download argument) gets no
+// answer either, the API is refused (ErrHTTPAPIRefused); otherwise the target
+// is missing and the result is `missing` (ErrFileNotFound or
+// ErrFolderNotFound). The caller closes the body.
+func (c *httpClient) ufsGet(rctx, parent context.Context, t Target, query url.Values, missing error, what string) (*http.Response, error) {
+	resp, err := c.ufsRequest(rctx, t, query)
 	if err != nil {
 		if errors.Is(err, io.EOF) && parent.Err() == nil {
-			return nil, &deviceError{ErrFileUnavailable, t.redact(t.display())}
+			return nil, c.ufsNoReply(parent, t, query, missing, what)
 		}
 		return nil, c.mapErr(parent, t, err)
 	}
@@ -396,6 +476,27 @@ func (c *httpClient) ufsGet(rctx, parent context.Context, t Target, query url.Va
 		return nil, &deviceError{ErrBadResponse, "HTTP " + strconv.Itoa(resp.StatusCode)}
 	}
 	return resp, nil
+}
+
+func (c *httpClient) ufsNoReply(parent context.Context, t Target, query url.Values, missing error, what string) error {
+	if !c.rootAnswers(parent, t) {
+		return c.mapErr(parent, t, io.EOF)
+	}
+	if _, has := query["download"]; !has {
+		// The request that got no answer was the plain page itself.
+		return &deviceError{ErrHTTPAPIRefused, t.redact("set SetOption128 1 on " + t.display() + " (console, or Configure Other > HTTP API)")}
+	}
+	pctx, cancel := context.WithTimeout(parent, c.timeout(followUpTimeout))
+	defer cancel()
+	probe, err := c.ufsRequest(pctx, t, url.Values{"dir": {"2"}})
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return &deviceError{ErrHTTPAPIRefused, t.redact("set SetOption128 1 on " + t.display() + " (console, or Configure Other > HTTP API)")}
+		}
+		return c.mapErr(parent, t, err)
+	}
+	_ = probe.Body.Close() // only the fact of an answer matters
+	return &deviceError{missing, t.redact(what)}
 }
 
 func isAttachment(resp *http.Response) bool {
@@ -417,7 +518,7 @@ func (c *httpClient) DownloadFile(ctx context.Context, t Target, p string, max i
 	rctx, cancel := context.WithTimeout(ctx, c.timeout(fileTimeout))
 	defer cancel()
 
-	resp, err := c.ufsGet(rctx, ctx, t, url.Values{"dir": {"2"}, "download": {p}})
+	resp, err := c.ufsGet(rctx, ctx, t, url.Values{"dir": {"2"}, "download": {p}}, ErrFileNotFound, p)
 	if err != nil {
 		return nil, err
 	}
@@ -451,6 +552,12 @@ func (c *httpClient) UploadFile(ctx context.Context, t Target, p string, data []
 	if folder != "/" {
 		folder = strings.TrimSuffix(folder, "/")
 	}
+	// The device formats "%s/%s" of the folder and the name into 50 bytes (49
+	// characters) and cuts the rest, so a long name would silently hit another
+	// file. For the root the folder is "/", which gives "//name".
+	if len(folder)+1+len(name) > maxFSPath {
+		return badPath("folder, slash and file name are longer than 49 bytes")
+	}
 	// One slot for both requests: the target folder and file system are global
 	// device state set by the GET, so nothing may come between it and the POST.
 	release, err := c.acquire(ctx, t.hostPort())
@@ -469,7 +576,7 @@ func (c *httpClient) UploadFile(ctx context.Context, t Target, p string, data []
 		q.Set("download", folder)
 	}
 	gctx, gcancel := context.WithTimeout(rctx, c.timeout(rootTimeout))
-	resp, err := c.ufsGet(gctx, ctx, t, q)
+	resp, err := c.ufsGet(gctx, ctx, t, q, ErrFolderNotFound, folder)
 	if err == nil {
 		attachment := isAttachment(resp)
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, c.o.MaxResponse)) // page body is not needed; a short read changes nothing
