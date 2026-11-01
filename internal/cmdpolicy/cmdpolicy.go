@@ -78,6 +78,12 @@ const RejectedText = "[rejected: malformed command]"
 
 const (
 	maxCommandLen = 255
+	// maxTemplateLen is the limit of the Template command (a classic ESP32 template is 250-300 bytes).
+	// Tasmota 16.0.0 takes less than MQTT_MAX_PACKET_SIZE (1200) bytes: HandleHttpCommand
+	// (xdrv_01_9_webserver.ino) for /cm, MqttDataHandler (xdrv_02_9_mqtt.ino, data_len) for MQTT, where
+	// topic and header share the 1200-byte client buffer. 512 leaves that room and still fits the
+	// longest template of any family (55 pins).
+	maxTemplateLen = 512
 	maxNameLen    = 40
 )
 
@@ -174,7 +180,7 @@ func parse(cmd string) (parsed, string) {
 	if cmd == "" {
 		return parsed{}, "empty"
 	}
-	if len(cmd) > maxCommandLen {
+	if len(cmd) > maxCommandLen && !(len(cmd) <= maxTemplateLen && isTemplateCommand(cmd)) {
 		return parsed{}, "too long"
 	}
 	// Backlog is the one command whose arguments legitimately hold ';'. Each
@@ -701,4 +707,11 @@ func Prepare(cmd string, role model.Role, opts PrepareOpts) (send string, v Verd
 		return "", v, err
 	}
 	return send, v, nil
+}
+
+// isTemplateCommand reports whether cmd is the Template command by name (any case, no index), which has
+// its own length limit.
+func isTemplateCommand(cmd string) bool {
+	head, _, _ := strings.Cut(strings.Trim(cmd, " "), " ")
+	return strings.EqualFold(head, "template")
 }

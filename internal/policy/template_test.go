@@ -884,21 +884,27 @@ func TestBuiltCommandPassesTheConsolePolicy(t *testing.T) {
 	}
 }
 
-func TestBuildCommandRefusesWhatIsTooLongForTheConsole(t *testing.T) {
-	// cmdpolicy refuses command lines over 255 bytes. A big template (many pins with four- and five-digit values)
-	// can exceed that; it must be refused with its own reason, not cut or sent around the policy.
-	long := GPIOTemplate{Name: "Big", GPIO: make([]int, 55), Base: 1}
-	for i := range long.GPIO {
-		long.GPIO[i] = 12345
+func TestBuildCommandLengthFollowsTheConsoleTemplateLimit(t *testing.T) {
+	// Why: the biggest real template (55 pins of five-digit values, ARCH) is about 400 bytes. The console
+	// policy gives Template 512 (cmdpolicy.maxTemplateLen, Tasmota takes 1199), so every real template is
+	// built; a command over that is refused with its own reason, not cut or sent around the policy.
+	biggest := GPIOTemplate{Name: "Big", GPIO: slices.Repeat([]int{12345}, 55), Base: 1}
+	cmd, err := BuildTemplateCommand(biggest, "ESP32P4")
+	if err != nil || len(cmd) <= 255 || len(cmd) > 512 {
+		t.Fatalf("a %d pin template: %d bytes, err %v", len(biggest.GPIO), len(cmd), err)
 	}
-	if _, err := BuildTemplateCommand(long, ""); !errors.Is(err, ErrCommandRejected) {
-		t.Fatalf("err %v", err)
+	absurd := biggest
+	absurd.Name = strings.Repeat("n", 400)
+	if _, err := BuildTemplateCommand(absurd, ""); !errors.Is(err, ErrCommandRejected) {
+		t.Fatalf("a 400 character name: err %v", err)
 	}
 	ref := fixtureDevice(t, 1, "office-monitor-guest", model.ChipESP32)
 	big := *ref.Template
 	big.GPIO = slices.Repeat([]int{12345}, 36)
+	big.Name = strings.Repeat("n", 400)
 	ref.Template = &big
 	dev := fixtureDevice(t, 2, "office-monitor-guest", model.ChipESP32)
+	dev.Template.Name = big.Name
 	ref.Hardware, dev.Hardware = "ESP32-D0WD-V3", "ESP32-D0WD-V3" // same hardware: the red pins are not the reason
 	p := plan(t, ref, dev, PlanOptions{})
 	if p.Refusal != RefuseCommand || len(p.Commands) != 0 || p.Restarts {
