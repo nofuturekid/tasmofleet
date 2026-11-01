@@ -289,6 +289,13 @@ in `.github/workflows/ci.yml`.
     in the same moment the image becomes `:latest`. An existing install keeps its saved template, so such a
     release must also keep existing installs working without edits, or say exactly what to change, at the
     top of the CHANGELOG section, the announcement, the template `<Changes>` and the forum post.
+  - **Media linked from any published CA template revision is never deleted from `main`.** The CA feed
+    is regenerated on Squid's schedule and can carry an old template revision for days (#423: the 0.24.0
+    template still linked two screenshots that the 0.25.0 media refresh had removed). From the next
+    release on, the template's screenshots link tag-pinned URLs
+    (`https://raw.githubusercontent.com/nofuturekid/tasmofleet/v<X.Y.Z>/docs/media/...`), so later
+    media changes cannot break an old feed entry. `docs/media/transaction.png` and
+    `docs/media/device-dark.png` stay on `main` for the 0.24.0 revision even though no doc links them.
 
 ## Pull requests and the protected main
 
